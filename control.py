@@ -16,7 +16,9 @@ from cvxopt import matrix, solvers
 from plotly.subplots import make_subplots
 from IPython.display import clear_output
 from planar_manipulator import create_2dof
-
+from create_jaco import create_jaco2
+from simobjects.pointlight import PointLight
+solvers.options['show_progress'] = False
 # 6 DoF Curved Wrist
 class Controller():
     def __init__(self, robot, htm_des, control_type='pinv'):
@@ -263,16 +265,17 @@ def QP_control(robot, htm_des, limit_joints=True, K=1, xi=1, T=10, dt=0.05, tol=
         i += 1
     return qhist, qdothist
 
-def tester(robot, control_type='pinv'):
-    htm_des = np.matrix([[-0., -0.881, -0.472, -1.292],
-                     [0., -0.472,  0.881,  0.32],
-                     [-1.,  0.,  0.,  0.15],
-                     [0.,  0.,  0.,  1.]])
+def tester(robot, htm_des=None, control_type='pinv', T=20, dt=0.05, tol = 1e-3, frames=[]):
+    if htm_des is None:
+        htm_des = np.matrix([[-0., -0.881, -0.472, -1.292],
+                             [0., -0.472,  0.881,  0.32],
+                             [-1.,  0.,  0.,  0.15],
+                             [0.,  0.,  0.,  1.]])
     controller = Controller(robot, htm_des, control_type)
     imax = int(T//dt)
-    tol = 1e-3
     e = np.inf
-    i = 0
+    q_hist, qdot_hist, e_hist = [], [], []
+    i = 1
     while (i < imax) and (np.linalg.norm(e) > tol):
         qdot, e, *_ = controller.control()
         q = robot.q + qdot * dt
@@ -281,7 +284,11 @@ def tester(robot, control_type='pinv'):
         for j, frame in enumerate(frames):
             frame.add_ani_frame(time=i*dt, htm=htms[j])
         i+=1
-
+        q_hist.append(q)
+        qdot_hist.append(qdot)
+        e_hist.append(e)
+    return q_hist, qdot_hist, e_hist
+#%%
 
 htm_des = Utils.trn([-2.05, 0, 0.15]) @ Utils.roty(np.pi/2) @ Utils.rotx(np.pi)
 htm_des = np.matrix([[-0., -0.881, -0.472, -1.292],
@@ -324,4 +331,24 @@ fig.show()
 fig = px.line(np.array(qdot_hist).reshape(-1, 2))
 fig.show()
 
+# %%
+htm_des = Utils.trn([0.2, 0.4, 0.7]) @ Utils.rotx(np.deg2rad(-100)) @ Utils.rotz(np.deg2rad(33))
+frame_des = Frame(name='frame_des', htm=htm_des)
+robot = create_jaco2()
+light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
+light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
+light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
+light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
+sim = Simulation.create_sim_grid([robot, light1, light2, light3, light4])
+sim.set_parameters(width=1200, height=600, ambient_light_intensity=4)
+axis='dh'
+frames_ref = robot.fkm(axis=axis)
+frames = []
+for i, htm in enumerate(frames_ref):
+    frames.append(Frame(name=f'{axis}_{i}', htm=htm, size=0.1))
+for frame in frames:
+    sim.add(frame)
+sim.add(frame_des)
+q_hist, qdot_hist, e_hist = tester(robot, htm_des=htm_des, control_type='qp', frames=frames)
+sim.run()
 # %%

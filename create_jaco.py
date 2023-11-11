@@ -48,10 +48,10 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
                         normal_scale=[0.5, 0.5], color="#3e3f42",
                         opacity=opacity, side="DoubleSide")
     mesh_ring = MeshMaterial(metalness=0, roughness=1, clearcoat=0, clearcoat_roughness=0.03, ior=1.45,
-                        normal_scale=[0.5, 0.5], color="#E7E7E7",
+                        normal_scale=[0.5, 0.5], color="#919090",
                         opacity=opacity, side="DoubleSide")
-    mesh_nail = MeshMaterial(metalness=0, clearcoat=0git, roughness=1,
-                        normal_scale=[0.5, 0.5], color="#3e3f42",
+    mesh_nail = MeshMaterial(metalness=0, clearcoat=0, roughness=1,
+                        normal_scale=[0.5, 0.5], color="#1d1d1f",
                         opacity=opacity, side="DoubleSide")
     # original model is rotated (Robot fron = plane X x Y)
     Q00 = Utils.rotx(0)
@@ -132,6 +132,8 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
     link_3d_obj.append([
         Model3D(url='https://raw.githubusercontent.com/fbartelt/robotics-experiments/main/models/jaco/gripper.obj',
                 scale=scale, htm=link6_mth, mesh_material=mesh),
+        Model3D(url='https://raw.githubusercontent.com/fbartelt/robotics-experiments/main/models/jaco/handpalm.obj',
+                scale=scale, htm=link6_mth, mesh_material=mesh_ring),
         Model3D(url='https://raw.githubusercontent.com/fbartelt/robotics-experiments/main/models/jaco/finger1_mounting.obj',
                 scale=scale, htm=link6_mth, mesh_material=mesh_ring),
         Model3D(url='https://raw.githubusercontent.com/fbartelt/robotics-experiments/main/models/jaco/finger1_proximal.obj',
@@ -175,32 +177,33 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
 
     return links, base_3d_obj, htm_base_0, htm_n_eef, q0, joint_limits
 
-def create_jaco(name='jaco_robot', opacity=1):
+def create_jaco2(name='jaco_robot', opacity=1):
     links, base_3d_obj, htm_base_0, htm_n_eef, q0, joint_limits = _create_jaco(name='jaco_robot', opacity=opacity)
     jaco = rb.Robot(name='jacojaco', links=links, list_base_3d_obj=base_3d_obj, htm=np.identity(4), 
                     htm_base_0=htm_base_0, htm_n_eef=htm_n_eef, q0=q0, eef_frame_visible=True, joint_limits=joint_limits)
     return jaco
 # %%
-internet_down=1
-while internet_down:
-    try:
-        robot = create_jaco()
-        internet_down=0
-    except:
-        internet_down=1
-light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
-light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
-light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
-light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
-sim = Simulation.create_sim_grid([robot, light1, light2, light3, light4])
-sim.set_parameters(width=1200, height=600, ambient_light_intensity=4)
-axis='dh'
-frames_ref = robot.fkm(axis=axis)
-frames = []
-for i, htm in enumerate(frames_ref):
-    frames.append(Frame(name=f'{axis}_{i}', htm=htm, axis_color=['magenta', 'olive', 'cyan'], size=0.15))
+if __name__ == '__main__':
+    internet_down=1
+    while internet_down:
+        try:
+            robot = create_jaco2()
+            internet_down=0
+        except:
+            internet_down=1
+    light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
+    light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
+    light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
+    light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
+    sim = Simulation.create_sim_grid([robot, light1, light2, light3, light4])
+    sim.set_parameters(width=1200, height=600, ambient_light_intensity=4)
+    axis='dh'
+    frames_ref = robot.fkm(axis=axis)
+    frames = []
+    for i, htm in enumerate(frames_ref):
+        frames.append(Frame(name=f'{axis}_{i}', htm=htm, axis_color=['magenta', 'olive', 'cyan'], size=0.15))
 
-for frame in frames:
-    sim.add(frame)
-sim.run()
+    for frame in frames:
+        sim.add(frame)
+    sim.run()
 # %%
