@@ -1,0 +1,40 @@
+
+shoulder.001
+shoulder_actuator.001
+shoulder_ring.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [-0.003115 -0.266812 0.000016], total weight 0.740186, done in 0.73s
+
+upperarm.001
+upperarm_actuator.001
+upperarm_ring.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [-0.005928 -0.590961 0.147096], total weight 0.848954, done in 0.70s
+
+forearm.001
+forearm_actuator.001
+forearm_ring.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [7122717.000000 -376404032.000000 10312223.000000], total weight 0.484074, done in 0.23s
+
+wrist1.001
+wrist1_actuator.001
+wrist1_ring.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [0.009719 -0.449178 -0.010574], total weight 0.432175, done in 0.18s
+
+wrist2.001
+wrist2_actuator.001
+wrist2_ring.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [0.009722 -0.378532 -0.033126], total weight 0.432174, done in 0.14s
