@@ -1,3 +1,44 @@
+========================================================================================================================
+Adopted densities and related parts:
+
+--- Aluminum (2710.00)
+finger1_actuator.001
+finger2_actuator.001
+forearm_actuator.001
+shoulder_actuator.001
+thumb_actuator.001
+upperarm_actuator.001
+wrist1_actuator.001
+wrist2_actuator.001
+--- CarbonFiber (1750.00)
+forearm.001
+gripper.001
+shoulder.001
+upperarm.001
+wrist1.001
+wrist2.001
+--- Plastic (1200.00)
+finger1_distal.001
+finger1_mounting.001
+finger1_nail.001
+finger1_proximal.001
+finger2_distal.001
+finger2_mounting.001
+finger2_nail.001
+finger2_proximal.001
+forearm_ring.001
+handpalm.001
+shoulder_ring.001
+thumb_distal.001
+thumb_mounting.001
+thumb_nail.001
+thumb_proximal.001
+upperarm_ring.001
+wrist1_ring.001
+wrist2_ring.001
+
+========================================================================================================================
+Results
 
 shoulder.001
 shoulder_actuator.001
@@ -16,12 +57,12 @@ upperarm_ring.001
 CG [-0.005928 -0.590961 0.147096], total weight 0.848954, done in 0.70s
 
 forearm.001
-forearm_actuator.001
 forearm_ring.001
+forearm_actuator.001
 ====== linear density
 ====== surface density
 ====== volumetric density
-CG [7122717.000000 -376404032.000000 10312223.000000], total weight 0.484074, done in 0.23s
+CG [0.011612 -0.535812 0.040953], total weight 0.484078, done in 0.24s
 
 wrist1.001
 wrist1_actuator.001
@@ -38,3 +79,47 @@ wrist2_ring.001
 ====== surface density
 ====== volumetric density
 CG [0.009722 -0.378532 -0.033126], total weight 0.432174, done in 0.14s
+
+finger1_actuator.001
+finger1_distal.001
+finger1_mounting.001
+finger1_nail.001
+finger1_proximal.001
+finger2_actuator.001
+finger2_distal.001
+finger2_mounting.001
+finger2_nail.001
+finger2_proximal.001
+gripper.001
+handpalm.001
+thumb_actuator.001
+thumb_distal.001
+thumb_mounting.001
+thumb_nail.001
+thumb_proximal.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [0.002809 -0.251591 -0.072432], total weight 0.764478, done in 0.29s   (got error of not watertight in all proximal parts)
+
+finger1_actuator.001
+finger1_distal.001
+finger1_mounting.001
+finger1_nail.001
+finger1_proximal.001
+finger2_actuator.001
+finger2_distal.001
+finger2_mounting.001
+finger2_nail.001
+finger2_proximal.001
+gripper.001
+handpalm.001
+thumb_actuator.001
+thumb_distal.001
+thumb_mounting.001
+thumb_nail.001
+thumb_proximal.001
+====== linear density
+====== surface density
+====== volumetric density
+CG [0.003380 -0.324978 -0.095477], total weight 0.612587, done in 0.25s  (mass decreased when corrected meshes in order to make them watertight)
