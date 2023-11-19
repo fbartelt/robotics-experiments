@@ -1,5 +1,6 @@
 #%%
 import sys
+import warnings
 sys.path.insert(1, '/home/fbartelt/Documents/UFMG/TCC/Sim/uaibot/uaibot')
 import numpy as np
 import robot as rb
@@ -103,7 +104,7 @@ class Controller():
         except:
             qdot = np.matrix(np.zeros((n, 1)))
             error_qp = True
-            raise UserWarning("Quadratic Programming did not converge")
+            warnings.warn("Quadratic Programming did not converge")
         
         return qdot, e, error_qp
     
@@ -128,7 +129,7 @@ class Controller():
 
         if sigma is None:
             if np.any(Ki):
-                raise UserWarning("Missing parameter 'sigma', assuming sigma=0")
+                warnings.warn("Missing parameter 'sigma', assuming sigma=0")
             sigma=np.zeros((n, 1))
         
         if q_des is None:
@@ -424,10 +425,12 @@ B = np.block([[np.zeros((2*n, n))], [np.eye(n)]])
 qmax = np.diag(np.array(1/np.max(np.abs(robot.joint_limit), axis=1)).flatten())
 qdotmax = np.diag(1/(np.array([6, 6, 6, 8, 8, 8])*2*np.pi/60)) #Max RPM of actuators
 # Q = np.eye(3*n)
-# R = np.eye(n)
+Q = 2*np.diag([15]*n + [30]*n + [25]*n)
+R = np.eye(n)
+# R = np.diag([1/3]*3 + [1]*3)
 # Bryson rule
-Q = block_diag(qmax, qmax, qdotmax)
-R = np.diag([1/30.5, 1/30.5, 1/30.5, 1/6.8, 1/6.8, 1/6.8]) # 1/Maximum torque for motors KA 75, 75, 75, 58, 58, 58, [32, 32, 32]
+# Q = block_diag(qmax, qmax, qdotmax)
+# R = np.diag([1/30.5, 1/30.5, 1/30.5, 1/6.8, 1/6.8, 1/6.8]) # 1/Maximum torque for motors KA 75, 75, 75, 58, 58, 58, [32, 32, 32]
 
 P = solve_continuous_are(A,B,Q,R)
 K = np.linalg.inv(R) @ B.T @ P
@@ -440,7 +443,7 @@ e = np.inf
 q = robot.q.copy()
 sigma = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-q_hist, qdot_hist, e_hist = [], [], []
+q_hist, qdot_hist, e_hist, qdotdes_hist = [], [], [], []
 T, dt, tol = 20, 0.05, 1e-3
 i = 1
 imax = int(T//dt)
@@ -448,6 +451,7 @@ imax = int(T//dt)
 
 while (i < imax) and (np.linalg.norm(e) > tol):
     qdot_des, e, *_ = kin_controller.control(K=1)
+    q_des = q + dt*qdot_des
     qddot = dyn_controller.control(qdot, qdot_des, sigma=sigma, q_des=q_des, Ki=Ki, Kd=Kd, Kp=Kp)
     sigma = sigma + dt*(q_des - q)
     q = robot.q + qdot * dt
@@ -459,6 +463,7 @@ while (i < imax) and (np.linalg.norm(e) > tol):
     i+=1
     q_hist.append(q)
     qdot_hist.append(qdot)
+    qdotdes_hist.append(qdot_des)
     e_hist.append(e)
 
 
@@ -466,5 +471,7 @@ sim.run()
 fig = px.line(np.array(e_hist).reshape(-1, 6))
 fig.show()
 fig = px.line(np.array(qdot_hist).reshape(-1, 6))
+fig.show()
+fig = px.line(np.array(qdotdes_hist).reshape(-1, 6))
 fig.show()
 # %%
