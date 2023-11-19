@@ -18,6 +18,7 @@ from IPython.display import clear_output
 from planar_manipulator import create_2dof
 from create_jaco import create_jaco2
 from simobjects.pointlight import PointLight
+from scipy.linalg import block_diag, solve_continuous_are
 solvers.options['show_progress'] = False
 # 6 DoF Curved Wrist
 class Controller():
@@ -70,7 +71,13 @@ class Controller():
         jac_err[5, :] = z_des.T * Utils.S(z_eef) * jac_eef[3:6, :]
         return err, jac_err
     
-    def pseudo_inverse_control(self):
+    def pseudo_inverse_control(self, K=1):
+        n = len(self.robot.links)
+        if not isinstance(K, np.ndarray):
+            if isinstance(K, (list, tuple)):
+                K = np.diag(K)
+            else:
+                K = np.diag([K]*n)
         e, Je = self.error_func(self.htm_des)
         qdot = - K @ np.linalg.pinv(Je) @ e
         return qdot, e
@@ -100,8 +107,9 @@ class Controller():
         
         return qdot, e, error_qp
     
-    def computed_torque(self, qdot, qdot_des, sigma=None, q_des=None, Kp=1, Kd=1, Ki=1, K=1):
+    def computed_torque(self, qdot, qdot_des, sigma=None, q_des=None, Kp=1, Kd=1, Ki=1):
         n = len(self.robot.links)
+
         if not isinstance(Kp, np.ndarray):
             if isinstance(Kp, (list, tuple)):
                 Kp = np.diag(Kp)
@@ -117,13 +125,16 @@ class Controller():
                 Ki = np.diag(Ki)
             else:
                 Ki = np.diag([Ki]*n)
+
         if sigma is None:
+            if np.any(Ki):
+                raise UserWarning("Missing parameter 'sigma', assuming sigma=0")
             sigma=np.zeros((n, 1))
         
-        q = self.robot.q
         if q_des is None:
             q_des = self.robot.ikm(self.htm_des)
         
+        q = self.robot.q
         M, C, G = self.robot.dyn_model(q, qdot)
         torque = C + G + (M @ (Kp @ (q_des - q) + Kd @ (qdot_des - qdot) + Ki @ sigma) )
         qddot = np.linalg.inv(M) @ (-C -G + torque)
@@ -178,7 +189,7 @@ def pseudo_inv_control(robot, htm_des, K=1, T=10, dt=0.05, frames=[]):
     return qhist, qdothist
 
 
-def computed_torque(robot, htm_des, Kp=1, Kd=1, Ki=1, K=1, T=10, dt=0.05, tol=1e-3, useQP=False, frames=[]):
+def computed_torque(robot, htm_des, q_des=None, Kp=1, Kd=1, Ki=1, K=1, T=10, dt=0.05, tol=1e-3, useQP=False, frames=[], axis='com'):
     n = len(robot.links)
     if not isinstance(Kp, np.ndarray):
         if isinstance(Kp, (list, tuple)):
@@ -202,28 +213,31 @@ def computed_torque(robot, htm_des, Kp=1, Kd=1, Ki=1, K=1, T=10, dt=0.05, tol=1e
     sigma = np.zeros((n, 1))
     qdot = np.zeros((n, 1))
     virtual_robot = deepcopy(robot)
-    q_des = robot.ikm(htm_des)
-    qhist, qdothist = [], []
+    if q_des is None:
+        q_des = robot.ikm(htm_des)
+    # print(q_des)
+    qhist, qdothist, e_hist = [], [], []
     qhist.append(q)
     qdothist.append(q)
 
     while (i < imax) and (np.linalg.norm(e) > tol):
         e, Je = error(virtual_robot, htm_des)
         qdot_des = - K * np.linalg.pinv(Je) @ e
-        M, C, G = robot.dyn_model(double_pendulum.q, qdot)
+        M, C, G = robot.dyn_model(robot.q, qdot)
         torque = C + G + (M @ (Kp @ (q_des - q) + Kd @ (qdot_des - qdot) + Ki @ sigma) )
-        sigma += dt*(q_des - q)
+        sigma = sigma + dt*(q_des - q)
         q = robot.q + qdot * dt
-        qdot += dt * (np.linalg.inv(M) @ (-C -G + torque))
+        qdot = qdot + dt * (np.linalg.inv(M) @ (-C -G + torque))
         robot.add_ani_frame(time=i*dt, q=q)
         virtual_robot.add_ani_frame(time=i*dt, q=q)
-        htms = robot.fkm(q=q, axis='dh')
+        htms = robot.fkm(q=q, axis=axis)
         for j, frame in enumerate(frames):
             frame.add_ani_frame(time=i*dt, htm=htms[j])
         qhist.append(q)
         qdothist.append(qdot)
+        e_hist.append(e)
         i += 1
-    return qhist, qdothist
+    return qhist, qdothist, e_hist
 
 
 def QP_control(robot, htm_des, limit_joints=True, K=1, xi=1, T=10, dt=0.05, tol=1e-3, eps=0.001, frames=[], axis='dh'):
@@ -318,8 +332,8 @@ for frame in frames:
 # qhist, qdot_hist = QP_control(double_pendulum, htm_des, T=T, dt=dt, K=1, frames=frames, axis=axis)
 Ts = 5
 omega0 = 5.8339/Ts
-qhist, qdot_hist = computed_torque(double_pendulum, htm_des, K=1, Kp=3, Kd=2, Ki=2, T=T, dt=dt, frames=frames)
-tester(double_pendulum, 'qp')
+qhist, qdot_hist, e_hist = computed_torque(double_pendulum, htm_des, K=1, Kp=3, Kd=2, Ki=2, T=T, dt=dt, frames=frames)
+# tester(double_pendulum, 'qp')
 sim.run()
 # %%
 fig = px.line(np.array(qhist).reshape(-1, 2))
@@ -351,4 +365,106 @@ for frame in frames:
 sim.add(frame_des)
 q_hist, qdot_hist, e_hist = tester(robot, htm_des=htm_des, control_type='qp', frames=frames)
 sim.run()
+# %%
+""" PID computed torque"""
+htm_des = Utils.trn([0.2, 0.4, 0.7]) @ Utils.rotx(np.deg2rad(-100)) @ Utils.rotz(np.deg2rad(33))
+frame_des = Frame(name='frame_des', htm=htm_des)
+robot = create_jaco2()
+light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
+light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
+light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
+light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
+sim = Simulation.create_sim_grid([robot, light1, light2, light3, light4])
+sim.set_parameters(width=800, height=600, ambient_light_intensity=4)
+axis='com'
+frames_ref = robot.fkm(axis=axis)
+frames = []
+for i, htm in enumerate(frames_ref):
+    frames.append(Ball(name=f'{axis}_{i}', htm=htm, radius=0.01, color='magenta'))
+for frame in frames:
+    sim.add(frame)
+sim.add(frame_des)
+# Kp=4, Kd=5, Ki=1, K=1
+# Kp=8, Kd=5, Ki=8
+# Ziegler-Nichols: Pu = 124s, Ku=1 => Kp=0.6Ku, Kd=KpPu/8, Ki=2Kp/Ku
+# Pu, Ku = 6.2, 4
+# Kp =0.6*Ku
+# Ki, Kd = 2*Kp/Ku, Kp*Pu/8
+Kp, Kd, Ki = 8, 5, 8
+q_des = np.array([[ 0.7262458 ], [ 1.61760955], [ 0.11582987], [-1.14679451], [ 2.16399157], [ 2.76812822]])
+q_hist, qdot_hist, e_hist = computed_torque(robot, htm_des=htm_des, q_des=q_des, Kp=Kp, Kd=Kd, Ki=Ki, K=1, T=20, frames=frames, axis=axis)
+sim.run()
+fig = px.line(np.array(e_hist).reshape(-1, 6))
+fig.show()
+fig = px.line(np.array(qdot_hist).reshape(-1, 6))
+fig.show()
+# %%
+""" LQR computed torque"""
+htm_des = Utils.trn([0.2, 0.4, 0.7]) @ Utils.rotx(np.deg2rad(-100)) @ Utils.rotz(np.deg2rad(33))
+frame_des = Frame(name='frame_des', htm=htm_des)
+robot = create_jaco2()
+light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
+light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
+light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
+light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
+sim = Simulation.create_sim_grid([robot, light1, light2, light3, light4])
+sim.set_parameters(width=800, height=600, ambient_light_intensity=4)
+axis='com'
+frames_ref = robot.fkm(axis=axis)
+frames = []
+for i, htm in enumerate(frames_ref):
+    frames.append(Ball(name=f'{axis}_{i}', htm=htm, radius=0.01, color='magenta'))
+for frame in frames:
+    sim.add(frame)
+sim.add(frame_des)
+
+n = len(robot.links)
+A = np.block([[np.block([np.zeros((2*n,n)), block_diag(np.eye(n), np.eye(n))])], [np.zeros((n, 3*n))]])
+B = np.block([[np.zeros((2*n, n))], [np.eye(n)]])
+qmax = np.diag(np.array(1/np.max(np.abs(robot.joint_limit), axis=1)).flatten())
+qdotmax = np.diag(1/(np.array([6, 6, 6, 8, 8, 8])*2*np.pi/60)) #Max RPM of actuators
+# Q = np.eye(3*n)
+# R = np.eye(n)
+# Bryson rule
+Q = block_diag(qmax, qmax, qdotmax)
+R = np.diag([1/30.5, 1/30.5, 1/30.5, 1/6.8, 1/6.8, 1/6.8]) # 1/Maximum torque for motors KA 75, 75, 75, 58, 58, 58, [32, 32, 32]
+
+P = solve_continuous_are(A,B,Q,R)
+K = np.linalg.inv(R) @ B.T @ P
+Ki, Kp, Kd = np.split(K, 3, axis=1)
+
+q_des = np.array([[ 0.7262458 ], [ 1.61760955], [ 0.11582987], [-1.14679451], [ 2.16399157], [ 2.76812822]])
+dyn_controller = Controller(robot, htm_des, 'torque')
+kin_controller = Controller(robot, htm_des, 'pinv')
+e = np.inf
+q = robot.q.copy()
+sigma = np.zeros((n, 1))
+qdot = np.zeros((n, 1))
+q_hist, qdot_hist, e_hist = [], [], []
+T, dt, tol = 20, 0.05, 1e-3
+i = 1
+imax = int(T//dt)
+
+
+while (i < imax) and (np.linalg.norm(e) > tol):
+    qdot_des, e, *_ = kin_controller.control(K=1)
+    qddot = dyn_controller.control(qdot, qdot_des, sigma=sigma, q_des=q_des, Ki=Ki, Kd=Kd, Kp=Kp)
+    sigma = sigma + dt*(q_des - q)
+    q = robot.q + qdot * dt
+    qdot = qdot + dt * qddot
+    robot.add_ani_frame(time=i*dt, q=q)
+    htms = robot.fkm(q=q, axis='dh')
+    for j, frame in enumerate(frames):
+        frame.add_ani_frame(time=i*dt, htm=htms[j])
+    i+=1
+    q_hist.append(q)
+    qdot_hist.append(qdot)
+    e_hist.append(e)
+
+
+sim.run()
+fig = px.line(np.array(e_hist).reshape(-1, 6))
+fig.show()
+fig = px.line(np.array(qdot_hist).reshape(-1, 6))
+fig.show()
 # %%
