@@ -69,6 +69,11 @@ def _groupdict_ravel(group_dict: dict) -> dict:
             dict_new[value] = key
     return dict_new
 
+def _array2file(file_path: str, arr: np.ndarray) -> None:
+    with open(file_path, 'a') as file:
+        file.write(str(arr))
+        file.write('\n')
+
 def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', ignore: list = [], group_also: list = [[]]) -> None:
     """Calculates mass, center of mass and inertia tensors for models composed
     of multiple parts. Inertia tensors are given in respect to the center of
@@ -95,9 +100,12 @@ def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', 
     densities = _groupdict_ravel(densities)
     mass_list, com_list, tensor_list = [], [], []
     # model_mesh = tm.creation.axis(origin_size=0.02)
+    file_path = './test.txt'
     scene = tm.Scene(tm.creation.axis(origin_size=0.02))
     for i, group in enumerate(groups):   
         print(f'Group {i}: ', group)
+        _array2file(file_path=file_path, arr=f'========\nGroup {i}: \n========')
+        _array2file(file_path=file_path, arr=group)
         mass = 0
         com = np.zeros(3)
         for part in group:
@@ -125,6 +133,12 @@ def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', 
             tensor += mesh.moment_inertia_frame(tm.transformations.translation_matrix(com))
         tensor_list.append(tensor)
         print(f'Mass: {mass}\nCenter Of Mass: {np.round(com, 6)}\nInertia Tensor: {np.round(tensor, 6)}')
+        _array2file(file_path=file_path, arr='Mass: ')
+        _array2file(file_path=file_path, arr=mass)
+        _array2file(file_path=file_path, arr='COM: ')
+        _array2file(file_path=file_path, arr=com)
+        _array2file(file_path=file_path, arr='Inertia Tensor: ')
+        _array2file(file_path=file_path, arr=tensor)
     
     return mass_list, com_list, tensor_list, scene
 

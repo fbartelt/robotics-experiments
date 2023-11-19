@@ -1,26 +1,26 @@
-[['finger1_actuator', 'finger1_distal', 'finger1_mounting', 'finger1_nail', 'finger1_proximal', 'finger2_actuator', 'finger2_distal', 'finger2_mounting', 'finger2_nail', 'finger2_proximal', 'gripper', 'handpalm', 'thumb_actuator', 'thumb_distal', 'thumb_mounting', 'thumb_nail', 'thumb_proximal'], 
-['base', 'base_actuator', 'base_ring'], 
-['forearm', 'forearm_actuator', 'forearm_ring'], 
-['shoulder', 'shoulder_actuator', 'shoulder_ring'], 
-['upperarm', 'upperarm_actuator', 'upperarm_ring'], 
-['wrist1', 'wrist1_actuator', 'wrist1_ring'], 
-['wrist2', 'wrist2_actuator', 'wrist2_ring']]
+# 6 [['finger1_actuator', 'finger1_distal', 'finger1_mounting', 'finger1_nail', 'finger1_proximal', 'finger2_actuator', 'finger2_distal', 'finger2_mounting', 'finger2_nail', 'finger2_proximal', 'gripper', 'handpalm', 'thumb_actuator', 'thumb_distal', 'thumb_mounting', 'thumb_nail', 'thumb_proximal'], 
+# 0 ['base', 'base_actuator', 'base_ring'], 
+# 3 ['forearm', 'forearm_actuator', 'forearm_ring'], 
+# 1 ['shoulder', 'shoulder_actuator', 'shoulder_ring'], 
+# 2 ['upperarm', 'upperarm_actuator', 'upperarm_ring'], 
+# 4 ['wrist1', 'wrist1_actuator', 'wrist1_ring'], 
+# 5 ['wrist2', 'wrist2_actuator', 'wrist2_ring']]
 
-[0.6208313337899377,
- 0.9461013532900691,
- 0.48326882919212083,
- 0.740185285501933,
- 0.8489361778912677,
- 0.43217459270218916,
- 0.43217590992539645]
+# 6  [0.6208313337899377,  
+# 0   0.9461013532900691,   
+# 3   0.48326882919212083, 
+# 1   0.740185285501933,   
+# 2   0.8489361778912677,  
+# 4   0.43217459270218916, 
+# 5   0.43217590992539645] 
 
- [array([ 0.0033009 , -0.09643814,  0.32164165]),
- array([-0.00016552, -0.00032931,  0.12369403]),
- array([0.01162087, 0.04102689, 0.53732661]),
- array([-3.11506292e-03,  1.62075358e-05,  2.66810879e-01]),
- array([-0.00592762,  0.14709695,  0.5909634 ]),
- array([ 0.00971901, -0.01057426,  0.44918022]),
- array([ 0.0097224 , -0.03312561,  0.3785306 ])]
+# 6   [array([ 0.0033009 , -0.09643814,  0.32164165]),             
+# 0   array([-0.00016552, -0.00032931,  0.12369403]),              
+# 3   array([0.01162087, 0.04102689, 0.53732661]),                 
+# 1   array([-3.11506292e-03,  1.62075358e-05,  2.66810879e-01]),  
+# 2   array([-0.00592762,  0.14709695,  0.5909634 ]),              
+# 4   array([ 0.00971901, -0.01057426,  0.44918022]),              
+# 5   array([ 0.0097224 , -0.03312561,  0.3785306 ])]              
 
  [array([[ 1.73092790e-03, -5.34740232e-05, -6.41254179e-05],
         [-5.34740232e-05,  1.82230161e-03, -3.51815788e-05],
