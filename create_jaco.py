@@ -220,8 +220,8 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
 
 def create_jaco2(name='jaco_robot', opacity=1):
     links, base_3d_obj, htm_base_0, htm_n_eef, q0, joint_limits = _create_jaco(
-        name='jaco_robot', opacity=opacity)
-    jaco = rb.Robot(name='jacojaco', links=links, list_base_3d_obj=base_3d_obj, htm=np.identity(4),
+        name=name, opacity=opacity)
+    jaco = rb.Robot(name=name, links=links, list_base_3d_obj=base_3d_obj, htm=np.identity(4),
                     htm_base_0=htm_base_0, htm_n_eef=htm_n_eef, q0=q0, eef_frame_visible=True, joint_limits=joint_limits)
     return jaco
 
