@@ -5,6 +5,7 @@ import numpy as np
 from numpy import pi
 from functools import reduce
 
+
 def translation_htm(vector: sp.Matrix) -> sp.Matrix:
     """Given a translation vector `vector`, returns its respective homogeneous
     transformation matrix.
@@ -102,7 +103,7 @@ def fkm(
             new_htm = [
                 sp.trigsimp(
                     reduce(
-                        lambda x, y: sp.nsimplify(x @ y, tolerance_nsimp),
+                        lambda x, y: fracsimp(x @ y, tolerance_nsimp),
                         htm_list[: i + 1],
                         sp.eye(4),
                     )
@@ -119,7 +120,7 @@ def fkm(
                     4, sp.Matrix([[0]])
                 )
                 htm_ = htm_ + sp.zeros(4, 3).col_insert(4, displacement)
-                htm_ = sp.trigsimp(htm_old @ htm_)
+                htm_ = fracsimp(sp.trigsimp(htm_old @ htm_), tolerance_nsimp)
                 new_htm.append(htm_)
                 htm_old = htm
         case "eef":
@@ -133,7 +134,7 @@ def fkm(
 def get_W(
     q: list | sp.Matrix,
     htm_list: list,
-    fkm: list | None = None,
+    fkm_list: list | None = None,
 ) -> sp.Matrix:
     """Returns the orientation jaocbian.
 
@@ -146,15 +147,15 @@ def get_W(
         The configuration vector.
     htm_list: list[sp.Matrix]
         An ordered list with each DH HTM.
-    fkm: list | None
+    fkm_list: list | None
         The forward kinematics map. If `None`, then it is calculated
         by `fkm()`
     """
     W_list = []
-    if fkm is None:
+    if fkm_list is None:
         htm_list = fkm(htm_list)
     else:
-        htm_list = fkm
+        htm_list = fkm_list
     for htm in htm_list:
         rot = htm[:3, :3]
         rx, ry, rz = rot[:, 0], rot[:, 1], rot[:, 2]
@@ -226,6 +227,10 @@ def christoffel(M: sp.Matrix, q: list | sp.Matrix) -> dict:
     return cijk
 
 
+def fracsimp(M: sp.Matrix, tol=1e-6) -> sp.Matrix:
+    return sp.nsimplify(M.n(), tolerance=tol)
+
+
 def dynamic_model(
     q: list | sp.Matrix,
     htm_list: list[sp.Matrix],
@@ -234,6 +239,7 @@ def dynamic_model(
     com_coords: list,
     height_axis: int = 2,
     gravity: float | sp.Symbol = 9.81,
+    tolerance_nsimp: float = 1e-6,
 ) -> list[sp.Matrix]:
     """Computes the system's dynamic model as the matrices of the
     canonical equation $M(q)\ddot{q}+C(q,\dot{q})\dot{q}+G(q)$.
@@ -255,6 +261,9 @@ def dynamic_model(
         The axis number for gravity, defaults to 2 (z-axis).
     gravity: float
         The gravity acceleration.
+    tolerance_nsimp: float
+        Tolerance parameter for `sp.nsimplify` (used to reduce
+        computational effort).
 
     Returns
     -------
@@ -270,7 +279,7 @@ def dynamic_model(
     G = sp.ZeroMatrix(n, 1)
     htm_list_ = htm_list
     htm_list = fkm(htm_list, axis="com", com_coords=com_coords)
-    W_list = get_W(q, htm_list_, fkm=htm_list)
+    W_list = get_W(q, htm_list_, fkm_list=htm_list)
 
     # Get M and G
     for i, htm in enumerate(htm_list):
@@ -280,10 +289,15 @@ def dynamic_model(
             inertia_list[i], com_coords[i], mass_list[i], reverse=True
         )
         M += mass_list[i] * Jp.T @ Jp + W_list[i].T @ inertia @ W_list[i]
+        M = fracsimp(M, tolerance_nsimp)
         grad = ((htm @ sp.zeros(3, 1).row_insert(4, sp.Matrix([[1]]))).jacobian(q))[
             height_axis, :
         ]
         G += sp.trigsimp(mass_list[i] * gravity * grad.T)
+        G = fracsimp(G, tolerance_nsimp)
+
+    M = fracsimp(sp.simplify(M), tolerance_nsimp)
+    G = fracsimp(sp.simplify(G), tolerance_nsimp)
 
     # Get C
     cijk = christoffel(M, q)
@@ -295,11 +309,11 @@ def dynamic_model(
                 [cijk[f"{i+1}{j+1}{k+1}"] * q[i].diff() for i in range(n)],
                 0,
             )
+            print(gamma_kj)
             C[k, j] = gamma_kj
 
-    M = sp.nsimplify(sp.simplify(M))
-    G = sp.nsimplify(sp.simplify(G))
-    C = sp.nsimplify(sp.simplify(C))
+    C = fracsimp(sp.simplify(C), tolerance_nsimp)
+    
     return M, C, G
 
 
@@ -424,7 +438,16 @@ inertia_list = [
 ]
 # (sp.nsimplify((sp.nsimplify(dht[0]@dht[1], tolerance=1e-6)).inv(), tolerance=1e-6) @ sp.Matrix([-0.00592762,  0.14709695,  0.5909634, 1])).subs(theta1(t), pi).subs(theta2(t), pi)
 dht = dht_htms(theta_list, d_list, alpha_list, a_list)
-M, C, G = dynamic_model(q, dht, mass_list, inertia_list, com_coords, 2, 9.81)
+M, C, G = dynamic_model(
+    q,
+    dht,
+    mass_list,
+    inertia_list,
+    com_coords,
+    height_axis=2,
+    gravity=9.81,
+    tolerance_nsimp=1e-6,
+)
 # M, C, G = dynamic_model(q[:3], dht[:3], mass_list[:3], inertia_list[:3], com_coords[:3], 2, 9.81)
 # sp.nsimplify(sp.separatevars(M, symbols=q[:3]).n(6), tolerance=1e-6)
 # %%
