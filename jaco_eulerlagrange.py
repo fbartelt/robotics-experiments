@@ -106,7 +106,7 @@ def fkm(
                         lambda x, y: fracsimp(x @ y, tolerance_nsimp),
                         htm_list[: i + 1],
                         sp.eye(4),
-                    )
+                    ), inverse=True,
                 )
                 for i, _ in enumerate(htm_list)
             ]
@@ -114,15 +114,24 @@ def fkm(
             htm_old = sp.eye(4)
             if com_coords is None:
                 com_coords = [sp.zeros(3, 1) for _ in range(len(htm_list))]
-            for i, htm in enumerate(htm_list):
-                htm_ = htm_list[i].as_mutable()
-                displacement = (htm_[:3, :3] @ com_coords[i]).row_insert(
-                    4, sp.Matrix([[0]])
-                )
-                htm_ = htm_ + sp.zeros(4, 3).col_insert(4, displacement)
-                htm_ = fracsimp(sp.trigsimp(htm_old @ htm_), tolerance_nsimp)
-                new_htm.append(htm_)
-                htm_old = htm
+            dh_htm = fkm(htm_list, axis='dh', tolerance_nsimp=tolerance_nsimp)
+            new_htm = []
+            for i, _ in enumerate(dh_htm):
+                htm_ = dh_htm[i].as_mutable()
+                htm_[0:3, 3] = htm_[0:3, 3] + htm_[0:3, 0:3] @ com_coords[i]
+                if i == 7: # workaround for jaco model only !!!!! CHANGE THIS !!!!!
+                    new_htm.append(htm_)
+                else:
+                    new_htm.append(fracsimp(htm_, tolerance_nsimp))
+            # for i, htm in enumerate(htm_list):
+            #     htm_ = htm_list[i].as_mutable()
+            #     displacement = (htm_[:3, :3] @ com_coords[i]).row_insert(
+            #         4, sp.Matrix([[0]])
+            #     )
+            #     htm_ = htm_ + sp.zeros(4, 3).col_insert(4, displacement)
+            #     htm_ = fracsimp(sp.trigsimp(htm_old @ htm_), tolerance_nsimp)
+            #     new_htm.append(htm_)
+            #     htm_old = htm
         case "eef":
             new_htm = sp.trigsimp(reduce(lambda x, y: x @ y, htm_list, sp.eye(4)))
         case _:
@@ -135,6 +144,7 @@ def get_W(
     q: list | sp.Matrix,
     htm_list: list,
     fkm_list: list | None = None,
+    tolerance_nsimp: float = 1e-6,
 ) -> sp.Matrix:
     """Returns the orientation jaocbian.
 
@@ -150,6 +160,9 @@ def get_W(
     fkm_list: list | None
         The forward kinematics map. If `None`, then it is calculated
         by `fkm()`
+    tolerance_nsimp: float
+        Tolerance parameter for `sp.nsimplify` (used to reduce
+        computational effort).
     """
     W_list = []
     if fkm_list is None:
@@ -161,7 +174,7 @@ def get_W(
         rx, ry, rz = rot[:, 0], rot[:, 1], rot[:, 2]
         dry, drz = ry.jacobian(q), rz.jacobian(q)
         W = sp.Matrix([[-ry.T @ drz], [rx.T @ drz], [-rx.T @ dry]])
-        W_list.append(sp.trigsimp(W))
+        W_list.append(fracsimp(W, tolerance_nsimp))
     return W_list
 
 
@@ -219,7 +232,7 @@ def christoffel(M: sp.Matrix, q: list | sp.Matrix) -> dict:
     for k in range(n):
         for i in range(n):
             for j in range(0, i + 1):
-                c = sp.simplify(
+                c = sp.trigsimp(
                     0.5 * (M[k, j].diff(q[i]) + M[k, i].diff(q[j]) - M[i, j].diff(q[k]))
                 )
                 cijk[f"{i+1}{j+1}{k+1}"] = c
@@ -228,7 +241,7 @@ def christoffel(M: sp.Matrix, q: list | sp.Matrix) -> dict:
 
 
 def fracsimp(M: sp.Matrix, tol=1e-6) -> sp.Matrix:
-    return sp.nsimplify(M.n(), tolerance=tol)
+    return sp.nsimplify(M.n(), tolerance=tol, rational=None, full=True)
 
 
 def dynamic_model(
@@ -278,11 +291,14 @@ def dynamic_model(
     M = sp.ZeroMatrix(n, n)
     G = sp.ZeroMatrix(n, 1)
     htm_list_ = htm_list
-    htm_list = fkm(htm_list, axis="com", com_coords=com_coords)
+    print('fkm')
+    htm_list = fkm(htm_list, axis="com", com_coords=com_coords, tolerance_nsimp=tolerance_nsimp)
+    print('finish fkm')
     W_list = get_W(q, htm_list_, fkm_list=htm_list)
 
     # Get M and G
     for i, htm in enumerate(htm_list):
+        print(f'M, G   {i}')
         p = sp.eye(3, 4) @ htm @ sp.Matrix([[0], [0], [0], [1]])
         Jp = p.jacobian(q)
         inertia = steiner_theorem(
@@ -293,7 +309,7 @@ def dynamic_model(
         grad = ((htm @ sp.zeros(3, 1).row_insert(4, sp.Matrix([[1]]))).jacobian(q))[
             height_axis, :
         ]
-        G += sp.trigsimp(mass_list[i] * gravity * grad.T)
+        G += sp.trigsimp(mass_list[i] * gravity * grad.T, inverse=True)
         G = fracsimp(G, tolerance_nsimp)
 
     M = fracsimp(sp.simplify(M), tolerance_nsimp)
@@ -303,13 +319,13 @@ def dynamic_model(
     cijk = christoffel(M, q)
     C = sp.zeros(n, n)
     for j in range(n):
+        print(f'C   {j}')
         for k in range(n):
             gamma_kj = reduce(
                 lambda x, y: x + y,
                 [cijk[f"{i+1}{j+1}{k+1}"] * q[i].diff() for i in range(n)],
                 0,
             )
-            print(gamma_kj)
             C[k, j] = gamma_kj
 
     C = fracsimp(sp.simplify(C), tolerance_nsimp)
@@ -370,6 +386,15 @@ alpha4 = 2 * aa
 alpha5 = 2 * aa
 alpha6 = pi
 
+d1 = sp.Symbol('d1', real=True)
+d2 = sp.Symbol('d2', real=True)
+e2 = sp.Symbol('e2', real=True)
+d4b = sp.Symbol('d_{4b}', real=True)
+d5b = sp.Symbol('d_{5b}', real=True)
+d6b = sp.Symbol('d_{6b}', real=True)
+aa = sp.Symbol('aa', real=True)
+pi = sp.pi
+
 theta_list = q
 d_list = [d1, 0, -e2, -d4b, -d5b, -d6b]
 a_list = [0, d2, 0, 0, 0, 0]
@@ -383,6 +408,33 @@ com_coords = [
     sp.Matrix([[7.76000000e-05], [1.03514396e-03], [-3.78727272e-02]]),
     sp.Matrix([[-0.0064991], [-0.00185375], [-0.07984141]]),
 ]
+
+com_coords = [
+    sp.Matrix([[sp.Symbol('c_{x1}', real=True)], [sp.Symbol('c_{y1}', real=True)], [sp.Symbol('c_{z1}', real=True)]]),
+    sp.Matrix([[sp.Symbol('c_{x2}', real=True)], [sp.Symbol('c_{y2}', real=True)], [sp.Symbol('c_{z2}', real=True)]]),
+    sp.Matrix([[sp.Symbol('c_{x3}', real=True)], [sp.Symbol('c_{y3}', real=True)], [sp.Symbol('c_{z3}', real=True)]]),
+    sp.Matrix([[sp.Symbol('c_{x4}', real=True)], [sp.Symbol('c_{y4}', real=True)], [sp.Symbol('c_{z4}', real=True)]]),
+    sp.Matrix([[sp.Symbol('c_{x5}', real=True)], [sp.Symbol('c_{y5}', real=True)], [sp.Symbol('c_{z5}', real=True)]]),
+    sp.Matrix([[sp.Symbol('c_{x6}', real=True)], [sp.Symbol('c_{y6}', real=True)], [sp.Symbol('c_{z6}', real=True)]]),
+]
+
+# com_coords = [
+#     sp.Matrix([[-3.11506292e-3], [ 1.62075358e-5],  [2.66810879e-1]]),
+#     sp.Matrix([[-0.00592762],  [0.14709695],  [0.5909634]]),
+#     sp.Matrix([[ 0.41092673],
+#         [ 0.01162087],
+#         [-0.44736498]]),
+#     sp.Matrix([[-0.41008099],
+#         [-0.05919237],
+#         [-0.02419352]]),
+#     sp.Matrix([[-0.4099224 ],
+#         [ 0.02367075],
+#         [ 0.08201778]]),
+#     sp.Matrix([[-0.01123074],
+#         [-0.4164991 ],
+#         [-0.30828563]]),
+# ]
+
 mass_list = [
     0.740185285501933,
     0.8489361778912677,
@@ -391,6 +443,8 @@ mass_list = [
     0.43217590992539645,
     0.6208313337899377,
 ]
+
+mass_list = [m1, m2, m3, m4, m5, m6]
 
 # Inertia as Icm
 inertia_list = [
@@ -448,8 +502,24 @@ M, C, G = dynamic_model(
     gravity=9.81,
     tolerance_nsimp=1e-6,
 )
-# M, C, G = dynamic_model(q[:3], dht[:3], mass_list[:3], inertia_list[:3], com_coords[:3], 2, 9.81)
-# sp.nsimplify(sp.separatevars(M, symbols=q[:3]).n(6), tolerance=1e-6)
+
+#%%
+"""Compare analytic with numeric"""
+from create_jaco import create_jaco2
+
+robot = create_jaco2()
+fk_dh_a = fkm(dht, 'dh')
+fk_com_a = fkm(dht, 'com', com_coords, tolerance_nsimp=1e-13)
+_, fk_dh_n = robot.jac_geo(axis='dh')
+_, fk_com_n = robot.jac_geo(axis='com')
+sub_dict = dict(zip(q, np.array(robot.q).flatten()))
+
+for i, h in enumerate(fk_com_n):
+    print(np.linalg.norm(np.round(h, 6) - np.round(sp.matrix2numpy(fk_com_a[i].subs(sub_dict).n()).astype(float), 6), np.inf))
+    # print(np.round(h, 6))
+    # print(np.round(sp.matrix2numpy(fk_com_a[i].subs(sub_dict).n()).astype(float), 6))
+
+
 # %%
 """Spong(2020) Planar Elbow Manipulator (Cap 6.4, P. 186)"""
 theta_list = [theta1(t), theta2(t)]

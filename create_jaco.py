@@ -13,7 +13,7 @@ from simobjects.frame import Frame
 import numpy as np
 
 
-def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
+def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1, thesis_parameters=False):
     """
     model: https://www.kinovarobotics.com/resources?r=79302&s
     docs: https://www.kinovarobotics.com/resources?r=339
@@ -40,7 +40,7 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
 
     jaco_DH_type = np.array([0, 0, 0, 0, 0, 0])
     link_info = np.array(
-        [jaco_DH_theta, jaco_DH_d, jaco_DH_alpha, jaco_DH_a, jaco_DH_type])  # jaco_dummy
+        [jaco_DH_theta, jaco_DH_d, jaco_DH_alpha, jaco_DH_a, jaco_DH_type])
 
     scale = 1
     n = link_info.shape[1]
@@ -55,20 +55,7 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
                              normal_scale=[0.5, 0.5], color="#1d1d1f",
                              opacity=opacity, side="DoubleSide")
     # original model is rotated (Robot fron = plane X x Y)
-    Q00 = Utils.rotx(0)
-    Q001 = Utils.trn([0, 0, 1.5675e-1])
-    Q01 = Q001 * (Utils.rotz(link_info[0, 0]) * Utils.trn([0, 0, link_info[1, 0]]) * Utils.rotx(link_info[2, 0]) * Utils.trn(
-        [link_info[3, 0], 0, 0]))
-    Q02 = Q01 * (Utils.rotz(link_info[0, 1] + pi/2) * Utils.trn([0, 0, link_info[1, 1]]) * Utils.rotx(link_info[2, 1]) * Utils.trn(
-        [link_info[3, 1], 0, 0]))
-    Q03 = Q02 * (Utils.rotz(link_info[0, 2] - pi/2) * Utils.trn([0, 0, link_info[1, 2]]) * Utils.rotx(link_info[2, 2]) * Utils.trn(
-        [link_info[3, 2], 0, 0]))
-    Q04 = Q03 * (Utils.rotz(link_info[0, 3] + 0) * Utils.trn([0, 0, link_info[1, 3]]) * Utils.rotx(link_info[2, 3]) * Utils.trn(
-        [link_info[3, 3], 0, 0]))
-    Q05 = Q04 * (Utils.rotz(link_info[0, 4] - pi) * Utils.trn([0, 0, link_info[1, 4]]) * Utils.rotx(link_info[2, 4]) * Utils.trn(
-        [link_info[3, 4], 0, 0]))
-    # Q06 = Q05 * (Utils.rotz(link_info[0, 5] + 0) * Utils.trn([0, 0, link_info[1, 5]]) * Utils.rotx(link_info[2, 5]) * Utils.trn(
-    #    [link_info[3, 5], 0, 0]))
+   
     q0 = [pi, pi, pi, pi, 0, pi/2]
     Q00 = Utils.trn([0, 0, 0])
     Q001 = Utils.trn([0, 0, 0])
@@ -178,24 +165,63 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
                        np.eye(4)[:-1, :] @ (Utils.inv_htm(Q05) @ np.array(
                            [0.0097224, -0.03312561,  0.3785306, 1]).reshape(-1, 1)),
                        np.eye(4)[:-1, :] @ (Utils.inv_htm(Q06) @ np.array([0.0033009, -0.09643814,  0.32164165, 1]).reshape(-1, 1))]
-    list_mass = [0.740185285501933, 0.8489361778912677, 0.48326882919212083,
-                 0.43217459270218916, 0.43217590992539645, 0.6208313337899377]
     list_inertia_mat = []
 
-    # Icm + Steiner theorem (Inertia mat is in respect to DH frame)
-    list_inertia_mat.append(np.array([[1.066e-03,  0.000e+00,  3.800e-05], [0.000e+00,  1.038e-03, -0.000e+00], [
-                            3.800e-05, -0.000e+00,  5.400e-04]]) - list_mass[0] * Utils.S(com_coordinates[0].T) @ Utils.S(com_coordinates[0]))  # in world frame
-    list_inertia_mat.append(np.array([[0.014208, -0.000403, -0.000865], [-0.000403,  0.011765, -0.005182],
-                            [-0.000865, -0.005182,  0.003068]]) - list_mass[1] * Utils.S(com_coordinates[1].T) @ Utils.S(com_coordinates[1]))
-    # list_inertia_mat.append(np.array([[ 2.296e-03, -9.600e-05, -7.900e-05], [-9.600e-05,  8.140e-04, -1.189e-03], [-7.900e-05, -1.189e-03,  1.686e-03]])) # NOT POSITIVE DEF.
-    list_inertia_mat.append(np.array([[0.002, -0., -0.], [-0., 0.001, -0.001], [-0., -
-                            0.001,  0.002]]) - list_mass[2] * Utils.S(com_coordinates[2].T) @ Utils.S(com_coordinates[2]))
-    list_inertia_mat.append(np.array([[3.03e-04,  0.00e+00, -0.00e+00], [0.00e+00,  3.05e-04, -3.00e-06],
-                            [-0.00e+00, -3.00e-06,  1.97e-04]]) - list_mass[3] * Utils.S(com_coordinates[3].T) @ Utils.S(com_coordinates[3]))
-    list_inertia_mat.append(np.array([[3.03e-04, -0.00e+00, -0.00e+00], [-0.00e+00,  2.64e-04, -5.20e-05],
-                            [-0.00e+00, -5.20e-05,  2.39e-04]]) - list_mass[4] * Utils.S(com_coordinates[4].T) @ Utils.S(com_coordinates[4]))
-    list_inertia_mat.append(np.array([[1.731e-03, -5.300e-05, -6.400e-05], [-5.300e-05,  1.822e-03, -3.500e-05],
-                            [-6.400e-05, -3.500e-05,  1.079e-03]]) - list_mass[5] * Utils.S(com_coordinates[5].T) @ Utils.S(com_coordinates[5]))
+    if thesis_parameters:
+        # Use parameters in MENDES, M. P. Computed torque-control of the Kinova JACO2 Arm. 2017
+        list_mass = [0.767664, 0.99571300239, 0.79668391394,
+                    0.41737, 0.41737, 1.07541]
+        I1 = np.array([[0.002231083822876,  0.000006815637176,  -0.000019787600863], 
+                       [0,  0.000620733840723, -0.000306288710418], 
+                       [0, 0,  0.002398007441187]])
+        I1 = np.triu(I1, 1).T + I1
+        list_inertia_mat.append(I1)
+        I2 = np.array([[0.004162524943115,  -0.000000552736891,  -0.001487468585390], 
+                       [0,  0.025495429281017, -0.000000277011102], 
+                       [0, 0,  0.021736935450151]])
+        I2 = np.triu(I2, 1).T + I2
+        list_inertia_mat.append(I2)
+        I3 = np.array([[0.002861254222538,  0.000000402773293,  0.000000566406981], 
+                       [0,  0.002738656386387, -0.000344659168888], 
+                       [0, 0,  0.000351242752544]])
+        I3 = np.triu(I3, 1).T + I3
+        list_inertia_mat.append(I3)
+        I4 = np.array([[0.708476728234e-3,  0.008271643300e-3,  0.112833961462e-3], 
+                       [0,  0.740496291632e-3, 0.000494273498e-3], 
+                       [0, 0,  0.178193295188e-3]])
+        I4 = np.triu(I4, 1).T + I4
+        list_inertia_mat.append(I4)
+        I5 = np.array([[0.827477604255e-3,  0.008281078147e-3,  -0.101690165377e-3], 
+                       [0,  0.852081770282e-3, -0.000054222717e-3], 
+                       [0, 0,  0.170777897817e-3]])
+        I5 = np.triu(I5, 1).T + I5
+        list_inertia_mat.append(I5)
+        I6 = np.array([[0.004833755945304,  0.000004331179432,  0.000361596139440], 
+                       [0,  0.004841503493061, -0.000002455131406], 
+                       [0, 0,  0.000199821519482]])
+        I6 = np.triu(I6, 1).T + I6
+        list_inertia_mat.append(I6)
+        
+    else:
+        # Use parameters obtained through trimesh
+        list_mass = [0.740185285501933, 0.8489361778912677, 0.48326882919212083,
+                    0.43217459270218916, 0.43217590992539645, 0.6208313337899377]
+        
+
+        # Icm + Steiner theorem (Inertia mat is in respect to DH frame)
+        list_inertia_mat.append(np.array([[1.066e-03,  0.000e+00,  3.800e-05], [0.000e+00,  1.038e-03, -0.000e+00], [
+                                3.800e-05, -0.000e+00,  5.400e-04]]) - list_mass[0] * Utils.S(com_coordinates[0].T) @ Utils.S(com_coordinates[0]))  # in world frame
+        list_inertia_mat.append(np.array([[0.014208, -0.000403, -0.000865], [-0.000403,  0.011765, -0.005182],
+                                [-0.000865, -0.005182,  0.003068]]) - list_mass[1] * Utils.S(com_coordinates[1].T) @ Utils.S(com_coordinates[1]))
+        # list_inertia_mat.append(np.array([[ 2.296e-03, -9.600e-05, -7.900e-05], [-9.600e-05,  8.140e-04, -1.189e-03], [-7.900e-05, -1.189e-03,  1.686e-03]])) # NOT POSITIVE DEF.
+        list_inertia_mat.append(np.array([[0.002, -0., -0.], [-0., 0.001, -0.001], [-0., -
+                                0.001,  0.002]]) - list_mass[2] * Utils.S(com_coordinates[2].T) @ Utils.S(com_coordinates[2]))
+        list_inertia_mat.append(np.array([[3.03e-04,  0.00e+00, -0.00e+00], [0.00e+00,  3.05e-04, -3.00e-06],
+                                [-0.00e+00, -3.00e-06,  1.97e-04]]) - list_mass[3] * Utils.S(com_coordinates[3].T) @ Utils.S(com_coordinates[3]))
+        list_inertia_mat.append(np.array([[3.03e-04, -0.00e+00, -0.00e+00], [-0.00e+00,  2.64e-04, -5.20e-05],
+                                [-0.00e+00, -5.20e-05,  2.39e-04]]) - list_mass[4] * Utils.S(com_coordinates[4].T) @ Utils.S(com_coordinates[4]))
+        list_inertia_mat.append(np.array([[1.731e-03, -5.300e-05, -6.400e-05], [-5.300e-05,  1.822e-03, -3.500e-05],
+                                [-6.400e-05, -3.500e-05,  1.079e-03]]) - list_mass[5] * Utils.S(com_coordinates[5].T) @ Utils.S(com_coordinates[5]))
 
     links = []
     for i in range(n):
@@ -218,9 +244,9 @@ def _create_jaco(name='jaco_robot', color='#3e3f42', opacity=1):
     return links, base_3d_obj, htm_base_0, htm_n_eef, q0, joint_limits
 
 
-def create_jaco2(name='jaco_robot', opacity=1):
+def create_jaco2(name='jaco_robot', opacity=1, thesis_parameters=False):
     links, base_3d_obj, htm_base_0, htm_n_eef, q0, joint_limits = _create_jaco(
-        name=name, opacity=opacity)
+        name=name, opacity=opacity, thesis_parameters=thesis_parameters)
     jaco = rb.Robot(name=name, links=links, list_base_3d_obj=base_3d_obj, htm=np.identity(4),
                     htm_base_0=htm_base_0, htm_n_eef=htm_n_eef, q0=q0, eef_frame_visible=True, joint_limits=joint_limits)
     return jaco
