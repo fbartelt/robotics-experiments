@@ -70,11 +70,12 @@ def _groupdict_ravel(group_dict: dict) -> dict:
     return dict_new
 
 def _array2file(file_path: str, arr: np.ndarray) -> None:
-    with open(file_path, 'a') as file:
-        file.write(str(arr))
-        file.write('\n')
+    if not file_path is None:
+        with open(file_path, 'a') as file:
+            file.write(str(arr))
+            file.write('\n')
 
-def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', ignore: list = [], group_also: list = [[]]) -> None:
+def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', ignore: list = [], group_also: list = [[]], file_path: str | None = None) -> None:
     """Calculates mass, center of mass and inertia tensors for models composed
     of multiple parts. Inertia tensors are given in respect to the center of
     mass of the model.
@@ -90,17 +91,19 @@ def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', 
     extension: str
         the models file extension
     ignore: list
-        list of files to ignore (without extension)
+        list of models to ignore (without extension)
     group_also: list of list
-        list of non-trivial groups, e.g. [['foo', 'bar'], ['fizz', 'buzz']].
+        List of non-trivial groups represented as lists of models. 
+        Example: [['foo', 'bar'], ['fizz', 'buzz']].
         The comparison for these groups are handled by regex, so if there's some
         pattern, it is possible to use it instead of the complete file name
+    file_path: str
+        Path to the file to write results. If None, results are only printed.
     """
     groups = group_parts(path=path, ignore=ignore, group_also=group_also)
     densities = _groupdict_ravel(densities)
     mass_list, com_list, tensor_list = [], [], []
-    # model_mesh = tm.creation.axis(origin_size=0.02)
-    file_path = './test.txt'
+    # file_path = './test.txt'
     scene = tm.Scene(tm.creation.axis(origin_size=0.02))
     for i, group in enumerate(groups):   
         print(f'Group {i}: ', group)
@@ -111,14 +114,11 @@ def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', 
         for part in group:
             full_path = os.path.join(path, part + '.' + extension.lstrip('.'))
             mesh = tm.load_mesh(full_path, file_type=extension.lstrip('.'))
-            # model_mesh = tm.util.concatenate([model_mesh, mesh])
             scene.add_geometry(mesh)
             mesh.density = densities[part]
             props = mesh.mass_properties
             mass += props.mass
             com += props.center_mass * props.mass
-            # print(props.mass, np.round(props.center_mass, 6), np.round(props.inertia, 6))
-        # print(f'Mass: {mass}\nCenter Of Mass: {com}')
         com /= mass
         mass_list.append(mass)
         com_list.append(com)
@@ -142,25 +142,26 @@ def get_inertial_parameters(path: str, densities: dict, extension: str = 'obj', 
     
     return mass_list, com_list, tensor_list, scene
 
-densities = {1200:['finger1_mounting', 'finger1_distal', 'finger1_proximal', 
-                   'finger1_nail', 'finger1_proximal', 'finger2_mounting', 
-                   'finger2_distal', 'finger2_proximal', 'finger2_nail', 
-                   'finger2_proximal', 'thumb_mounting', 'thumb_distal', 
-                   'thumb_proximal', 'thumb_nail', 'thumb_proximal', 'handpalm', 
-                   'forearm_ring', 'shoulder_ring', 'upperarm_ring', 
-                   'wrist1_ring', 'wrist2_ring', 'base_ring'], 
-            1750:['base', 'forearm', 'gripper', 'shoulder', 'upperarm', 
-                  'wrist1', 'wrist2'], 
-            2710:['finger1_actuator','finger2_actuator', 'thumb_actuator', 
-                  'forearm_actuator', 'shoulder_actuator', 'upperarm_actuator', 
-                  'wrist1_actuator', 'wrist2_actuator', 'base_actuator']}
+if __name__ == '__main__':
+    densities = {1200:['finger1_mounting', 'finger1_distal', 'finger1_proximal', 
+                    'finger1_nail', 'finger1_proximal', 'finger2_mounting', 
+                    'finger2_distal', 'finger2_proximal', 'finger2_nail', 
+                    'finger2_proximal', 'thumb_mounting', 'thumb_distal', 
+                    'thumb_proximal', 'thumb_nail', 'thumb_proximal', 'handpalm', 
+                    'forearm_ring', 'shoulder_ring', 'upperarm_ring', 
+                    'wrist1_ring', 'wrist2_ring', 'base_ring'], 
+                1750:['base', 'forearm', 'gripper', 'shoulder', 'upperarm', 
+                    'wrist1', 'wrist2'], 
+                2710:['finger1_actuator','finger2_actuator', 'thumb_actuator', 
+                    'forearm_actuator', 'shoulder_actuator', 'upperarm_actuator', 
+                    'wrist1_actuator', 'wrist2_actuator', 'base_actuator']}
 
-mass_list, com_list, tensor_list, model_mesh = get_inertial_parameters('models/jaco', densities=densities, ignore=['hand3fingers'], group_also=[['handpalm', 'gripper', 'finger', 'thumb']])
-# mass_list, com_list, tensor_list = get_inertial_parameters('models', {1750:['l1', 'l2']})
-# mesh = tm.load_mesh('models/jaco/shoulder.obj', file_type='obj')
-# mesh2 = tm.load_mesh('models/l1.obj', file_type='obj')
-# print(mesh.moment_inertia)
-# %%
-model_mesh.show(viewer='gl')
+    mass_list, com_list, tensor_list, model_mesh = get_inertial_parameters('models/jaco', densities=densities, ignore=['hand3fingers'], group_also=[['handpalm', 'gripper', 'finger', 'thumb']])
+    # mass_list, com_list, tensor_list = get_inertial_parameters('models', {1750:['l1', 'l2']})
+    # mesh = tm.load_mesh('models/jaco/shoulder.obj', file_type='obj')
+    # mesh2 = tm.load_mesh('models/l1.obj', file_type='obj')
+    # print(mesh.moment_inertia)
+
+    model_mesh.show(viewer='gl')
 
 # %%
