@@ -73,6 +73,10 @@ class Controller(ABC):
     def _update(self, *args, **kwargs):
         self.control(*args, **kwargs)
 
+class Trajectory(ABC):
+    """TODO"""
+    pass
+
 class PseudoInverseController(Controller):
     """Pseudo Inverse Controller.
      output = -K * pinv(J) * x, where x is the map of the states.
