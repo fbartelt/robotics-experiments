@@ -4,6 +4,7 @@ from IPython.display import display, clear_output, Latex
 import numpy as np
 from numpy import pi
 from functools import reduce
+import pickle
 
 
 def translation_htm(vector: sp.Matrix) -> sp.Matrix:
@@ -230,7 +231,9 @@ def christoffel(M: sp.Matrix, q: list | sp.Matrix) -> dict:
     n = len(q)
     cijk = {}
     for k in range(n):
+        print(f'c**{k+1}')
         for i in range(n):
+            print(f'c{i+1}*{k+1}')
             for j in range(0, i + 1):
                 c = sp.trigsimp(
                     0.5 * (M[k, j].diff(q[i]) + M[k, i].diff(q[j]) - M[i, j].diff(q[k]))
@@ -312,8 +315,10 @@ def dynamic_model(
         G += sp.trigsimp(mass_list[i] * gravity * grad.T, inverse=True)
         G = fracsimp(G, tolerance_nsimp)
 
-    M = fracsimp(sp.simplify(M), tolerance_nsimp)
-    G = fracsimp(sp.simplify(G), tolerance_nsimp)
+    # M = fracsimp(sp.trigsimp(M), tolerance_nsimp)
+    M = fracsimp(M, tolerance_nsimp)
+    # G = fracsimp(sp.trigsimp(G), tolerance_nsimp)
+    G = fracsimp(G, tolerance_nsimp)
 
     # Get C
     cijk = christoffel(M, q)
@@ -499,9 +504,12 @@ M, C, G = dynamic_model(
     inertia_list,
     com_coords,
     height_axis=2,
-    gravity=9.81,
+    gravity=g0,
     tolerance_nsimp=1e-6,
 )
+
+with open('/home/fbartelt/Documents/Projetos/robotics-experiments/dynmodel.pkl', 'wb') as f:  # open a text file
+    pickle.dump((M, C, G), f, protocol=pickle.HIGHEST_PROTOCOL) # serialize the list
 
 #%%
 """Compare analytic with numeric"""
