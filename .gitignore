@@ -162,4 +162,5 @@ cython_debug/
 *.pdf
 *.png
 *.blend
+*.blend1
 jjj/
