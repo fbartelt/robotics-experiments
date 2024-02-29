@@ -29,7 +29,7 @@ def progress_bar(i, imax):
 def psbf(z, epsilon):
     return np.linalg.norm(z) / (epsilon - np.linalg.norm(z))
 
-
+#%%
 """Vector Field + Lyapunov Redesign (Mass uncertainty + disturbance) -- WORKING"""
 robot = create_jaco2(thesis_parameters=True)
 light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
@@ -171,6 +171,199 @@ for i in range(1, imax):
     q = robot.q + qdot * dt
     # qdot = qdot + qddot * dt
     qdot = np.clip(qdot + qddot * dt, -qdot_limits, qdot_limits)
+    robot.add_ani_frame(time=i*dt, q=q)
+    # traj.add_ani_frame(time=i*dt, initial_ind=maxtheta*i, final_ind=maxtheta*(i+1))
+    nearest_point.add_ani_frame(time=i*dt, htm=Utils.trn(vf.nearest_points[-1]))
+
+    hist_time.append(i * dt)
+    hist_q = np.block([hist_q, robot.q])
+    hist_peef = np.block([hist_peef, p_eef])
+    # hist_vf = np.block([hist_vf, target[0:3]])
+    hist_qdot = np.block([hist_qdot, qdot])
+    hist_qdot_des = np.block([hist_qdot_des, qdot_des])
+    hist_qddot = np.block([hist_qddot, qddot])
+    hist_qddot_des = np.block([hist_qddot_des, qddot_des])
+    hist_torque = np.block([hist_torque, torque])
+    # hist_cond_J.append(np.linalg.cond(jac_target))
+    # hist_cond_Jdot.append(np.linalg.cond(Jdot))
+    hist_x = np.block([hist_x, x])
+
+sim.run()
+# hist_vf = np.array(hist_vf)
+hist_peef = np.array(hist_peef)
+# fig = vector_field_plot(hist_peef, hist_vf, add_lineplot=True, sizemode="absolute", sizeref=2.5, anchor='tail')
+# fig.write_image("figures/vectorfield.pdf")
+# fig.show()
+fig=px.line(np.linalg.norm(hist_x, axis=0).T, title='|x|')
+# fig.write_image("figures/histx.pdf")
+fig.show()
+fig=px.line(np.linalg.norm(hist_qdot-hist_qdot_des, axis=0).T, title='|dq/dt - dq<sub>des</sub>/dt|')
+fig.show()
+# fig.write_image("figures/qdoterrNorm.pdf")
+fig=px.line(np.abs(hist_qdot-hist_qdot_des).T, title='abs(dq/dt - dq<sub>des</sub>/dt)')
+# fig.write_image("figures/qdoterr.pdf")
+fig.show()
+fig=px.line(np.abs(hist_peef-np.array(vf.nearest_points).reshape(-1, 3).T).T, title='|p<sub>eef</sub> - x*|')
+fig.show()
+# fig=px.line(hist_cond_J, title='J condition number')
+# fig.show()
+# fig=px.line(hist_cond_Jdot, title=r'\dot{J} condition number')
+# fig.show()
+
+
+# %%
+"""Vector Field + Adaptive Lyapunov Redesign (Mass uncertainty + disturbance) -- UNDER DEVELOPMENT"""
+robot = create_jaco2(thesis_parameters=True)
+light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
+light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
+light3 = PointLight(name="light3", color="white", intensity=2.5, htm=Utils.trn([ 1,-1, 1.5]))
+light4 = PointLight(name="light4", color="white", intensity=2.5, htm=Utils.trn([ 1, 1, 1.5]))
+sim = Simulation.create_sim_grid([robot])#, light1, light2, light3, light4])
+sim.set_parameters(width=800, height=600, ambient_light_intensity=4)
+
+n = len(robot.links)
+
+# Parametric equation definition
+maxtheta = 500
+def eq2(time=0):
+    ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with acceleration approx
+    ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
+    ## 0.5e-1, 0.025e1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
+    ## Above doesnt work with alpha=1
+    w1, w2, c1, c2, c3, h0 = 0.5e-1*0, 0.025e1*0, 0.6, 0.6, 0.3, 0.3
+    rotz = np.matrix([[np.cos(w1*time), -np.sin(w1*time), 0],
+                      [np.sin(w1*time), np.cos(w1*time), 0],
+                      [0, 0, 1]])
+    theta = np.linspace(0, 2 * np.pi, num=maxtheta)
+    curve = np.array([rotz @ np.array([c1*np.cos(s), c2*np.sin(s), h0 + c3*np.cos(w2*time)*np.cos(s)**2]).reshape(-1, 1) for s in theta]).reshape(3, -1)
+    curve = curve.reshape(-1, 3).T
+
+    return curve
+
+# Simulation parameters
+T = 5
+dt = 0.001
+imax = int(T/dt)
+small_limit = 0.62832 # 6rpm
+big_limit = 0.83776 # 8rpm
+qdot_limits = 10*np.array([[big_limit],[big_limit],[big_limit],[small_limit],[small_limit],[small_limit]])
+
+# Add trajectory and nearest point to simulation
+print('Creating point cloud')
+a = None
+for i in range(int(T/0.01)):
+    curve = eq2(i*dt)
+    if a is None:
+        a = curve
+    else:
+        a = np.hstack((a, curve))
+traj = PointCloud(name='traj', points=a, size=12, color='cyan')
+sim.add([traj])
+vf = VectorField(eq2, False, alpha=5, const_vel=1.5)
+nearest_point = Ball(name='nearest_point', radius=0.03, color='red', htm=Utils.trn([0, 0, 0]), opacity=0.7)
+sim.add([nearest_point])
+print('Done')
+
+#PD
+n = len(robot.links)
+A = np.block([[np.zeros((n, n)), np.eye(n)], [np.zeros((n, n)), np.zeros((n, n))]])
+B = np.block([[np.zeros((n, n))], [np.eye(n)]])
+# Q = 0.01*np.diag([30]*n + [30]*n)
+Q = np.diag([0.1]*n + [30]*n)
+R = np.eye(n)
+P = solve_continuous_are(A, B, Q, R)
+K = np.linalg.inv(R) @ B.T @ P
+Kp, Kd = np.split(K, 2, axis=1)
+
+A_lyap = np.block([[np.zeros((n, n)), np.eye(n)], [-Kp, -Kd]])
+# A_lyap = np.block([[-K], [np.block([np.eye(n), np.zeros((n, n))])]])
+Q_lyap = -np.eye(2*n)
+P_lyap = solve_continuous_lyapunov(A_lyap, Q_lyap)
+
+# Initializations
+q_des = np.array([[ 0.7262458 ], [ 1.61760955], [ 0.11582987], [-1.14679451], [ 2.16399157], [ 2.76812822]])
+q = robot.q.copy()
+qdot = np.zeros((n, 1))
+qdot_des = np.zeros((n, 1))
+qdot = np.zeros((n, 1))
+L = np.eye(2)
+xi = np.diag([1, 1e-2])
+epsilon=1e-2
+l = 10
+b0 = np.array([[7], [850]]) # 6.55737195, 854.96277489
+rho0 = 110
+b = b0
+rho = rho0
+
+# Plot-related
+hist_time = []
+hist_qdot = np.matrix(np.zeros((n, 0)))
+hist_qdot_des = np.matrix(np.zeros((n,0)))
+hist_qddot = np.matrix(np.zeros((n,0)))
+hist_qddot_des = np.matrix(np.zeros((n,0)))
+hist_q = np.matrix(np.zeros((n,0)))
+hist_error_ori = np.matrix(np.zeros((n,0)))
+hist_peef = np.zeros((3, 0))
+hist_vf = np.zeros((3, 0))
+hist_cond_J = []
+hist_cond_Jdot = [] 
+hist_x = np.matrix(np.zeros((2*n,0)))
+hist_torque = np.matrix(np.zeros((n, 0)))
+
+for i in range(1, imax):
+    progress_bar(i, imax)
+    # Vector Field related
+    jac_eef, htm_eef = robot.jac_geo()
+    p_eef = htm_eef[0:3, 3]
+    target = np.matrix(np.zeros((3, 1)))
+    target[0:3] = vf(p_eef, i*dt)
+    jac_target = np.matrix(np.zeros((3, n)))
+    jac_target[0:3, :] = jac_eef[0:3, :]
+    qdot_des = np.linalg.pinv(jac_target) @ target
+    q_des = q + dt*qdot_des
+    a_des = vf.acceleration(p_eef, jac_target @ qdot, i*dt)
+    Jdot = dot_J(robot, qdot, q)[:3, :]
+    qddot_des = np.linalg.pinv(jac_target) @ (a_des - Jdot @ qdot)
+
+    if i >= 1.2/dt:
+        disturbance = 1e-1 * np.ones((n, 1))
+        if i>= 4/dt:
+            disturbance = np.sin(0.2*i*dt) * disturbance
+    else:
+        disturbance = np.zeros((n, 1))
+    
+    # Lyapunov Redesign related
+    x = np.block([[q - q_des], [qdot - qdot_des], ])
+    w = B.T @ P @ x
+    w_norm = np.linalg.norm(w)
+    K = np.block([Kp, Kd])
+    kappa = np.block([[1], [np.linalg.norm(x)]])
+    gamma = (kappa.T @ b).item()
+    alpha = 0.2 # 0.1
+
+    if w_norm >= epsilon:
+        delta_v = -w - gamma * w / w_norm - rho * w / (w_norm ** 2)
+    else:
+        delta_v = -psbf(w, epsilon) * (w / w_norm)
+    
+    M_, C_, G_ = robot.dyn_model(q, qdot)
+    # M = np.eye(6) * 2/((1/0.1640573139501184) + (1/1.4397118507671303))
+    rng = np.random.default_rng()
+    M = (1 + alpha) * M_ #1.1
+    
+    v = qddot_des -Kp @ (q - q_des) - Kd @ (qdot - qdot_des) + delta_v
+    torque = C_ + G_ + (M_ @ v )
+    # eta = np.linalg.inv(M) @ ((M_ - M) @ v + (C_ - C) + (G_ - G) + disturbance)
+    eta = np.linalg.inv(M) @ ((M_ - M) @ v + disturbance)
+    qddot = v + eta
+    bdot = L @ (kappa * w_norm - xi @ b)
+    rhodot = l - rho
+
+    q = robot.q + qdot * dt
+    # qdot = qdot + qddot * dt
+    qdot = np.clip(qdot + qddot * dt, -qdot_limits, qdot_limits)
+    b = b + bdot * dt
+    rho = rho + rhodot * dt
     robot.add_ani_frame(time=i*dt, q=q)
     # traj.add_ani_frame(time=i*dt, initial_ind=maxtheta*i, final_ind=maxtheta*(i+1))
     nearest_point.add_ani_frame(time=i*dt, htm=Utils.trn(vf.nearest_points[-1]))
