@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.figure_factory as ff
+import pickle
 
 sys.path.insert(1, "/home/fbartelt/Documents/UFMG/TCC/Sim/uaibot")
 import uaibot as ub
@@ -187,6 +188,20 @@ for i in range(1, imax):
     # hist_cond_J.append(np.linalg.cond(jac_target))
     # hist_cond_Jdot.append(np.linalg.cond(Jdot))
     hist_x = np.block([hist_x, x])
+
+# # with open('data_computedtorque.pkl', 'wb') as f:
+# #     data = {'hist_time': hist_time, 
+# #             'hist_qdot': hist_qdot, 
+# #             'hist_qdot_des': hist_qdot_des, 
+# #             'hist_qddot': hist_qddot, 
+# #             'hist_qddot_des': hist_qddot_des, 
+# #             'hist_q': hist_q, 
+# #             'hist_peef': hist_peef, 
+# #             'hist_x': hist_x, 
+# #             'hist_torque': hist_torque,
+# #             'nearest_points': vf.nearest_points}
+# #     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+# # sim.save('figures', 'computed_torque')
 
 sim.run()
 # hist_vf = np.array(hist_vf)
@@ -383,6 +398,21 @@ for i in range(1, imax):
     # hist_cond_Jdot.append(np.linalg.cond(Jdot))
     hist_x = np.block([hist_x, x])
 
+
+# Save data and simulation
+# # with open('data_adaptive_lyap.pkl', 'wb') as f:
+# #     data = {'hist_time': hist_time, 
+# #             'hist_qdot': hist_qdot, 
+# #             'hist_qdot_des': hist_qdot_des, 
+# #             'hist_qddot': hist_qddot, 
+# #             'hist_qddot_des': hist_qddot_des, 
+# #             'hist_q': hist_q, 
+# #             'hist_peef': hist_peef, 
+# #             'hist_x': hist_x, 
+# #             'hist_torque': hist_torque,
+# #             'nearest_points': vf.nearest_points}
+# #     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+# # sim.save('figures', 'cbf_adaptive_lyap')
 sim.run()
 # hist_vf = np.array(hist_vf)
 hist_peef = np.array(hist_peef)
@@ -404,4 +434,44 @@ fig.show()
 # fig.show()
 # fig=px.line(hist_cond_Jdot, title=r'\dot{J} condition number')
 # fig.show()
+# %%
+import pickle
+import plotly.express as px
+import numpy as np
+
+with open('data_computedtorque.pkl', 'rb') as f:
+    data_computedtorque = pickle.load(f)
+with open('data_adaptive_lyap.pkl', 'rb') as f:
+    data_adaptive_lyap = pickle.load(f)
+with open('data_lyap_redesign.pkl', 'rb') as f:
+    data_lyap_redesign = pickle.load(f)
+
+def plot_all(data):
+    hist_time = data['hist_time']
+    hist_qdot = data['hist_qdot']
+    hist_qdot_des = data['hist_qdot_des']
+    hist_qddot = data['hist_qddot']
+    hist_qddot_des = data['hist_qddot_des']
+    hist_q = data['hist_q']
+    hist_peef = data['hist_peef']
+    hist_x = data['hist_x']
+    hist_torque = data['hist_torque']
+    nearest_points = data['nearest_points']
+
+    fig=px.line(np.linalg.norm(hist_x, axis=0).T, title='||x||')
+    fig.show()
+    fig=px.line(hist_qdot_des.T, title='dq<sub>des</sub>/dt')
+    fig.show()
+    fig=px.line((hist_qdot).T, title='dq/dt')
+    fig.show()
+    fig=px.line(hist_qddot_des.T, title='d<sup>2</sup>q<sub>des</sub>/dt<sup>2</sup>')
+    fig.show()
+    fig=px.line((hist_qddot).T, title='d<sup>2</sup>q/dt<sup>2</sup>')
+    fig.show()
+    fig=px.line(np.abs(np.array(hist_peef)-np.array(nearest_points).reshape(-1, 3).T).T, title='|p<sub>eef</sub> - x*|')
+    fig.show()
+    fig=px.line(hist_torque.T, title='Torque')
+    fig.show()
+
+plot_all(data_adaptive_lyap)
 # %%
