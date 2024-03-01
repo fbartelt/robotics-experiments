@@ -212,7 +212,9 @@ fig.show()
 
 
 # %%
-"""Vector Field + Adaptive Lyapunov Redesign (Mass uncertainty + disturbance) -- UNDER DEVELOPMENT"""
+"""Vector Field + Adaptive Lyapunov Redesign (Mass uncertainty + disturbance) -- UNDER DEVELOPMENT
+||peef - x|| <= 0.09 em t=4.202s para os parametros do commit anterior
+||peef - x|| <= 0.07 em t≃3.8s para xi = np.diag([5e-1, 1e-2]) aumentar o primeiro termo p 7e-1 piora"""
 robot = create_jaco2(thesis_parameters=True)
 light1 = PointLight(name="light1", color="white", intensity=2.5, htm=Utils.trn([-1,-1, 1.5]))
 light2 = PointLight(name="light2", color="white", intensity=2.5, htm=Utils.trn([-1, 1, 1.5]))
@@ -287,7 +289,7 @@ qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
 L = np.eye(2)
-xi = np.diag([1, 1e-2])
+xi = np.diag([5e-1, 1e-2])
 epsilon=1e-2
 l = 10
 b0 = np.array([[7], [850]]) # 6.55737195, 854.96277489
@@ -396,7 +398,7 @@ fig.show()
 fig=px.line(np.abs(hist_qdot-hist_qdot_des).T, title='abs(dq/dt - dq<sub>des</sub>/dt)')
 # fig.write_image("figures/qdoterr.pdf")
 fig.show()
-fig=px.line(np.abs(hist_peef-np.array(vf.nearest_points).reshape(-1, 3).T).T, title='|p<sub>eef</sub> - x*|')
+fig=px.line(np.linalg.norm(hist_peef-np.array(vf.nearest_points).reshape(-1, 3).T, axis=0).T, title='|p<sub>eef</sub> - x*|')
 fig.show()
 # fig=px.line(hist_cond_J, title='J condition number')
 # fig.show()
