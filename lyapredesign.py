@@ -467,13 +467,15 @@ for i in range(1, imax):
     )
     w = B.T @ P @ x
     w_norm = np.linalg.norm(w)
+    w_bar = B.T @ P @ B @ w
+    w_bar_norm = np.linalg.norm(w_bar)
     K = np.block([Kp, Kd])
     kappa = np.block([[1], [np.linalg.norm(x)]])
     gamma = (kappa.T @ b).item()
     alpha = 0.2  # 0.1
 
     if w_norm >= (epsilon / 2):
-        delta_v = -w - gamma * w / w_norm - rho * w / (w_norm**2)
+        delta_v = -w_bar - gamma * w_bar / w_bar_norm - rho * w_bar / (w_bar_norm**2)
         hist_psbf.append(False)
     else:
         delta_v = -psbf(w, epsilon) * (w / w_norm)
@@ -489,7 +491,7 @@ for i in range(1, imax):
     # eta = np.linalg.inv(M) @ ((M_ - M) @ v + (C_ - C) + (G_ - G) + disturbance)
     eta = np.linalg.inv(M) @ ((M_ - M) @ v + disturbance)
     qddot = v + eta
-    bdot = L @ (kappa * w_norm - xi @ b)
+    bdot = L @ (kappa * w_bar_norm - xi @ b)
     rhodot = l - rho
 
     q = robot.q + qdot * dt
