@@ -405,9 +405,10 @@ q = robot.q.copy()
 qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-L = np.eye(2) * 2
-xi = np.diag([5e-1, 1e-2])
-epsilon = 0.3  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
+ratio = 10
+L = np.eye(2) * ratio
+xi = np.diag([1, 1]) / ratio
+epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
 l = 10
 b0 = np.array([[7], [850]])  # 6.55737195, 854.96277489
 rho0 = 110
@@ -430,6 +431,8 @@ hist_x = np.matrix(np.zeros((2 * n, 0)))
 hist_torque = np.matrix(np.zeros((n, 0)))
 hist_v = np.matrix(np.zeros((n, 0)))
 hist_eta = np.matrix(np.zeros((n, 0)))
+hist_b = np.matrix(np.zeros((2, 0)))
+hist_rho = []
 hist_psbf = []
 
 for i in range(1, imax):
@@ -517,6 +520,8 @@ for i in range(1, imax):
     hist_x = np.block([hist_x, x])
     hist_v = np.block([hist_v, v])
     hist_eta = np.block([hist_eta, eta])
+    hist_b = np.block([hist_b, b])
+    hist_rho.append(rho)
 
 
 # Save data and simulation
