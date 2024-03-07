@@ -294,7 +294,17 @@ fig.show()
 # %%
 """Vector Field + Adaptive Lyapunov Redesign (Mass uncertainty + disturbance) -- UNDER DEVELOPMENT
 ||peef - x|| <= 0.09 em t=4.202s para os parametros do commit anterior
-||peef - x|| <= 0.07 em t≃3.8s para xi = np.diag([5e-1, 1e-2]) aumentar o primeiro termo p 7e-1 piora"""
+||peef - x|| <= 0.07 em t≃3.8s para xi = np.diag([5e-1, 1e-2]) aumentar o primeiro termo p 7e-1 piora
+
+i=1200: ||x|| = 0.51,   i=1596  ||x|| = 0.156
+ratio = 500
+L = np.diag([0.1, 0.1, 1]) * ratio
+xi = np.diag([0.01, 0.1, 0.01]) / ratio
+epsilon = 0.035 
+l = 10
+b0 = np.array([[0], [0], [0]])  # 7, 850
+rho0 = 11
+"""
 robot = create_jaco2(thesis_parameters=True)
 light1 = PointLight(
     name="light1", color="white", intensity=2.5, htm=Utils.trn([-1, -1, 1.5])
@@ -322,7 +332,7 @@ def eq2(time=0):
     ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## 0.5e-1, 0.025e1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## Above doesnt work with alpha=1
-    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.6, 0.6, 0.3, 0.3
+    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.5, 0.5, 0.3*0, 0.3
     rotz = np.matrix(
         [
             [np.cos(w1 * time), -np.sin(w1 * time), 0],
@@ -348,6 +358,28 @@ def eq2(time=0):
 
     return curve
 
+def configspacetest(t):
+    omega = 2*np.pi/5
+    q_des = 1e-1 * np.array([3*np.sin(omega * t) + np.pi, 
+                      2*np.sin(omega * t) + np.pi,
+                      0*2*np.sin(omega * t) + np.pi,
+                      0*2*np.sin(omega * t) + np.pi,
+                      0*-0.5*np.sin(omega * t),
+                      0*1.5*np.sin(omega * t) + np.pi/2,]).reshape(-1, 1)
+    qdot_des = 1e-1 * np.array([3*omega*np.cos(omega * t),
+                            2*omega*np.cos(omega * t),
+                            0*2*omega*np.cos(omega * t),
+                            0*2*omega*np.cos(omega * t),
+                            0*-0.5*omega*np.cos(omega * t),
+                            0*1.5*omega*np.cos(omega * t)]).reshape(-1, 1)
+    qddot_des = 1e-1 * np.array([-3*omega**2*np.sin(omega * t),
+                            0*-2*omega**2*np.sin(omega * t),
+                            0*-2*omega**2*np.sin(omega * t),
+                            0*-2*omega**2*np.sin(omega * t),
+                            0*0.5*omega**2*np.sin(omega * t),
+                            0*-1.5*omega**2*np.sin(omega * t)]).reshape(-1, 1)
+
+    return q_des, qdot_des, qddot_des
 
 # Simulation parameters
 T = 5
@@ -370,7 +402,7 @@ for i in range(1):
         a = np.hstack((a, curve))
 traj = PointCloud(name="traj", points=a, size=12, color="cyan")
 sim.add([traj])
-vf = VectorField(eq2, False, alpha=5, const_vel=1.5)
+vf = VectorField(eq2, False, alpha=5, const_vel=1.5, dt=dt)
 nearest_point = Ball(
     name="nearest_point",
     radius=0.03,
@@ -386,7 +418,7 @@ n = len(robot.links)
 A = np.block([[np.zeros((n, n)), np.eye(n)], [np.zeros((n, n)), np.zeros((n, n))]])
 B = np.block([[np.zeros((n, n))], [np.eye(n)]])
 # Q = 0.01*np.diag([30]*n + [30]*n)
-Q = np.diag([0.1] * n + [30] * n)
+Q = np.diag([1] * n + [30] * n)
 R = np.eye(n)
 P = solve_continuous_are(A, B, Q, R)
 K = np.linalg.inv(R) @ B.T @ P
@@ -398,20 +430,18 @@ Q_lyap = -np.eye(2 * n)
 P_lyap = solve_continuous_lyapunov(A_lyap, Q_lyap)
 
 # Initializations
-q_des = np.array(
-    [[0.7262458], [1.61760955], [0.11582987], [-1.14679451], [2.16399157], [2.76812822]]
-)
 q = robot.q.copy()
 qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-ratio = 10
-L = np.eye(2) * ratio
-xi = np.diag([1, 1]) / ratio
+ratio = 200
+L = np.diag([0.1, 0.1, 1]) * ratio
+xi = np.diag([0.01, 0.1, 0.01]) / ratio
 epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
+epsilon = 3
 l = 10
-b0 = np.array([[7], [850]])  # 6.55737195, 854.96277489
-rho0 = 110
+b0 = np.array([[0], [0], [0]])  # 7, 850
+rho0 = 11
 b = b0
 rho = rho0
 
@@ -422,6 +452,7 @@ hist_qdot_des = np.matrix(np.zeros((n, 0)))
 hist_qddot = np.matrix(np.zeros((n, 0)))
 hist_qddot_des = np.matrix(np.zeros((n, 0)))
 hist_q = np.matrix(np.zeros((n, 0)))
+hist_q_des = np.matrix(np.zeros((n, 0)))
 hist_error_ori = np.matrix(np.zeros((n, 0)))
 hist_peef = np.zeros((3, 0))
 hist_vf = np.zeros((3, 0))
@@ -431,7 +462,7 @@ hist_x = np.matrix(np.zeros((2 * n, 0)))
 hist_torque = np.matrix(np.zeros((n, 0)))
 hist_v = np.matrix(np.zeros((n, 0)))
 hist_eta = np.matrix(np.zeros((n, 0)))
-hist_b = np.matrix(np.zeros((2, 0)))
+hist_b = np.matrix(np.zeros((b0.shape[0], 0)))
 hist_rho = []
 hist_psbf = []
 
@@ -444,18 +475,17 @@ for i in range(1, imax):
     target[0:3] = vf(p_eef, i * dt)
     jac_target = np.matrix(np.zeros((3, n)))
     jac_target[0:3, :] = jac_eef[0:3, :]
+    # q_des, qdot_des, qddot_des = configspacetest(i * dt)
     qdot_des = np.linalg.pinv(jac_target) @ target
     q_des = q + dt * qdot_des
-    a_des = vf.acceleration(
-        p_eef, jac_target @ qdot_des, i * dt
-    )  # change qdot to qdot_des
+    a_des = vf.acceleration(p_eef, target, i * dt)  # change qdot to qdot_des
     Jdot = dot_J(robot, qdot, q)[:3, :]
     qddot_des = np.linalg.pinv(jac_target) @ (a_des - Jdot @ qdot)
 
-    if i >= 1.2 / dt:
-        disturbance = 1e-1 * np.ones((n, 1))
-        if i >= 4 / dt:
-            disturbance = np.sin(0.2 * i * dt) * disturbance
+    if i >= 1.2 / dt * 0:
+        disturbance = 1e-1 * np.ones((n, 1)) * np.cos(0.2 * i * dt)
+        # if i >= 4 / dt:
+        #     disturbance = np.sin(0.2 * i * dt - 4.8) * disturbance
         # if i>= 2.8/dt:
         #     disturbance = 0 * disturbance
     else:
@@ -473,11 +503,11 @@ for i in range(1, imax):
     w_bar = B.T @ P @ B @ w
     w_bar_norm = np.linalg.norm(w_bar)
     K = np.block([Kp, Kd])
-    kappa = np.block([[1], [np.linalg.norm(x)]])
+    kappa = np.block([[1], [np.linalg.norm(x)], [x.T @ x]])
     gamma = (kappa.T @ b).item()
     alpha = 0.2  # 0.1
 
-    if w_norm >= (epsilon / 2):
+    if w_norm > (epsilon / 2):
         delta_v = -w_bar - gamma * w_bar / w_bar_norm - rho * w_bar / (w_bar_norm**2)
         hist_psbf.append(False)
     else:
@@ -508,6 +538,7 @@ for i in range(1, imax):
 
     hist_time.append(i * dt)
     hist_q = np.block([hist_q, robot.q])
+    hist_q_des = np.block([hist_q_des, q_des])
     hist_peef = np.block([hist_peef, p_eef])
     # hist_vf = np.block([hist_vf, target[0:3]])
     hist_qdot = np.block([hist_qdot, qdot])
@@ -613,6 +644,9 @@ def plot_all(data):
 
 plot_all(data_lyap_redesign)
 # %%
+""" Runge Kutta modification
+"""
+
 robot = create_jaco2(thesis_parameters=True)
 light1 = PointLight(
     name="light1", color="white", intensity=2.5, htm=Utils.trn([-1, -1, 1.5])
@@ -640,7 +674,7 @@ def eq2(time=0):
     ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## 0.5e-1, 0.025e1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## Above doesnt work with alpha=1
-    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.6, 0.6, 0.3, 0.3
+    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.5, 0.5, 0.3*0, 0.3
     rotz = np.matrix(
         [
             [np.cos(w1 * time), -np.sin(w1 * time), 0],
@@ -675,8 +709,8 @@ def disturbance(t):
 
 
 # Simulation parameters
-T = 1
-dt = 0.001
+T = 10
+dt = 0.01
 imax = int(T / dt)
 small_limit = 0.62832  # 6rpm
 big_limit = 0.83776  # 8rpm
@@ -687,7 +721,7 @@ qdot_limits = 10 * np.array(
 n = len(robot.links)
 A_lqr = np.block([[np.zeros((n, n)), np.eye(n)], [np.zeros((n, n)), np.zeros((n, n))]])
 B_lqr = np.block([[np.zeros((n, n))], [np.eye(n)]])
-Q_lqr = np.diag([0.1] * n + [30] * n)
+Q_lqr = np.diag([1] * n + [30] * n)
 R_lqr = np.eye(n)
 P_lqr = solve_continuous_are(A_lqr, B_lqr, Q_lqr, R_lqr)
 K = np.linalg.inv(R_lqr) @ B_lqr.T @ P_lqr
@@ -697,6 +731,8 @@ A = np.block([[np.zeros((n, n)), np.eye(n)], [-Kp, -Kd]])
 B = B_lqr
 Q = -np.eye(2 * n)
 P = solve_continuous_lyapunov(A, Q)
+P = P_lqr
+B = B_lqr
 
 # Add trajectory and nearest point to simulation
 print("Creating point cloud")
@@ -724,20 +760,16 @@ q = robot.q.copy()
 qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-L = np.eye(2) * 2
-xi = np.diag([5e-1, 1e-2])
-epsilon = 0.3  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
-epsilon = (1**2) * (
-    np.min(np.linalg.eigvals(-Q))
-    * np.min(np.linalg.eigvals(P))
-    / np.max(np.linalg.eigvals(P))
-)
+ratio = 200
+L = np.diag([0.1, 0.1, 1]) * ratio
+xi = np.diag([0.01, 0.1, 0.01]) / ratio
+epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
+epsilon = 3
 l = 10
-b0 = np.array([[7], [850]])  # 6.55737195, 854.96277489
-rho0 = 110
+b0 = np.array([[0], [0], [0]])  # 7, 850
+rho0 = 11
 b = b0
 rho = rho0
-alpha = 0.2
 
 # Plot-related
 hist_time = []
@@ -755,7 +787,7 @@ hist_x = np.matrix(np.zeros((2 * n, 0)))
 hist_torque = np.matrix(np.zeros((n, 0)))
 hist_v = np.matrix(np.zeros((n, 0)))
 hist_eta = np.matrix(np.zeros((n, 0)))
-hist_b = np.matrix(np.zeros((2, 0)))
+hist_b = np.matrix(np.zeros((b0.shape[0], 0)))
 hist_rho = []
 hist_psbf = []
 
@@ -776,8 +808,8 @@ def closed_loop(
     global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf
     q = z[:n]
     qdot = z[n : 2 * n]
-    b = z[2 * n : 2 * n + 2]
-    rho = z[2 * n + 2].item()
+    b = z[2 * n : 2 * n + b0.shape[0]]
+    rho = z[-1].item()
     jac_eef, htm_eef = robot.jac_geo(q=q)
     p_eef = htm_eef[0:3, 3]
     target = vf(p_eef, t)
@@ -798,13 +830,16 @@ def closed_loop(
     M = (1 + alpha) * M_  # 1.1
     w = B.T @ P @ x
     w_norm = np.linalg.norm(w)
-    kappa = np.block([[1], [np.linalg.norm(x)]])
+    w_bar = B.T @ P @ B @ w
+    w_bar_norm = np.linalg.norm(w_bar)
+    K = np.block([Kp, Kd])
+    kappa = np.block([[1], [np.linalg.norm(x)], [x.T @ x]])
     gamma = (kappa.T @ b).item()
     alpha = 0.2  # 0.1
     psbf_active = False
 
-    if w_norm >= (epsilon / 2):
-        v = -w - gamma * w / w_norm - rho * w / (w_norm**2)
+    if w_norm > (epsilon / 2):
+        v = -w_bar - gamma * w_bar / w_bar_norm - rho * w_bar / (w_bar_norm**2)
     else:
         v = -psbf(w, epsilon) * (w / w_norm)
         psbf_active = True
@@ -847,7 +882,7 @@ for i in range(1, imax):
         closed_loop,
         t,
         z,
-        0.001,
+        dt,
         n=n,
         l=l,
         xi=xi,
@@ -859,8 +894,8 @@ for i in range(1, imax):
 
     q = z[:n]
     qdot = z[n : 2 * n]
-    b = z[2 * n : 2 * n + 2]
-    rho = z[2 * n + 2].item()
+    b = z[2 * n : 2 * n + b0.shape[0]]
+    rho = z[-1].item()
 
     robot.add_ani_frame(time=t, q=q)
     # nearest_point.add_ani_frame(time=t, htm=Utils.trn(vf.nearest_points[-1]))
@@ -877,4 +912,6 @@ for i in range(1, imax):
     # hist_v = np.block([hist_v, v])
     # hist_eta = np.block([hist_eta, eta])
 
+fig = px.line(np.linalg.norm(hist_qdot.T - hist_qdot_des.T, axis=1))
+fig.add_scatter(x=list(range(1000)), y=np.array(hist_psbf)*3, fill='tozeroy')
 # %%
