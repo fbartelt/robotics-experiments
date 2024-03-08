@@ -674,7 +674,7 @@ def eq2(time=0):
     ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## 0.5e-1, 0.025e1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
     ## Above doesnt work with alpha=1
-    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.5, 0.5, 0.3*0, 0.3
+    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.5, 0.5, 0.3, 0.3
     rotz = np.matrix(
         [
             [np.cos(w1 * time), -np.sin(w1 * time), 0],
@@ -702,10 +702,11 @@ def eq2(time=0):
 
 
 def disturbance(t):
-    if t >= 1.2:
-        return 1e-1 * np.ones((n, 1))
-    else:
-        return np.zeros((n, 1))
+    return 1e-1 * np.ones((n, 1)) * np.sin(0.8 * t)
+    # if t >= 1.2:
+    #     return 1e-1 * np.ones((n, 1))
+    # else:
+    #     return np.zeros((n, 1))
 
 
 # Simulation parameters
@@ -714,7 +715,7 @@ dt = 0.01
 imax = int(T / dt)
 small_limit = 0.62832  # 6rpm
 big_limit = 0.83776  # 8rpm
-qdot_limits = 10 * np.array(
+qdot_limits = 100 * np.array(
     [[big_limit], [big_limit], [big_limit], [small_limit], [small_limit], [small_limit]]
 )
 
@@ -764,7 +765,7 @@ ratio = 200
 L = np.diag([0.1, 0.1, 1]) * ratio
 xi = np.diag([0.01, 0.1, 0.01]) / ratio
 epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
-epsilon = 3
+epsilon = 0.34
 l = 10
 b0 = np.array([[0], [0], [0]])  # 7, 850
 rho0 = 11
@@ -805,7 +806,7 @@ def closed_loop(
     save_hist=False,
 ):
     """z=[q, qdot, b, rho]"""
-    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf
+    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf, hist_x
     q = z[:n]
     qdot = z[n : 2 * n]
     b = z[2 * n : 2 * n + b0.shape[0]]
@@ -864,6 +865,7 @@ def closed_loop(
         hist_qdot_des = np.block([hist_qdot_des, qdot_des])
         hist_qddot = np.block([hist_qddot, qddot])
         hist_qddot_des = np.block([hist_qddot_des, qddot_des])
+        hist_x = np.block([hist_x, x])
         hist_torque = np.block([hist_torque, torque])
         hist_cond_J.append(np.linalg.cond(jac_target))
         hist_v = np.block([hist_v, v])
@@ -887,7 +889,7 @@ for i in range(1, imax):
         l=l,
         xi=xi,
         epsilon=epsilon,
-        alpha=alpha,
+        alpha=0.2,
         L=L,
         disturbance=disturbance,
     )
@@ -906,12 +908,38 @@ for i in range(1, imax):
     hist_qdot = np.block([hist_qdot, qdot])
     # hist_qdot_des = np.block([hist_qdot_des, qdot_des])
     # hist_torque = np.block([hist_torque, torque])
-    hist_x = np.block([hist_x, np.block([[q], [qdot]])])
+    # hist_x = np.block([hist_x, np.block([[q], [qdot]])])
     hist_b = np.block([hist_b, b])
     hist_rho.append(rho)
     # hist_v = np.block([hist_v, v])
     # hist_eta = np.block([hist_eta, eta])
 
-fig = px.line(np.linalg.norm(hist_qdot.T - hist_qdot_des.T, axis=1))
+hist_peef = np.array(hist_peef)
+# fig = vector_field_plot(hist_peef, hist_vf, add_lineplot=True, sizemode="absolute", sizeref=2.5, anchor='tail')
+# fig.write_image("figures/vectorfield.pdf")
+# fig.show()
+fig = px.line(np.linalg.norm(hist_x, axis=0).T, title="|x|")
 fig.add_scatter(x=list(range(1000)), y=np.array(hist_psbf)*3, fill='tozeroy')
+# fig.write_image("figures/histx.pdf")
+fig.show()
+fig = px.line(
+    np.linalg.norm(hist_qdot - hist_qdot_des, axis=0).T,
+    title="|dq/dt - dq<sub>des</sub>/dt|",
+)
+fig.show()
+# fig.write_image("figures/qdoterrNorm.pdf")
+fig = px.line(
+    np.abs(hist_qdot - hist_qdot_des).T, title="abs(dq/dt - dq<sub>des</sub>/dt)"
+)
+# fig.write_image("figures/qdoterr.pdf")
+fig.show()
+fig = px.line(
+    np.linalg.norm(hist_peef - np.array(vf.nearest_points[::4]).reshape(-1, 3).T, axis=0).T,
+    title="|p<sub>eef</sub> - x*|",
+)
+fig.show()
+
+hist_w_norm = np.linalg.norm(np.array([B.T @ P @ x.T for x in hist_x.T]).reshape(-1, 6), axis=1)
+fig = px.line(hist_w_norm, title='||w||')
+fig.add_scatter(x=list(range(1000)), y=np.array(hist_psbf)*np.max(hist_w_norm), fill='tozeroy')
 # %%
