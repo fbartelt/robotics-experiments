@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
 from itertools import product
+from scipy.optimize import minimize_scalar, brute
 
 _INVHALFPI = 0.63660
 
@@ -213,7 +214,47 @@ class VectorField:
         sgn = const_vel / (abs_const_vel + 0.00001)
 
         return abs_const_vel * (fun_g * vec_n + sgn * fun_h * vec_t)
+    
+    def _compute_ntdgold(self, curve, p, store_points=True):
+        pr = np.array(p).reshape((3, 1))
 
+        # Define a function for distance calculation
+        def distance_function(t):
+            t = int(t)
+            if t < 0:
+                return np.inf
+            if t >= np.shape(curve)[1]:
+                return np.inf
+            return np.linalg.norm(pr - curve[:, t])
+
+        # Find the minimum of the distance function
+        # res = minimize_scalar(distance_function, bracket=(0, np.shape(curve)[1]), method='golden')
+        # Define the search ranges for each dimension (time)
+        ranges = (slice(0, np.shape(curve)[1], 1),)
+        
+        # Use scipy's brute-force optimizer to find the minimum
+        res = brute(distance_function, ranges, full_output=True, finish=None)
+        ind_min = int(res[0])
+        min_dist = res[1]
+        # ind_min = int(res.x)
+        # min_dist = res.fun
+
+        vec_n = curve[:, ind_min] - pr
+        vec_n = vec_n / (np.linalg.norm(vec_n) + 0.0001)
+
+        if ind_min == np.shape(curve)[1] - 1:
+            vec_t = curve[:, 1] - curve[:, ind_min]
+        else:
+            vec_t = curve[:, ind_min + 1] - curve[:, ind_min]
+
+        vec_t = vec_t / (np.linalg.norm(vec_t) + 0.0001)
+        
+        if store_points:
+            self._add_nearest_point(curve[:, ind_min])
+
+        return vec_n, vec_t, min_dist
+
+    # def _compute_ntd_nonoptimized(self, curve, p, store_points=True):
     def _compute_ntd(self, curve, p, store_points=True):
         min_dist = float("inf")
         ind_min = -1

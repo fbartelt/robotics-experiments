@@ -646,6 +646,7 @@ plot_all(data_lyap_redesign)
 # %%
 """ Runge Kutta modification
 """
+import cProfile
 
 robot = create_jaco2(thesis_parameters=True)
 light1 = PointLight(
@@ -668,41 +669,58 @@ n = len(robot.links)
 # Parametric equation definition
 maxtheta = 500
 
-
-def eq2(time=0):
-    ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with acceleration approx
-    ## 0.5e-1, 0.025e-1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
-    ## 0.5e-1, 0.025e1, 0.6, 0.6, 0.3, 0.3 works with analytic acceleration, Kd=50, const_vel=1, alpha=5
-    ## Above doesnt work with alpha=1
-    w1, w2, c1, c2, c3, h0 = 0.5e-1 * 0, 0.025e1 * 0, 0.5, 0.5, 0.3, 0.3
-    rotz = np.matrix(
-        [
-            [np.cos(w1 * time), -np.sin(w1 * time), 0],
-            [np.sin(w1 * time), np.cos(w1 * time), 0],
-            [0, 0, 1],
-        ]
-    )
+def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta):
     theta = np.linspace(0, 2 * np.pi, num=maxtheta)
-    curve = np.array(
-        [
-            rotz
-            @ np.array(
-                [
-                    c1 * np.cos(s),
-                    c2 * np.sin(s),
-                    h0 + c3 * np.cos(w2 * time) * np.cos(s) ** 2,
-                ]
-            ).reshape(-1, 1)
-            for s in theta
-        ]
-    ).reshape(3, -1)
-    curve = curve.reshape(-1, 3).T
+    def parametric_eq(time=0):
+        cw1t = np.cos(w1 * time)
+        sw1t = np.sin(w1 * time)
+        cw2t = np.cos(w2 * time)
+        rotz = np.matrix([[cw1t, -sw1t, 0], [sw1t, cw1t, 0], [0, 0, 1],])
 
-    return curve
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        curve = np.empty((3, len(theta)))
 
+        for i, _ in enumerate(theta):
+            curve[:, i] = rotz @ np.array([
+                c1 * cos_theta[i],
+                c2 * sin_theta[i],
+                h0 + c3 * cw2t * cos_theta[i] ** 2
+            ])
+
+        return curve
+    return parametric_eq
+
+def parametric_eq_factory2(w1, w2, c1, c2, c3, h0, maxtheta, T, dt):
+    theta = np.linspace(0, 2 * np.pi, num=maxtheta)
+    cos_theta = np.cos(theta)
+    sin_theta = np.sin(theta)
+    precomputed = []
+
+    for time in np.arange(0, T+2*dt, dt):
+        cw1t = np.cos(w1 * time)
+        sw1t = np.sin(w1 * time)
+        cw2t = np.cos(w2 * time)
+        rotz = np.matrix([[cw1t, -sw1t, 0], [sw1t, cw1t, 0], [0, 0, 1]])
+
+        curve = np.empty((3, len(theta)))
+
+        for i, _ in enumerate(theta):
+            curve[:, i] = rotz @ np.array([
+                c1 * cos_theta[i],
+                c2 * sin_theta[i],
+                h0 + c3 * cw2t * cos_theta[i] ** 2
+            ])
+
+        precomputed.append(curve)
+
+    def parametric_eq2(time):
+        return precomputed[int(time / dt)]
+
+    return parametric_eq2
 
 def disturbance(t):
-    return 1e-1 * np.ones((n, 1)) * np.sin(0.8 * t)
+    return 1e-1 * np.ones((n, 1)) * np.sin(1.57 * t) * 0
     # if t >= 1.2:
     #     return 1e-1 * np.ones((n, 1))
     # else:
@@ -711,18 +729,19 @@ def disturbance(t):
 
 # Simulation parameters
 T = 10
-dt = 0.01
+dt = 1e-2
 imax = int(T / dt)
 small_limit = 0.62832  # 6rpm
 big_limit = 0.83776  # 8rpm
 qdot_limits = 100 * np.array(
     [[big_limit], [big_limit], [big_limit], [small_limit], [small_limit], [small_limit]]
 )
+eq2 = parametric_eq_factory2(w1=0, w2=0, c1=0.5, c2=0.5, c3=0.3, h0=0.3, maxtheta=maxtheta, T=T, dt=dt)
 
 n = len(robot.links)
 A_lqr = np.block([[np.zeros((n, n)), np.eye(n)], [np.zeros((n, n)), np.zeros((n, n))]])
 B_lqr = np.block([[np.zeros((n, n))], [np.eye(n)]])
-Q_lqr = np.diag([1] * n + [30] * n)
+Q_lqr = np.diag([50] * n + [30] * n)
 R_lqr = np.eye(n)
 P_lqr = solve_continuous_are(A_lqr, B_lqr, Q_lqr, R_lqr)
 K = np.linalg.inv(R_lqr) @ B_lqr.T @ P_lqr
@@ -746,7 +765,7 @@ for i in range(1):
         a = np.hstack((a, curve))
 traj = PointCloud(name="traj", points=a, size=12, color="cyan")
 sim.add([traj])
-vf = VectorField(eq2, False, alpha=5, const_vel=1.5, dt=dt)
+vf = VectorField(eq2, False, alpha=10, const_vel=1.5, dt=dt)
 nearest_point = Ball(
     name="nearest_point",
     radius=0.03,
@@ -758,14 +777,15 @@ sim.add([nearest_point])
 print("Done")
 # Initializations
 q = robot.q.copy()
+q_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-ratio = 200
+ratio = 1
 L = np.diag([0.1, 0.1, 1]) * ratio
 xi = np.diag([0.01, 0.1, 0.01]) / ratio
 epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
-epsilon = 0.34
+epsilon = (1**2) * (np.min(np.linalg.eigvals(Q_lqr)) * np.min(np.linalg.eigvals(P_lqr)) / np.max(np.linalg.eigvals(P_lqr)) )
 l = 10
 b0 = np.array([[0], [0], [0]])  # 7, 850
 rho0 = 11
@@ -792,7 +812,6 @@ hist_b = np.matrix(np.zeros((b0.shape[0], 0)))
 hist_rho = []
 hist_psbf = []
 
-
 def closed_loop(
     t,
     z,
@@ -806,17 +825,18 @@ def closed_loop(
     save_hist=False,
 ):
     """z=[q, qdot, b, rho]"""
-    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf, hist_x
+    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf, hist_x, q_des_old
     q = z[:n]
     qdot = z[n : 2 * n]
     b = z[2 * n : 2 * n + b0.shape[0]]
-    rho = z[-1].item()
+    rho = z[2 * n + b0.shape[0]].item()
+    q_des = z[2 * n + b0.shape[0] + 1 : 2 * n + b0.shape[0] + 1 + n]
     jac_eef, htm_eef = robot.jac_geo(q=q)
     p_eef = htm_eef[0:3, 3]
     target = vf(p_eef, t)
     jac_target = jac_eef[0:3, :]
     qdot_des = np.linalg.pinv(jac_target) @ target
-    q_des = q + dt * qdot_des
+    # q_des = q_des_old + dt * qdot_des
     a_des = vf.acceleration(p_eef, target, t)  # change qdot to qdot_des
     Jdot = dot_J(robot, qdot, q)[:3, :]
     qddot_des = np.linalg.pinv(jac_target) @ (a_des - Jdot @ qdot)
@@ -836,13 +856,12 @@ def closed_loop(
     K = np.block([Kp, Kd])
     kappa = np.block([[1], [np.linalg.norm(x)], [x.T @ x]])
     gamma = (kappa.T @ b).item()
-    alpha = 0.2  # 0.1
     psbf_active = False
 
     if w_norm > (epsilon / 2):
-        v = -w_bar - gamma * w_bar / w_bar_norm - rho * w_bar / (w_bar_norm**2)
+        v = -w_bar - gamma * w_bar / w_bar_norm - rho * w_bar / (w_bar_norm**2) 
     else:
-        v = -psbf(w, epsilon) * (w / w_norm)
+        v = -psbf(w, epsilon) * (w / w_norm) 
         psbf_active = True
 
     a = qddot_des - Kp @ (q - q_des) - Kd @ (qdot - qdot_des) + v
@@ -854,7 +873,7 @@ def closed_loop(
     xdot = np.clip(xdot, -lims, lims)
     bdot = L @ (kappa * w_norm - xi @ b)
     rhodot = l - rho
-    zdot = np.block([[xdot], [bdot], [rhodot]])
+    zdot = np.block([[xdot], [bdot], [rhodot], [qdot_des]])
 
     qdot = xdot[:n]
     qddot = xdot[n : 2 * n]
@@ -874,46 +893,50 @@ def closed_loop(
 
     return zdot
 
+def run():
+    global hist_time, hist_qdot, hist_qdot_des, hist_qddot, hist_qddot_des, hist_q, hist_peef, hist_vf, hist_cond_J, hist_cond_Jdot, hist_x, hist_torque, hist_v, hist_eta, hist_b, hist_rho, hist_psbf
+    global q, qdot, b, rho, q_des, l, xi, epsilon, alpha, L, disturbance
+    z = np.block([[q], [qdot], [b], [rho], [q_des]])
 
-z = np.block([[q], [qdot], [b], [rho]])
+    for i in range(1, imax):
+        progress_bar(i, imax)
+        t = i * dt
+        z = rk4(
+            closed_loop,
+            t,
+            z,
+            dt,
+            n=n,
+            l=l,
+            xi=xi,
+            epsilon=epsilon,
+            alpha=0.2*0,
+            L=L,
+            disturbance=disturbance,
+        )
 
-for i in range(1, imax):
-    progress_bar(i, imax)
-    t = i * dt
-    z = rk4(
-        closed_loop,
-        t,
-        z,
-        dt,
-        n=n,
-        l=l,
-        xi=xi,
-        epsilon=epsilon,
-        alpha=0.2,
-        L=L,
-        disturbance=disturbance,
-    )
+        q = z[:n]
+        qdot = z[n : 2 * n]
+        b = z[2 * n : 2 * n + b0.shape[0]]
+        rho = z[2 * n + b0.shape[0]].item()
+        q_des = z[2 * n + b0.shape[0] + 1 : 2 * n + b0.shape[0] + 1 + n]
 
-    q = z[:n]
-    qdot = z[n : 2 * n]
-    b = z[2 * n : 2 * n + b0.shape[0]]
-    rho = z[-1].item()
+        robot.add_ani_frame(time=t, q=q)
+        # nearest_point.add_ani_frame(time=t, htm=Utils.trn(vf.nearest_points[-1]))
 
-    robot.add_ani_frame(time=t, q=q)
-    # nearest_point.add_ani_frame(time=t, htm=Utils.trn(vf.nearest_points[-1]))
+        hist_time.append(t)
+        hist_q = np.block([hist_q, q])
+        # hist_peef = np.block([hist_peef, p_eef])
+        hist_qdot = np.block([hist_qdot, qdot])
+        # hist_qdot_des = np.block([hist_qdot_des, qdot_des])
+        # hist_torque = np.block([hist_torque, torque])
+        # hist_x = np.block([hist_x, np.block([[q], [qdot]])])
+        hist_b = np.block([hist_b, b])
+        hist_rho.append(rho)
+        # hist_v = np.block([hist_v, v])
+        # hist_eta = np.block([hist_eta, eta])
 
-    hist_time.append(t)
-    hist_q = np.block([hist_q, q])
-    # hist_peef = np.block([hist_peef, p_eef])
-    hist_qdot = np.block([hist_qdot, qdot])
-    # hist_qdot_des = np.block([hist_qdot_des, qdot_des])
-    # hist_torque = np.block([hist_torque, torque])
-    # hist_x = np.block([hist_x, np.block([[q], [qdot]])])
-    hist_b = np.block([hist_b, b])
-    hist_rho.append(rho)
-    # hist_v = np.block([hist_v, v])
-    # hist_eta = np.block([hist_eta, eta])
-
+run()
 hist_peef = np.array(hist_peef)
 # fig = vector_field_plot(hist_peef, hist_vf, add_lineplot=True, sizemode="absolute", sizeref=2.5, anchor='tail')
 # fig.write_image("figures/vectorfield.pdf")
