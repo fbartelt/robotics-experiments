@@ -21,7 +21,7 @@ from itertools import product
 from uaibot_addons.vectorfield import VectorField, vector_field_plot
 from uaibot_addons.math import dot_J
 from scipy.linalg import solve_continuous_are, solve_continuous_lyapunov
-
+from scipy.optimize import root
 
 def progress_bar(i, imax):
     sys.stdout.write("\r")
@@ -42,6 +42,15 @@ def rk4(f, t, x, dt, *args, **kwargs):
     k4 = f(t + dt, x + dt * k3, *args, **kwargs)
     return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
+def implicit_trapezoidal(f, t, x, dt, *args, **kwargs):
+    def fun(next_x):
+        next_x = np.array(next_x).reshape(-1, 1)
+        res = x + 0.5 * dt * (f(t, x, *args, **kwargs) + f(t + dt, next_x, *args, **kwargs)) - next_x
+        return np.array(res).ravel()
+
+    x0 = rk4(f, t, x, dt, *args, **kwargs)
+    next_x = root(fun, np.array(x0).ravel()).x
+    return np.array(next_x).reshape(-1, 1)
 
 # %%
 """Vector Field + Lyapunov Redesign (Mass uncertainty + disturbance) -- WORKING"""
@@ -720,12 +729,18 @@ def parametric_eq_factory2(w1, w2, c1, c2, c3, h0, maxtheta, T, dt):
     return parametric_eq2
 
 def disturbance(t):
-    return 1e-1 * np.ones((n, 1)) * np.sin(1.57 * t) * 0
+    return 2 * np.ones((n, 1)) * np.sin(1.57 * t) 
     # if t >= 1.2:
     #     return 1e-1 * np.ones((n, 1))
     # else:
     #     return np.zeros((n, 1))
 
+def test_qdotqddot(t):
+    omega = 2*np.pi/3
+    qdot = np.array([0, 0, 0, 0, np.cos(omega * t), np.sin(omega * t)]).reshape(-1, 1)
+    qddot = np.array([0, 0, 0, 0, -omega * np.sin(omega * t), omega * np.cos(omega * t)]).reshape(-1, 1)
+
+    return qdot, qddot
 
 # Simulation parameters
 T = 10
@@ -736,12 +751,12 @@ big_limit = 0.83776  # 8rpm
 qdot_limits = 100 * np.array(
     [[big_limit], [big_limit], [big_limit], [small_limit], [small_limit], [small_limit]]
 )
-eq2 = parametric_eq_factory2(w1=0, w2=0, c1=0.5, c2=0.5, c3=0.3, h0=0.3, maxtheta=maxtheta, T=T, dt=dt)
+eq2 = parametric_eq_factory2(w1=0, w2=0, c1=0.5, c2=0.5, c3=0.1, h0=0.3, maxtheta=maxtheta, T=T, dt=dt)
 
 n = len(robot.links)
 A_lqr = np.block([[np.zeros((n, n)), np.eye(n)], [np.zeros((n, n)), np.zeros((n, n))]])
 B_lqr = np.block([[np.zeros((n, n))], [np.eye(n)]])
-Q_lqr = np.diag([50] * n + [30] * n)
+Q_lqr = np.diag([50] * n + [1e-1] * n)
 R_lqr = np.eye(n)
 P_lqr = solve_continuous_are(A_lqr, B_lqr, Q_lqr, R_lqr)
 K = np.linalg.inv(R_lqr) @ B_lqr.T @ P_lqr
@@ -765,7 +780,7 @@ for i in range(1):
         a = np.hstack((a, curve))
 traj = PointCloud(name="traj", points=a, size=12, color="cyan")
 sim.add([traj])
-vf = VectorField(eq2, False, alpha=10, const_vel=1.5, dt=dt)
+vf = VectorField(eq2, False, alpha=10, const_vel=0.5, dt=dt)
 nearest_point = Ball(
     name="nearest_point",
     radius=0.03,
@@ -781,14 +796,16 @@ q_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
 qdot_des = np.zeros((n, 1))
 qdot = np.zeros((n, 1))
-ratio = 1
+ratio = 100
+# L = np.diag([1, 0.1, 1]) * ratio
+# xi = 1 * np.diag([0.1, 10, 0.1]) / ratio
 L = np.diag([0.1, 0.1, 1]) * ratio
 xi = np.diag([0.01, 0.1, 0.01]) / ratio
 epsilon = 0.035  # (1**2) * (np.min(np.linalg.eigvals(Q)) * np.min(np.linalg.eigvals(P)) / np.max(np.linalg.eigvals(P)) )
 epsilon = (1**2) * (np.min(np.linalg.eigvals(Q_lqr)) * np.min(np.linalg.eigvals(P_lqr)) / np.max(np.linalg.eigvals(P_lqr)) )
-l = 10
+l = 100
 b0 = np.array([[0], [0], [0]])  # 7, 850
-rho0 = 11
+rho0 = 110
 b = b0
 rho = rho0
 
@@ -799,6 +816,7 @@ hist_qdot_des = np.matrix(np.zeros((n, 0)))
 hist_qddot = np.matrix(np.zeros((n, 0)))
 hist_qddot_des = np.matrix(np.zeros((n, 0)))
 hist_q = np.matrix(np.zeros((n, 0)))
+hist_q_des = np.matrix(np.zeros((n, 0)))
 hist_error_ori = np.matrix(np.zeros((n, 0)))
 hist_peef = np.zeros((3, 0))
 hist_vf = np.zeros((3, 0))
@@ -825,7 +843,7 @@ def closed_loop(
     save_hist=False,
 ):
     """z=[q, qdot, b, rho]"""
-    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf, hist_x, q_des_old
+    global hist_peef, hist_qdot_des, hist_qddot, hist_qddot_des, hist_torque, hist_cond_J, hist_v, hist_eta, hist_psbf, hist_x, q_des_old, hist_q_des
     q = z[:n]
     qdot = z[n : 2 * n]
     b = z[2 * n : 2 * n + b0.shape[0]]
@@ -835,11 +853,12 @@ def closed_loop(
     p_eef = htm_eef[0:3, 3]
     target = vf(p_eef, t)
     jac_target = jac_eef[0:3, :]
-    qdot_des = np.linalg.pinv(jac_target) @ target
+    # qdot_des = Utils.dp_inv(jac_target) @ target
+    qdot_des, qddot_des = test_qdotqddot(t)
     # q_des = q_des_old + dt * qdot_des
-    a_des = vf.acceleration(p_eef, target, t)  # change qdot to qdot_des
+    a_des = vf.acceleration(p_eef, jac_target @ qdot, t)  # change qdot to qdot_des
     Jdot = dot_J(robot, qdot, q)[:3, :]
-    qddot_des = np.linalg.pinv(jac_target) @ (a_des - Jdot @ qdot)
+    # qddot_des = Utils.dp_inv(jac_target) @ (a_des - Jdot @ qdot_des)
 
     x = np.block(
         [
@@ -855,6 +874,7 @@ def closed_loop(
     w_bar_norm = np.linalg.norm(w_bar)
     K = np.block([Kp, Kd])
     kappa = np.block([[1], [np.linalg.norm(x)], [x.T @ x]])
+    # b = np.array([[1750], [8.071], [0]]) #TODO remove this
     gamma = (kappa.T @ b).item()
     psbf_active = False
 
@@ -871,8 +891,11 @@ def closed_loop(
     xdot = A @ x + B @ (v + eta) + np.block([[qdot_des], [qddot_des]])
     lims = np.block([[qdot_limits * np.inf], [qdot_limits]])
     xdot = np.clip(xdot, -lims, lims)
-    bdot = L @ (kappa * w_norm - xi @ b)
+    bdot = L @ (kappa * w_bar_norm - xi @ b)
     rhodot = l - rho
+    # jac_eef_next, htm_eef_next = robot.jac_geo(q=q_des)
+    # p_eef_next = htm_eef_next[0:3, 3]
+    # qdot_des_next = np.linalg.pinv(jac_eef_next[0:3, :]) @ vf(p_eef_next, t + dt)
     zdot = np.block([[xdot], [bdot], [rhodot], [qdot_des]])
 
     qdot = xdot[:n]
@@ -890,6 +913,7 @@ def closed_loop(
         hist_v = np.block([hist_v, v])
         hist_eta = np.block([hist_eta, eta])
         hist_psbf.append(psbf_active)
+        hist_q_des = np.block([hist_q_des, q_des])
 
     return zdot
 
@@ -910,7 +934,7 @@ def run():
             l=l,
             xi=xi,
             epsilon=epsilon,
-            alpha=0.2*0,
+            alpha=0.2,
             L=L,
             disturbance=disturbance,
         )
@@ -938,11 +962,32 @@ def run():
 
 run()
 hist_peef = np.array(hist_peef)
+
+# with open('data_controller5e4_wEvth.pkl', 'wb') as f:
+#     data = {'hist_time': hist_time,
+#             'hist_qdot': hist_qdot,
+#             'hist_qdot_des': hist_qdot_des,
+#             'hist_qddot': hist_qddot,
+#             'hist_qddot_des': hist_qddot_des,
+#             'hist_q': hist_q,
+#             'hist_q_des': hist_q_des,
+#             'hist_peef': hist_peef,
+#             'hist_x': hist_x,
+#             'hist_torque': hist_torque,
+#             'nearest_points': vf.nearest_points[::4],
+#             'hist_b': hist_b,
+#             'hist_rho': hist_rho,
+#             'hist_psbf': hist_psbf,
+#             'hist_eta': hist_eta,
+#             'hist_v': hist_v}
+#     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+# sim.save('figures', 'cbf_adaptive_lyap_5e4_wEvth')
+
 # fig = vector_field_plot(hist_peef, hist_vf, add_lineplot=True, sizemode="absolute", sizeref=2.5, anchor='tail')
 # fig.write_image("figures/vectorfield.pdf")
 # fig.show()
 fig = px.line(np.linalg.norm(hist_x, axis=0).T, title="|x|")
-fig.add_scatter(x=list(range(1000)), y=np.array(hist_psbf)*3, fill='tozeroy')
+fig.add_scatter(x=list(range(imax)), y=np.array(hist_psbf)*3, fill='tozeroy')
 # fig.write_image("figures/histx.pdf")
 fig.show()
 fig = px.line(
@@ -952,7 +997,8 @@ fig = px.line(
 fig.show()
 # fig.write_image("figures/qdoterrNorm.pdf")
 fig = px.line(
-    np.abs(hist_qdot - hist_qdot_des).T, title="abs(dq/dt - dq<sub>des</sub>/dt)"
+    np.linalg.norm(hist_q - hist_q_des, axis=0).T,
+    title="|q - q<sub>des</sub>|",
 )
 # fig.write_image("figures/qdoterr.pdf")
 fig.show()
@@ -962,7 +1008,50 @@ fig = px.line(
 )
 fig.show()
 
-hist_w_norm = np.linalg.norm(np.array([B.T @ P @ x.T for x in hist_x.T]).reshape(-1, 6), axis=1)
+hist_w_norm = np.linalg.norm(np.array([B.T @ P @ x.T for x in hist_x.T]).reshape(-1, n), axis=1)
 fig = px.line(hist_w_norm, title='||w||')
-fig.add_scatter(x=list(range(1000)), y=np.array(hist_psbf)*np.max(hist_w_norm), fill='tozeroy')
+fig.add_scatter(x=list(range(imax)), y=np.array(hist_psbf)*np.max(hist_w_norm), fill='tozeroy')
+fig.show()
+
+print(np.sum(np.linalg.norm(hist_q - hist_q_des, axis=0).T))
+print(np.sum(np.linalg.norm(hist_qdot - hist_qdot_des, axis=0).T))
+
+# %%
+import pickle
+
+with open('data_controller5e4_woDist2.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+def plot_all(data):
+    hist_time = data["hist_time"]
+    hist_qdot = data["hist_qdot"]
+    hist_qdot_des = data["hist_qdot_des"]
+    hist_qddot = data["hist_qddot"]
+    hist_qddot_des = data["hist_qddot_des"]
+    hist_q = data["hist_q"]
+    hist_q_des = data['hist_q_des']
+    hist_peef = data["hist_peef"]
+    hist_x = data["hist_x"]
+    hist_torque = data["hist_torque"]
+    nearest_points = data["nearest_points"]
+    hist_psbf = data['hist_psbf']
+
+
+    fig = px.line(np.linalg.norm(hist_x, axis=0).T, title="||x||")
+    fig.show()
+    fig = px.line(hist_qdot_des.T, title="dq<sub>des</sub>/dt")
+    fig.show()
+    fig = px.line((hist_qdot).T, title="dq/dt")
+    fig.show()
+    fig = px.line(hist_qddot_des.T, title="d<sup>2</sup>q<sub>des</sub>/dt<sup>2</sup>")
+    fig.show()
+    fig = px.line((hist_qddot).T, title="d<sup>2</sup>q/dt<sup>2</sup>")
+    fig.show()
+    fig = px.line(
+        np.abs(np.array(hist_peef) - np.array(nearest_points).reshape(-1, 3).T).T,
+        title="|p<sub>eef</sub> - x*|",
+    )
+    fig.show()
+    fig = px.line(hist_torque.T, title="Torque")
+    fig.show()
 # %%

@@ -4,6 +4,7 @@ import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
 from itertools import product
 from scipy.optimize import minimize_scalar, brute
+from scipy.spatial import KDTree
 
 _INVHALFPI = 0.63660
 
@@ -61,8 +62,8 @@ class VectorField:
         self.dt = dt
         self.nearest_points = []
 
-    def __call__(self, position, time=0):
-        return self.psi(position, time)
+    def __call__(self, position, time=0, store_points=True):
+        return self.psi(position, time, store_points)
 
     def __repr__(self):
         return f"Time-{('In'*(not self.time_dependent)+'variant').capitalize()} Vector Field.\n Alpha: {self.alpha},\n Constant Velocity: {self.const_vel},\n dt: {self.dt},\n Parametric Equation: {self.parametric_equation.__name__}"
@@ -101,7 +102,7 @@ class VectorField:
         # TODO change _add_nearest_point to apply here instead of psi t.
         # this implies copying the uaibot vector field code into here.
         p = np.array(position).reshape(-1, 1)
-        curve = np.matrix(self.parametric_equation(time=time))
+        curve = self.parametric_equation(time=time)
         # return ub.Robot.vector_field(curve, self.alpha, self.const_vel)(p)
         return self._vector_field_vel(
             p,
@@ -215,72 +216,82 @@ class VectorField:
 
         return abs_const_vel * (fun_g * vec_n + sgn * fun_h * vec_t)
     
-    def _compute_ntdgold(self, curve, p, store_points=True):
-        pr = np.array(p).reshape((3, 1))
+    def abss(self, x, h):
+        return np.sqrt(x**2+h**2) - h
+    
+    def diff_sqrt(self, U , h=0.01):
+        #Fix an h
+        return sqrt(U**2+h**2)-h
+    
+    def _compute_ntdnew(self, curve, p, store_points=True):
+        p = np.array(p).reshape((3, 1))
+        h = 0.01
 
-        # Define a function for distance calculation
-        def distance_function(t):
-            t = int(t)
-            if t < 0:
-                return np.inf
-            if t >= np.shape(curve)[1]:
-                return np.inf
-            return np.linalg.norm(pr - curve[:, t])
+        Dxy = self.diff_sqrt((p[0,:] - pc[0, :])**2+(p[1,:] - pc[1, :])**2, h) - R
+        Dz = p[2,:] - pc[2, :]
 
-        # Find the minimum of the distance function
-        # res = minimize_scalar(distance_function, bracket=(0, np.shape(curve)[1]), method='golden')
-        # Define the search ranges for each dimension (time)
-        ranges = (slice(0, np.shape(curve)[1], 1),)
-        
-        # Use scipy's brute-force optimizer to find the minimum
-        res = brute(distance_function, ranges, full_output=True, finish=None)
-        ind_min = int(res[0])
-        min_dist = res[1]
-        # ind_min = int(res.x)
-        # min_dist = res.fun
+        D = self.diff_sqrt( Dxy**2 + Dz**2, h)
+        A = Dxy / (Dxy + R + h)
 
-        vec_n = curve[:, ind_min] - pr
-        vec_n = vec_n / (np.linalg.norm(vec_n) + 0.0001)
-
-        if ind_min == np.shape(curve)[1] - 1:
-            vec_t = curve[:, 1] - curve[:, ind_min]
-        else:
-            vec_t = curve[:, ind_min + 1] - curve[:, ind_min]
-
-        vec_t = vec_t / (np.linalg.norm(vec_t) + 0.0001)
+        N = np.array([A*(p[0,:] - pc[0, :]), A*(p[1,:] - pc[1, :]), (p[2,:] - pc[2, :])])/(D + h)
+        T = np.array([-N[1, :], N[0, :], 0])
+        T = T / np.linalg.norm(T)
         
         if store_points:
             self._add_nearest_point(curve[:, ind_min])
 
-        return vec_n, vec_t, min_dist
+        return N, T, D
 
     # def _compute_ntd_nonoptimized(self, curve, p, store_points=True):
     def _compute_ntd(self, curve, p, store_points=True):
         min_dist = float("inf")
         ind_min = -1
 
-        pr = np.matrix(p).reshape((3, 1))
+        pr = np.array(p).ravel()
 
-        for i in range(np.shape(curve)[1]):
-            dist_temp = np.linalg.norm(pr - curve[:, i])
-            if dist_temp < min_dist:
-                min_dist = dist_temp
-                ind_min = i
+        # for i in range(np.shape(curve)[1]):
+        #     dist_temp = np.linalg.norm(pr - curve[:, i])
+        #     if dist_temp < min_dist:
+        #         min_dist = dist_temp
+        #         ind_min = i
+        tree = KDTree(curve.T)  # Transpose curve to match KDTree input format
+        min_dist, ind_min = tree.query(pr, k=1)  # k=1 for finding the nearest neighbor
+        # min_dist, ind_min = self._divide_conquer(curve, pr)
 
         vec_n = curve[:, ind_min] - pr
-        vec_n = vec_n / (np.linalg.norm(vec_n) + 0.0001)
+        vec_n = (vec_n / (np.linalg.norm(vec_n, 2) + 0.0001)).reshape(-1, 1)
 
         if ind_min == np.shape(curve)[1] - 1:
             vec_t = curve[:, 1] - curve[:, ind_min]
         else:
             vec_t = curve[:, ind_min + 1] - curve[:, ind_min]
 
-        vec_t = vec_t / (np.linalg.norm(vec_t) + 0.0001)
+        vec_t = (vec_t / (np.linalg.norm(vec_t, 2) + 0.0001)).reshape(-1, 1)
         if store_points:
             self._add_nearest_point(curve[:, ind_min])
 
+        if vec_n.shape != (3, 1) or vec_t.shape != (3, 1):
+            print(f"Error in vec_n or vec_t: {vec_n.shape}, {vec_t.shape}")
         return vec_n, vec_t, min_dist
+    
+    @staticmethod
+    def _divide_conquer(curve_segment, p):
+        curve_segment = np.array(curve_segment)
+        npoints = curve_segment.shape[1]
+        if npoints == 1:
+            return np.linalg.norm(p.ravel() - curve_segment[:, 0], 2), 0
+        
+        mid_index = npoints // 2
+        left_segment = curve_segment[:, :mid_index]
+        right_segment = curve_segment[:, mid_index:]
 
+        left_dist, left_index = VectorField._divide_conquer(left_segment, p)
+        right_dist, right_index = VectorField._divide_conquer(right_segment, p)
+
+        if left_dist < right_dist:
+            return left_dist, left_index
+        else:
+            return right_dist, right_index + mid_index
 
 def vector_field_plot(coordinates, field_values, add_lineplot=False, **kwargs):
     """Plot a vector field in 3D. The vectors are represented as cones and the

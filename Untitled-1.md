@@ -83,6 +83,56 @@ $$
 = - 2x^TPB(K_d(\dot{q} - \dot{q}_d)) + 2x^TPB\ddot{q}_d + 2x^TPBM(C\dot{q} + g)\\
 \bullet 2x^TPBG\Delta_G\tau=
 $$
+
+#### Mod
+$$
+M\ddot{q} + C\dot{q} + g = \tau + \delta\\
+\tau = \hat{M}a + C\dot{q} + g\\
+a = \ddot{q}_d - K_p(q - q_d) - K_d(\dot{q} - \dot{q}_d) + v\\
+\tilde{M} = \hat{M} - M
+$$
+
+$$
+M\ddot{q} + C\dot{q} + g = \hat{M}\left(\ddot{q}_d - K_p(q - q_d) - K_d(\dot{q} - \dot{q}_d) + v\right) + C\dot{q} + g + \delta\\
+\ddot{q} = M^{-1}\hat{M}\left(\ddot{q}_d - K_p(q - q_d) - K_d(\dot{q} - \dot{q}_d) + v\right) + M^{-1}\delta\\
+\ddot{q} = \ddot{q}_d - K_p(q - q_d) - K_d(\dot{q} - \dot{q}_d) + v + M^{-1}(\tilde{M}a + \delta)\\
+\text{Seja } x = \begin{bmatrix}q - q_d & \dot{q} - \dot{q}_d\end{bmatrix}^T:\\
+\dot{x} = \underbrace{\begin{bmatrix}\mathbf{0} & I_{n\times n} \\ -K_p & -K_d\end{bmatrix}}_{\bar{A}}x + \underbrace{\begin{bmatrix}\mathbf{0}\\I_{n\times n }\end{bmatrix}}_{B}(v + \eta),\\
+\eta = M^{-1}(\tilde{M}a + \delta)\\
+v = \begin{cases}-\bar{w} - \Gamma\frac{\bar{w}}{\|\bar{w}\|} - \rho\frac{\bar{w}}{\|\bar{w}\|^2}, & \|w\| > \frac{\epsilon}{2}\\
+-\mathcal{B}(w)\frac{\bar{w}}{\|\bar{w}\|}, & \|w\| \ge \frac{\epsilon}{2}
+
+\end{cases}\\
+
+\Gamma = \kappa^T b\\ \kappa=\begin{bmatrix}1 & \|x\| & \|x\|^2\end{bmatrix}^T\\
+\mathcal{B}(z) = \frac{\|z\|}{\epsilon - \|z\|}\\
+
+\dot{b} = L (\kappa \|\bar{w}\| - \Xi b)\\
+\dot{\rho} = l - \rho
+$$
+---
+$$
+\text{Seja } u = -Kx \text{ tal que } a = \ddot{q}_d +u + v\ \text{então}\\
+\bar{A} = A - BK = A-B \begin{bmatrix}K_p&K_d\end{bmatrix}
+$$
+
+$$
+\text{Let } V_0 = x^TPx, \text{where } P \text{ is the solution of the algebraic Ricatti equation}\\
+PA + A^TP - PBR^{-1}B^TP = -Q,\ R=R^T>0, Q=Q^T\ge0\\
+\dot{V}_0 = x^TP\dot{x} + \dot{x}^TPx=x^TP(Ax + B(v+u+\eta)) + x^TA^TPx + (v+u+\eta)^TB^TPx\\
+= x^T(PA + A^TP)x + 2x^TPB(v+u+\eta)\\
+= x^T(PA + A^TP)x + 2x^TPB(v+\eta) - 2x^TPBKx\\
+\text{ Let } K = R^{-1}B^TP\\
+\dot{V}_0= x^T(PA + A^TP - 2PBR^{-1}B^TP)x + 2x^TPB(v+\eta) = -x^T(Q + PBR^{-1}B^TP)x + 2x^TPB(v+\eta)\\
+\text{If the system is observable then } PBR^{-1}B^TP > 0. \text{ Considering no uncertainties and disturbances:}\\
+\dot{V}_0 \le -x^T(Q + PBR^{-1}B^TP)x < 0. 
+\\
+\text{Then } \lambda_{\text{min}}(P)\|x\|^2 \le V_0 \le \lambda_{\text{max}}(P)\|x\|^2, \dot{V}_0 \le \lambda_{\text{min}}(Q + PBR^{-1}B^TP)\|x\|^2.\\
+\lambda_{\text{min}}(P)\|x\|^2=: \alpha_1(x) \in \mathcal{K}_\infty\\
+\lambda_{\text{max}}(P)\|x\|^2=: \alpha_2(x) \in \mathcal{K}_\infty\\
+\lambda_{\text{min}}(Q + PBR^{-1}B^TP)\|x\|^2=: \alpha_3(x) \in \mathcal{K}
+
+$$
 ---
 ### Frank Lewis Adaptive Robust Control
 $$
