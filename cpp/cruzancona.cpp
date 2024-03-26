@@ -12,6 +12,29 @@ using namespace boost::numeric::odeint;
 // Define the global history data structure
 HistoryData globalHistory;
 
+/**
+ * @brief Constructs a System object with the given parameters.
+ *
+ * @param l1_ The length of link 1.
+ * @param l2_ The length of link 2.
+ * @param lc1_ The distance from the origin to the center of mass of link 1.
+ * @param lc2_ The distance from the origin to the center of mass of link 2.
+ * @param m1_ The mass of link 1.
+ * @param m2_ The mass of link 2.
+ * @param m1_bar_ The mass uncertainty of link 1.
+ * @param m2_bar_ The mass uncertainty of link 2.
+ * @param g__ The acceleration due to gravity.
+ * @param I1_ The moment of inertia of link 1.
+ * @param I2_ The moment of inertia of link 2.
+ * @param epsilon_ The barrier width.
+ * @param l_ The adaptive parameter \ell.
+ * @param n_ The number of degrees of freedom.
+ * @param varrho_ The parameter varrho.
+ * @param A_ The matrix A.
+ * @param B_ The matrix B.
+ * @param L_ The matrix L.
+ * @param Xi_ The matrix Xi.
+ */
 System::System(double l1_, double l2_, double lc1_, double lc2_, double m1_,
                double m2_, double m1_bar_, double m2_bar_, double g__,
                double I1_, double I2_, double epsilon_, double l_, double n_,
@@ -97,6 +120,9 @@ void System::setP(const MatrixXd& P_) {
 }
 
 void System::sysdiffeq(const VectorXd& z, VectorXd& dzdt, const double t) {
+    int i = static_cast<int>(t / 1e-6); // Current iteration index
+    int imax = static_cast<int>(10 / 1e-6); 
+    progressBar(i, imax);
     VectorXd q_d, qdot_d, qddot_d;
     std::tie(q_d, qdot_d, qddot_d) = qqdotqddot(t);
 
@@ -162,7 +188,9 @@ void System::sysdiffeq(const VectorXd& z, VectorXd& dzdt, const double t) {
     zdot << xdot, bdot, rhodot;
 
     // Update history
-    if (std::fmod(t, 0.01) == 0) {
+    const double saveInterval = 0.01;
+    const double tolerance = 1e-6;
+    if (std::abs(t / saveInterval - std::round(t / saveInterval)) < tolerance) {
       updateHistory(z, t, tau, w, q, qdot);
     }
 
