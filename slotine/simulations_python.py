@@ -232,11 +232,13 @@ def adaptive_dyn(
             ]
         )
         F[i] = Y_o @ a_hat[i] - Kd @ s  # implement control law
+        # print(f'F[{i}]: {F[i].ravel()}')
         tau = G_h_inv @ F[i]  # compensate for est. torque
         input_ += tau  # compute real applied wrench; add to running
         #TODO compare s with julia result. Doesnt match
 
-    print(f'input: {input_.ravel()}')
+    # print(f's: {s.ravel()}')
+    # print(f'input: {input_.ravel()}')
     # Find accelearation
     # ddq = np.linalg.pinv(H) @ (input_ - C @ dq - H_dot @ dq)
     # ddq = least_squares(
@@ -245,6 +247,7 @@ def adaptive_dyn(
     ddq = root(
         lambda x: (H @ x.reshape(-1, 1) + C @ dq - input_).ravel(), np.zeros((6,)), method='lm'
     ).x.reshape(-1, 1)
+    # print(f'ddq: {ddq.ravel()}')
 
     # Adaption laws
     Y_g, dr, a_t, r_t = (
@@ -260,16 +263,21 @@ def adaptive_dyn(
         )  # Compute arm regressor
         # Compute inverse Hessian weighting (Bregman divergence p.11)
         g_o[i] = np.linalg.inv(P_o) @ np.linalg.inv(
-            pnorm_hessian(P_o @ a_hat[i], p, tol) @ np.linalg.inv(P_o)
-        )
+            pnorm_hessian(P_o @ a_hat[i], p, tol)) @ np.linalg.inv(P_o) # TODO: correct this
         g_r[i] = np.linalg.inv(P_r) @ np.linalg.inv(
-            pnorm_hessian(P_r @ r_hat[i], p, tol) @ np.linalg.inv(P_r)
-        )
+            pnorm_hessian(P_r @ r_hat[i], p, tol)) @ np.linalg.inv(P_r) # TODO: correct this
         # Compute parameters derivatives and errors
         da[i] = -g_o[i] @ Y_o.T @ s
         dr[i] = -g_r[i] @ Y_g[i].T @ s
         a_t[i] = a_hat[i] - a_i
         r_t[i] = r_hat[i] - r_i[i]
+        # print(f'Y_g[{i}]: {Y_g[i].ravel()}')
+        # print(f'g_o[{i}]: {g_o[i].ravel()}')
+        # print(f'g_r[{i}]: {g_r[i].ravel()}')
+        # print(f'da[{i}]: {da[i].ravel()}')
+        # print(f'dr[{i}]: {dr[i].ravel()}')
+        # print(f'a_t[{i}]: {a_t[i].ravel()}')
+        # print(f'r_t[{i}]: {r_t[i].ravel()}')
 
     ds = ddq - ddq_r
     ds2 = np.vstack(
@@ -370,7 +378,7 @@ lambda_ = 1.5
 deadband = 0.01  # Deadband in which to stop adaptation
 t_drop = T + 10  # Time to turn off agents
 p = 2  # l-p norm to be used for regularization
-verbose = True
+verbose = False
 
 P_o = 3e1 * np.linalg.inv(np.diag(np.abs(a_i.ravel()) + 1e-2))
 P_r = 3e1 * np.eye(3)
