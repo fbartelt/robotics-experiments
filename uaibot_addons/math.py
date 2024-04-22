@@ -14,3 +14,14 @@ def dot_J(robot, qdot, q=None):
     dotJ = dotJ[:, :, 0].T
     
     return dotJ
+
+def skew(q):
+    """Maps a vector to a skew-symmetric matrix"""
+    q = q.ravel()
+    return np.array([[0, -q[2], q[1]],
+                     [q[2], 0, -q[0]],
+                     [-q[1], q[0], 0]])
+
+def vee(R):
+    """Maps a skew-symmetric matrix to a vector"""
+    return np.array([[R[2,1]], [R[0,2]], [R[1,0]]])
