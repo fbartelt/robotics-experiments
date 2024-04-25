@@ -7,8 +7,15 @@ from create_jaco import create_jaco2
 from numpy import cos, sin, sqrt, arccos
 from scipy.linalg import logm, expm
 
+def progress_bar(i, imax):
+    sys.stdout.write("\r")
+    sys.stdout.write(
+        "[%-20s] %d%%" % ("=" * round(20 * i / (imax - 1)), round(100 * i / (imax - 1)))
+    )
+    sys.stdout.flush()
+
 # Parametric equation definition
-maxtheta = 500
+maxtheta = 1500
 
 def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent=True):
     theta = np.linspace(0, 2 * np.pi, num=maxtheta)
@@ -46,7 +53,7 @@ def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent
     return parametric_eq
 
 eq = parametric_eq_factory(w1=0, w2=0, c1=0.3, c2=0.3, c3=0, h0=0.6, maxtheta=maxtheta, T=2, dt=1e-2, timedependent=False)
-vf = VectorField(eq, False, kf=1, vr=0.5, wr=1, dt=1e-3)
+# vf = VectorField(eq, False, kf=5, vr=0.8, wr=1, beta=1, dt=1e-2)
 
 #%%
 import sys
@@ -76,8 +83,10 @@ def to_htm(p, R):
                     [0, 0, 0, 1]])
     return htm
 
-eq = parametric_eq_factory(w1=0, w2=0, c1=0.3, c2=0.3, c3=0, h0=0.6, maxtheta=maxtheta, T=2, dt=1e-2, timedependent=False)
-vf = VectorField(eq, False, kf=1, vr=0.5, wr=2, dt=1e-2)
+T = 10
+dt = 1e-2
+eq = parametric_eq_factory(w1=0, w2=0, c1=0.3, c2=0.3, c3=0, h0=0.6, maxtheta=maxtheta, T=T, dt=dt, timedependent=False)
+vf = VectorField(eq, False, kf=5, vr=0.5, wr=2, beta=0.5, dt=1e-3) #kf=5, vr=0.5, beta=1 ;;; vr=1.5 erro menor 
 
 curve = eq(0)
 curve_points = curve[0]
@@ -100,14 +109,14 @@ for i, c in enumerate(zip(curve_points, curve_ori)):
     pos, ori = c
     if i % 20 == 0:
         curve_frames.append(Frame(to_htm(pos, ori), f'curveframe{i}', 0.1))
-T = 10
-dt = 1e-2
+
 imax = int(T / dt)
 p_hist = [p]
 R_hist = [R]
 v_hist, w_hist = [np.zeros((3,1))], [np.zeros((3,1))]
 
 for i in range(imax):
+    progress_bar(i, imax)
     xi = vf.psi(p, R)
     vd = xi[:3, :]
     wd = xi[3:, :]
@@ -126,7 +135,7 @@ for i in range(imax):
 sim = Simulation.create_sim_grid([obj, frame_ball, curve_draw, light1, light2, light3, light4])
 sim.add([curve_frames])
 sim.set_parameters(width=1200, height=600, ambient_light_intensity=4)
-sim.run()
+# sim.run()
 # points = np.array(p_hist).reshape(-1, 3)
 # fig = px.scatter_3d(x=points[:,0], y=points[:,1], z=points[:,2])
 # for pos, rot in zip(p_hist, R_hist):
@@ -220,14 +229,31 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
 
     return fig
 
-jump = 1
-coords = np.array(p_hist).reshape(-1, 3)[::jump]
-vf_values = np.array(v_hist).reshape(-1, 3)[::jump]
-orientations = R_hist[::1]
-fig = vector_field_plot(coords, vf_values, orientations, skip_coord=57, 
-                  skip_ori=85, sizemode="scaled", sizeref=.25, anchor='tail')
+skip_ori = int(len(p_hist) / 12)  #87
+skip_coord = int(len(p_hist) / 14) #57
+coords = np.array(p_hist).reshape(-1, 3)
+vf_values = np.array(v_hist).reshape(-1, 3)
+orientations = R_hist
+fig = vector_field_plot(coords, vf_values, orientations, skip_coord=skip_coord, 
+                  skip_ori=skip_ori, sizemode="scaled", sizeref=.25, anchor='tail')
 # fig.show(width=1080, height=1080)
-
+#%%
+near_p, near_R = zip(*vf.nearest_points)
+near_p = np.array(near_p).reshape(-1, 3)
+coords = np.array(p_hist).reshape(-1, 3)
+# fig1 = px.line(np.linalg.norm(near_p - coords[1::], axis=1)**2)
+# fig1.show()
+fro_norms = []
+for rot, rot_d in zip(R_hist, near_R):
+    fro_norms.append(0.5 * np.linalg.norm(np.eye(3) - rot_d.T @ rot)**2)
+fig2 = px.line(x=np.arange(0, T, dt), y=np.array(fro_norms) + np.linalg.norm(near_p - coords[1::], axis=1)**2)
+# fig2.update_xaxes(title="Time (s)")
+# fig2.update_yaxes(title="Distance Function")
+fig2.update_layout(xaxis_title="Time (s)", yaxis_title="Distance Function", width=1200, height=600, margin=dict(t=0, b=0, r=0, l=5),
+                   xaxis_title_font=dict(size=18), yaxis_title_font=dict(size=18))
+fig2.update_xaxes(tickfont=dict(size=14), tickprefix="\t")
+fig2.update_yaxes(tickfont=dict(size=14))
+fig2.show()
 # %%
 import sys
 sys.path.insert(1, "/home/fbartelt/Documents/UFMG/TCC/Sim/uaibot")

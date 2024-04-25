@@ -59,13 +59,13 @@ class VectorField:
         velocity and time.
     """
     def __init__(
-        self, parametric_equation, time_dependent, kf=1, vr=1, wr=1, dt=1e-3
+        self, parametric_equation, time_dependent, kf=1, vr=1, wr=1, beta=1, dt=1e-3
     ):
         self.parametric_equation = parametric_equation
         self.kf = kf
         self.vr = vr
         self.wr = wr
-        self.beta = 0.5
+        self.beta = beta
         self.time_dependent = time_dependent
         self.dt = dt
         self.nearest_points = []
@@ -77,28 +77,7 @@ class VectorField:
         return f"Time-{('In'*(not self.time_dependent)+'variant').capitalize()} Vector Field.\n Alpha: {self.alpha},\n Constant Velocity: {self.const_vel},\n dt: {self.dt},\n Parametric Equation: {self.parametric_equation.__name__}"
     
     @staticmethod
-    def _divide_conquer(curve_segment, p, R):
-        curve_points = np.array(curve_segment[0])
-        curve_frames = curve_segment[1]
-        npoints = curve_segment[0].shape[0]
-
-        if npoints == 1:
-            return VectorField._distance_fun(p, R, curve_points[0, :], curve_frames[0, :, :]), 0
-        
-        mid_index = npoints // 2
-        left_segment = (curve_segment[0][:mid_index, :], curve_segment[1][:mid_index, :, :])
-        right_segment = (curve_segment[0][mid_index:, :], curve_segment[1][mid_index:, :, :])
-
-        left_dist, left_index = VectorField._divide_conquer(left_segment, p, R)
-        right_dist, right_index = VectorField._divide_conquer(right_segment, p, R)
-
-        if left_dist < right_dist:
-            return left_dist, left_index
-        else:
-            return right_dist, right_index + mid_index
-        
-    @staticmethod
-    def _distance_fun(p, R, pd, Rd):
+    def _distance_fun(p, R, pd, Rd, beta=1):
         """ Computes the distance between the current point and the desired point
         and the current orientation and the desired orientation. The distance is
         described by $D=\|p-p_d\|^2 + \frac{1}{2}\|I - Rd^TR\|^2_F$
@@ -107,7 +86,27 @@ class VectorField:
         pd = np.array(pd).reshape(-1, 1)
         lin_dist = np.linalg.norm(p - pd)**2
         rot_dist = 0.5 * np.linalg.norm(Rd.T @ R, 'fro')**2 
-        return lin_dist + (1)**2 * rot_dist # change term to beta**2
+        return lin_dist + (beta)**2 * rot_dist # change term to beta**2
+    
+    def _divide_conquer(self, curve_segment, p, R):
+        curve_points = np.array(curve_segment[0])
+        curve_frames = curve_segment[1]
+        npoints = curve_segment[0].shape[0]
+
+        if npoints == 1:
+            return self._distance_fun(p, R, curve_points[0, :], curve_frames[0, :, :], self.beta), 0
+        
+        mid_index = npoints // 2
+        left_segment = (curve_segment[0][:mid_index, :], curve_segment[1][:mid_index, :, :])
+        right_segment = (curve_segment[0][mid_index:, :], curve_segment[1][mid_index:, :, :])
+
+        left_dist, left_index = self._divide_conquer(left_segment, p, R)
+        right_dist, right_index = self._divide_conquer(right_segment, p, R)
+
+        if left_dist < right_dist:
+            return left_dist, left_index
+        else:
+            return right_dist, right_index + mid_index
 
     def _add_nearest_point(self, point):
         self.nearest_points.append(point)
