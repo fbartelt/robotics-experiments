@@ -65,6 +65,7 @@ class VectorField:
         self.kf = kf
         self.vr = vr
         self.wr = wr
+        self.beta = 0.5
         self.time_dependent = time_dependent
         self.dt = dt
         self.nearest_points = []
@@ -105,8 +106,8 @@ class VectorField:
         p = np.array(p).reshape(-1, 1)
         pd = np.array(pd).reshape(-1, 1)
         lin_dist = np.linalg.norm(p - pd)**2
-        rot_dist = 0.5 * np.linalg.norm(Rd.T @ R, 'fro')**2
-        return lin_dist + rot_dist
+        rot_dist = 0.5 * np.linalg.norm(Rd.T @ R, 'fro')**2 
+        return lin_dist + (1)**2 * rot_dist # change term to beta**2
 
     def _add_nearest_point(self, point):
         self.nearest_points.append(point)
@@ -165,6 +166,7 @@ class VectorField:
 
     # def _compute_ntd_nonoptimized(self, curve, p, store_points=True):
     def _compute_ntd(self, curve, p, R, store_points=True):
+        #TODO: testing -> normalize velocities separetely
         min_dist = float("inf")
         ind_min = -1
 
@@ -174,18 +176,24 @@ class VectorField:
         vec_n_p = pr - curve[0][ind_min, :]
         Rd = curve[1][ind_min, :, :]
         sigma = skew(Rd[:, 0]) @ R[:, 0].reshape(-1, 1) + skew(Rd[:, 1]) @ R[:, 1].reshape(-1, 1) + skew(Rd[:, 2]) @ R[:, 2].reshape(-1, 1)
+        # vec_n = np.vstack((vec_n_p.reshape(-1, 1), sigma))
+        # vec_n = (vec_n / (np.linalg.norm(vec_n, 2) + 0.0001)).reshape(-1, 1)
+        vec_n_p = (vec_n_p / (np.linalg.norm(vec_n_p, 2) + 0.0001)).reshape(-1, 1)
+        sigma = (sigma / (np.linalg.norm(sigma, 2) + 0.0001)).reshape(-1, 1)
         vec_n = np.vstack((vec_n_p.reshape(-1, 1), sigma))
-        vec_n = (vec_n / (np.linalg.norm(vec_n, 2) + 0.0001)).reshape(-1, 1)
 
         if ind_min == np.shape(curve[0])[0] - 1:
-            vec_t_p = curve[0][0, :] - curve[0][ind_min, :]
+            vec_t_p = curve[0][1, :] - curve[0][ind_min, :]
         else:
             vec_t_p = curve[0][ind_min + 1, :] - curve[0][ind_min, :]
 
         Rd = curve[1][ind_min, :, :]
         vec_t_rot = vee(logm(Rd @ R.T) / self.dt)
+        # vec_t = np.vstack((vec_t_p.reshape(-1, 1), vec_t_rot))
+        # vec_t = (vec_t / (np.linalg.norm(vec_t, 2) + 0.0001)).reshape(-1, 1)
+        vec_t_p = (vec_t_p / (np.linalg.norm(vec_t_p, 2) + 0.0001)).reshape(-1, 1)
+        vec_t_rot = (vec_t_rot / (np.linalg.norm(vec_t_rot, 2) + 0.0001)).reshape(-1, 1)
         vec_t = np.vstack((vec_t_p.reshape(-1, 1), vec_t_rot))
-        vec_t = (vec_t / (np.linalg.norm(vec_t, 2) + 0.0001)).reshape(-1, 1)
         # print(Rd.shape, vec_n_p.shape)
         # print(vec_n.shape)
         # print(np.shape(curve[0])[0])
@@ -260,6 +268,13 @@ class VectorField:
             [
                 self.psi(
                     position,
+                    expm(self.dt * skew(np.array([0, 0, self.dt]).reshape(-1, 1))) @ orientation,
+                    time,
+                    store_points=False,
+                )[3:, :]
+                - current_vf[3:, :],
+                self.psi(
+                    position,
                     expm(self.dt * skew(np.array([self.dt, 0, 0]).reshape(-1, 1))) @ orientation,
                     time,
                     store_points=False,
@@ -268,13 +283,6 @@ class VectorField:
                 self.psi(
                     position,
                     expm(self.dt * skew(np.array([0, self.dt, 0]).reshape(-1, 1))) @ orientation,
-                    time,
-                    store_points=False,
-                )[3:, :]
-                - current_vf[3:, :],
-                self.psi(
-                    position,
-                    expm(self.dt * skew(np.array([0, 0, self.dt]).reshape(-1, 1))) @ orientation,
                     time,
                     store_points=False,
                 )[3:, :]
