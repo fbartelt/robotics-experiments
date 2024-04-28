@@ -15,7 +15,7 @@ def progress_bar(i, imax):
     sys.stdout.flush()
 
 # Parametric equation definition
-maxtheta = 1500
+maxtheta = 500
 
 def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent=True):
     theta = np.linspace(0, 2 * np.pi, num=maxtheta)
@@ -41,7 +41,7 @@ def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent
         ])
     orientations = np.empty((len(theta), 3, 3))
     for i, ang in enumerate(theta):
-        orientations[i, :, :] = Rotation.from_euler('z', 2*ang).as_matrix() @ rotz
+        orientations[i, :, :] = Rotation.from_euler('z', ang).as_matrix() @ Rotation.from_euler('x', 2*ang).as_matrix()
         # orientations[i, :, :] = Rotation.from_euler('z', np.pi).as_matrix()
     
     precomputed = ((curve.T, orientations))
@@ -83,10 +83,11 @@ def to_htm(p, R):
                     [0, 0, 0, 1]])
     return htm
 
-T = 10
+T = 20
 dt = 1e-2
 eq = parametric_eq_factory(w1=0, w2=0, c1=0.3, c2=0.3, c3=0, h0=0.6, maxtheta=maxtheta, T=T, dt=dt, timedependent=False)
-vf = VectorField(eq, False, kf=5, vr=0.5, wr=2, beta=0.5, dt=1e-3) #kf=5, vr=0.5, beta=1 ;;; vr=1.5 erro menor 
+# vf = VectorField(eq, False, kf=5, vr=1, wr=50, beta=1, dt=1) #kf=5, vr=0.5, beta=1 ;;; vr=1.5 erro menor 
+vf = VectorField(eq, False, kf=5, vr=1, wr=70, beta=1, dt=1e-2)
 
 curve = eq(0)
 curve_points = curve[0]
@@ -111,8 +112,8 @@ for i, c in enumerate(zip(curve_points, curve_ori)):
         curve_frames.append(Frame(to_htm(pos, ori), f'curveframe{i}', 0.1))
 
 imax = int(T / dt)
-p_hist = [p]
-R_hist = [R]
+p_hist = []
+R_hist = []
 v_hist, w_hist = [np.zeros((3,1))], [np.zeros((3,1))]
 
 for i in range(imax):
@@ -146,7 +147,8 @@ sim.set_parameters(width=1200, height=600, ambient_light_intensity=4)
 #%%
 """""######################################"""
 import plotly.colors as pc
-def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, skip_ori=1, add_lineplot=False, **kwargs):
+def vector_field_plot(coordinates, field_values, orientations, num_arrows=10, init_ball=0, final_ball=50,
+                      num_balls=10, add_lineplot=False, **kwargs):
     """Plot a vector field in 3D. The vectors are represented as cones and the
     auxiliary lineplot is used to represent arrow tails. The kwargs are passed
     to the go.Cone function.
@@ -164,15 +166,25 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
         Whether to add a lineplot of the field coordinates. The default is False.
     """
     coordinates = np.array(coordinates).reshape(-1, 3)
-    coord_field = coordinates[::skip_coord].T
+    skip_arrows = int(len(coordinates) / num_arrows)
+    coord_field = coordinates[::skip_arrows].T
+    field_values = np.array(field_values).reshape(-1, 3)[::skip_arrows].T
+    skip_balls = int(len(coordinates[init_ball : final_ball]) / num_balls)
+    coord_balls = coordinates[init_ball:final_ball:skip_balls]
+    ori_balls = orientations[init_ball:final_ball:skip_balls]
     coordinates = coordinates.T
-    field_values = np.array(field_values).reshape(-1, 3)[::skip_coord].T
-    npoints = coordinates.shape[1]
-    plasma_cscale = pc.make_colorscale(pc.sequential.Plasma)
+    # npoints = coordinates.shape[1]
+    _, cscale = zip(*pc.make_colorscale(pc.qualitative.Plotly))
 
     # Path
     fig = go.Figure(go.Scatter3d(x=coordinates[0, :], y=coordinates[1, :], 
-                                 z=coordinates[2, :], mode="lines", line=dict(width=5)))
+                                 z=coordinates[2, :], mode="lines", line=dict(width=5, dash='dash', color=cscale[5])))
+    # Workaround for first plot
+    # fig.add_trace(go.Scatter3d(x=coordinates[0, init_ball:final_ball-100], y=coordinates[1, init_ball:final_ball-100], 
+    #                            z=coordinates[2, init_ball:final_ball-100], mode="lines", line=dict(width=5, color=cscale[0])))
+    fig.add_trace(go.Scatter3d(x=coordinates[0, init_ball:final_ball], y=coordinates[1, init_ball:final_ball], 
+                               z=coordinates[2, init_ball:final_ball], mode="lines", line=dict(width=5, color=cscale[0])))
+    
     
     # Vector field
     fig.add_trace(
@@ -184,7 +196,7 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
             v=field_values[1, :],
             w=field_values[2, :],
             # colorscale=[[i / max(index), c[1]] for i, c in zip(index, plasma_cscale)],
-            colorscale=[[0, plasma_cscale[1][1]], [1, plasma_cscale[1][1]]],  # Set the colorscale
+            colorscale=[[0, cscale[5]], [1, cscale[5]]],  # Set the colorscale
             showscale=False,
             **kwargs,
         )
@@ -193,21 +205,27 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
     # Orientation frames
     scale_frame = 0.05
     if orientations is not None:
-        for i, ori in enumerate(orientations[::skip_ori]):
-            px, py, pz = coordinates[:, i*skip_ori]
+        for i, ori in enumerate(ori_balls):
+            px, py, pz = coord_balls[i, :]
             ux, uy, uz = scale_frame*(ori[:, 0])
             vx, vy, vz = scale_frame*(ori[:, 1])
             wx, wy, wz = scale_frame*(ori[:, 2])
             fig.add_trace(go.Scatter3d(x=[px, px+ux], y=[py, py+uy], z=[pz, pz+uz], mode='lines', line=dict(color='red')))
-            fig.add_trace(go.Scatter3d(x=[px, px+vx], y=[py, py+vy], z=[pz, pz+vz], mode='lines', line=dict(color='green')))
+            fig.add_trace(go.Scatter3d(x=[px, px+vx], y=[py, py+vy], z=[pz, pz+vz], mode='lines', line=dict(color='lime')))
             fig.add_trace(go.Scatter3d(x=[px, px+wx], y=[py, py+wy], z=[pz, pz+wz], mode='lines', line=dict(color='blue'))
             )
 
     # Object
-    i2 = -1
-    i3 = 15 * skip_ori
-    fig.add_trace(go.Scatter3d(x=[coordinates[0, 0]], y=[coordinates[1, 0]], z=[coordinates[2, 0]], mode="markers", marker=dict(size=10, color='magenta')))
-    fig.add_trace(go.Scatter3d(x=[coordinates[0, i2]], y=[coordinates[1, i2]], z=[coordinates[2, i2]], mode="markers", marker=dict(size=10, color='orange')))
+    for i, coord in enumerate(coord_balls):
+        if i == 0:
+            color = cscale[3]
+        elif i == len(coord_balls) - 1:
+            color = cscale[4]
+        else:
+            color = 'rgba(172, 99, 250, 0.6)'
+        fig.add_trace(go.Scatter3d(x=[coord[0]], y=[coord[1]], z=[coord[2]], mode="markers", marker=dict(size=15, color=color)))
+    # fig.add_trace(go.Scatter3d(x=[coordinates[0, 0]], y=[coordinates[1, 0]], z=[coordinates[2, 0]], mode="markers", marker=dict(size=10, color='magenta')))
+    # fig.add_trace(go.Scatter3d(x=[coordinates[0, i2]], y=[coordinates[1, i2]], z=[coordinates[2, i2]], mode="markers", marker=dict(size=10, color='orange')))
     # fig.add_trace(go.Scatter3d(x=[coordinates[0, i3]], y=[coordinates[1, i3]], z=[coordinates[2, i3]], mode="markers", marker=dict(size=15, color='magenta')))
 
     #  sizemode=sizemode, sizeref=2.5, anchor='tail'))
@@ -215,9 +233,11 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
         fig.add_scatter3d(
             x=coordinates[0, :], y=coordinates[1, :], z=coordinates[2, :], mode="lines"
         )
-    camera = dict(eye=dict(x=-0.3, y=2.2, z=0.5))
-    camera = dict(eye=dict(x=.4, y=1.6, z=1.6))
-    yticks = [-0.4, -0.2, 0, 0.2, 4]
+    # camera = dict(eye=dict(x=-0.3, y=2.2, z=0.5))
+    # # camera = dict(eye=dict(x=-0.4, y=1.4, z=1.6))
+    camera = dict(eye=dict(x=-0.5, y=1.4, z=1.6)) # first plot
+    # camera = dict(eye=dict(x=1.7, y=0.01, z=1.6)) # second plot
+    yticks = [-0.4, -0.2, 0, 0.1, 4]
     zticks = [0.2, 0.4, 0.6]
     fig.update_layout(margin=dict(t=0, b=10, r=0, l=0), scene_camera=camera, 
                       showlegend=False, scene_aspectmode='cube', 
@@ -231,28 +251,31 @@ def vector_field_plot(coordinates, field_values, orientations, skip_coord=1, ski
 
 skip_ori = int(len(p_hist) / 12)  #87
 skip_coord = int(len(p_hist) / 14) #57
-coords = np.array(p_hist).reshape(-1, 3)
-vf_values = np.array(v_hist).reshape(-1, 3)
+# coords = np.array(p_hist).reshape(-1, 3)
+# vf_values = np.array(v_hist).reshape(-1, 3)
 orientations = R_hist
-fig = vector_field_plot(coords, vf_values, orientations, skip_coord=skip_coord, 
-                  skip_ori=skip_ori, sizemode="scaled", sizeref=.25, anchor='tail')
+fig = vector_field_plot(p_hist, v_hist, R_hist, num_arrows=10, init_ball=0, final_ball=int((T/2)/dt),
+                      num_balls=10, sizemode="absolute", sizeref=3e-2, anchor='tail')
+# fig = vector_field_plot(p_hist, v_hist, R_hist, num_arrows=10, init_ball=int((T/2)/dt) - 100, final_ball=len(p_hist)-1,
+#                       num_balls=10, sizemode="absolute", sizeref=3e-2, anchor='tail')
+fig.show()
 # fig.show(width=1080, height=1080)
 #%%
 near_p, near_R = zip(*vf.nearest_points)
 near_p = np.array(near_p).reshape(-1, 3)
 coords = np.array(p_hist).reshape(-1, 3)
-# fig1 = px.line(np.linalg.norm(near_p - coords[1::], axis=1)**2)
-# fig1.show()
+fig1 = px.line(np.linalg.norm(near_p - coords, axis=1)**2)
+fig1.show()
 fro_norms = []
 for rot, rot_d in zip(R_hist, near_R):
     fro_norms.append(0.5 * np.linalg.norm(np.eye(3) - rot_d.T @ rot)**2)
-fig2 = px.line(x=np.arange(0, T, dt), y=np.array(fro_norms) + np.linalg.norm(near_p - coords[1::], axis=1)**2)
+fig2 = px.line(x=np.arange(0, T, dt), y=np.array(fro_norms) + np.linalg.norm(near_p - coords, axis=1)**2)
 # fig2.update_xaxes(title="Time (s)")
 # fig2.update_yaxes(title="Distance Function")
 fig2.update_layout(xaxis_title="Time (s)", yaxis_title="Distance Function", width=1200, height=600, margin=dict(t=0, b=0, r=0, l=5),
                    xaxis_title_font=dict(size=18), yaxis_title_font=dict(size=18))
-fig2.update_xaxes(tickfont=dict(size=14), tickprefix="\t")
-fig2.update_yaxes(tickfont=dict(size=14))
+# fig2.update_xaxes(tickfont=dict(size=14), tickprefix="\t")
+# fig2.update_yaxes(tickfont=dict(size=14))
 fig2.show()
 # %%
 import sys
