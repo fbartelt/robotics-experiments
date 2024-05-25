@@ -86,7 +86,7 @@ class VectorField:
         pd = np.array(pd).reshape(-1, 1)
         lin_dist = np.linalg.norm(p - pd)**2
         rot_dist = 0.5 * np.linalg.norm(Rd.T @ R, 'fro')**2 
-        return lin_dist + (beta)**2 * rot_dist # change term to beta**2
+        return lin_dist + beta * rot_dist # change term to beta**2
     
     def _divide_conquer(self, curve_segment, p, R):
         curve_points = np.array(curve_segment[0])
@@ -156,12 +156,14 @@ class VectorField:
         self, p, R, curve, kf, vr, wr, store_points=True
     ):
         vec_n, vec_t, min_dist = self._compute_ntd(curve, p, R, store_points=store_points)
-        fun_g = _INVHALFPI * np.arctan(kf * min_dist)
-        fun_h = np.sqrt(max(1 - fun_g**2, 0))
+        fun_g = vr * _INVHALFPI * np.arctan(kf * np.sqrt(min_dist))
+        fun_h = wr * np.sqrt(max(1 - fun_g**2, 0))
+        # fun_g = vr * np.tanh(kf * min_dist)
+        # fun_h = wr * np.sqrt(max(1 - fun_g**2, 0))
         sgn = 1
         Lambda = block_diag(np.eye(3) * vr, np.eye(3) * wr)
 
-        return Lambda @ (-fun_g * vec_n + sgn * fun_h * vec_t)
+        return (-fun_g * vec_n + sgn * fun_h * vec_t)
 
     # def _compute_ntd_nonoptimized(self, curve, p, store_points=True):
     def _compute_ntd(self, curve, p, R, store_points=True):
@@ -174,24 +176,26 @@ class VectorField:
 
         vec_n_p = pr - curve[0][ind_min, :]
         Rd = curve[1][ind_min, :, :]
-        sigma = skew(Rd[:, 0]) @ R[:, 0].reshape(-1, 1) + skew(Rd[:, 1]) @ R[:, 1].reshape(-1, 1) + skew(Rd[:, 2]) @ R[:, 2].reshape(-1, 1)
+        sigma = self.beta * (skew(Rd[:, 0]) @ R[:, 0].reshape(-1, 1) + skew(Rd[:, 1]) @ R[:, 1].reshape(-1, 1) + skew(Rd[:, 2]) @ R[:, 2].reshape(-1, 1))
         # vec_n = np.vstack((vec_n_p.reshape(-1, 1), sigma))
         # vec_n = (vec_n / (np.linalg.norm(vec_n, 2) + 0.0001)).reshape(-1, 1)
-        vec_n_p = (vec_n_p / (np.linalg.norm(vec_n_p, 2) + 0.0001)).reshape(-1, 1)
-        sigma = (sigma / (np.linalg.norm(sigma, 2) + 0.0001)).reshape(-1, 1)
+        # vec_n_p = (vec_n_p / (np.linalg.norm(vec_n_p, 2) + 0.0001)).reshape(-1, 1)
+        # sigma = (sigma / (np.linalg.norm(sigma, 2) + 0.0001)).reshape(-1, 1)
         vec_n = np.vstack((vec_n_p.reshape(-1, 1), sigma))
+        # Rd = curve[1][ind_min, :, :]
 
         if ind_min == np.shape(curve[0])[0] - 1:
             vec_t_p = curve[0][1, :] - curve[0][ind_min, :]
+            vec_t_rot = vee(logm(curve[1][1, :, :] @ Rd.T) / 1)
         else:
             vec_t_p = curve[0][ind_min + 1, :] - curve[0][ind_min, :]
+            vec_t_rot = vee(logm(curve[1][ind_min+1, :, :] @ Rd.T) / 1)
 
-        Rd = curve[1][ind_min, :, :]
-        vec_t_rot = vee(logm(Rd @ R.T) / self.dt)
+        # vec_t_rot = vee(logm(Rd @ R.T) / self.dt)
         # vec_t = np.vstack((vec_t_p.reshape(-1, 1), vec_t_rot))
         # vec_t = (vec_t / (np.linalg.norm(vec_t, 2) + 0.0001)).reshape(-1, 1)
-        vec_t_p = (vec_t_p / (np.linalg.norm(vec_t_p, 2) + 0.0001)).reshape(-1, 1)
-        vec_t_rot = (vec_t_rot / (np.linalg.norm(vec_t_rot, 2) + 0.0001)).reshape(-1, 1)
+        # vec_t_p = (vec_t_p / (np.linalg.norm(vec_t_p, 2) + 0.0001)).reshape(-1, 1)
+        # vec_t_rot = (vec_t_rot / (np.linalg.norm(vec_t_rot, 2) + 0.0001)).reshape(-1, 1)
         vec_t = np.vstack((vec_t_p.reshape(-1, 1), vec_t_rot))
         # print(Rd.shape, vec_n_p.shape)
         # print(vec_n.shape)
@@ -263,35 +267,36 @@ class VectorField:
         )
         l_acceleration = dphipdp @ l_velocity
         # \partial{\phi_p}/\partial{R} \dot{R}
-        dphiRdR = (np.array(
-            [
-                self.psi(
-                    position,
-                    expm(self.dt * skew(np.array([0, 0, self.dt]).reshape(-1, 1))) @ orientation,
-                    time,
-                    store_points=False,
-                )[3:, :]
-                - current_vf[3:, :],
-                self.psi(
-                    position,
-                    expm(self.dt * skew(np.array([self.dt, 0, 0]).reshape(-1, 1))) @ orientation,
-                    time,
-                    store_points=False,
-                )[3:, :]
-                - current_vf[3:, :],
-                self.psi(
-                    position,
-                    expm(self.dt * skew(np.array([0, self.dt, 0]).reshape(-1, 1))) @ orientation,
-                    time,
-                    store_points=False,
-                )[3:, :]
-                - current_vf[3:, :],
-            ]
-        )
-        .reshape(3, 3)
-        .T
-        / self.dt)
-        a_acceleration = dphiRdR @ a_velocity
+        # dphiRdR = (np.array(
+        #     [
+        #         self.psi(
+        #             position,
+        #             expm(self.dt * skew(np.array([0, 0, self.dt]).reshape(-1, 1))) @ orientation,
+        #             time,
+        #             store_points=False,
+        #         )[3:, :]
+        #         - current_vf[3:, :],
+        #         self.psi(
+        #             position,
+        #             expm(self.dt * skew(np.array([self.dt, 0, 0]).reshape(-1, 1))) @ orientation,
+        #             time,
+        #             store_points=False,
+        #         )[3:, :]
+        #         - current_vf[3:, :],
+        #         self.psi(
+        #             position,
+        #             expm(self.dt * skew(np.array([0, self.dt, 0]).reshape(-1, 1))) @ orientation,
+        #             time,
+        #             store_points=False,
+        #         )[3:, :]
+        #         - current_vf[3:, :],
+        #     ]
+        # )
+        # .reshape(3, 3)
+        # .T
+        # / self.dt)
+        # a_acceleration = dphiRdR @ a_velocity
+        a_acceleration = np.zeros((3,1))
         a = np.vstack((l_acceleration, a_acceleration))
 
         return a
