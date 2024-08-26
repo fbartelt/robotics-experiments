@@ -23,8 +23,8 @@ from uaibot_addons.vfcomplete import VectorField
 
 # Physical parameters
 rho = 8050  # Density of steel in kg/m^3
-r = 0.2  # Radius of the cylinder in meters
-h = 1  # Height of the cylinder in meters
+r = 0.5  # Radius of the cylinder in meters
+h = 3  # Height of the cylinder in meters
 m = rho * np.pi * r**2 * h  # Mass of the cylinder in kg
 num_freq = 5  # Number of frequencies to use in the trajectory
 rng = np.random.default_rng(42)  # Random number generator
@@ -49,8 +49,36 @@ I_cm = (1 / 12) * np.diag([m * (3 * r**2 + h**2), m * (3 * r**2 + h**2), 6 * m *
 I_p = I_cm - m * skew(r_p) @ skew(r_p)  # Steiner theorem
 
 # Parametric curve definition
-maxtheta = 1500
+maxtheta = 1000
 
+# def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent=True):
+#     theta = np.linspace(0, 2 * np.pi, num=maxtheta)
+#     cos_theta = np.cos(theta)
+#     sin_theta = np.sin(theta)
+#     precomputed = ()
+#     cw1t = np.cos(0)
+#     sw1t = np.sin(0)
+#     cw2t = np.cos(0)
+#     rotz = np.matrix([[cw1t, -sw1t, 0], [sw1t, cw1t, 0], [0, 0, 1]])
+
+#     curve = np.empty((3, len(theta)))
+#     for i, _ in enumerate(theta):
+#         curve[:, i] = rotz @ np.array([
+#             c1 * cos_theta[i],
+#             c2 * sin_theta[i],
+#             h0 + c3 * cw2t * cos_theta[i] ** 2
+#         ])
+#     orientations = np.empty((len(theta), 3, 3))
+#     for i, ang in enumerate(theta):
+#         orientations[i, :, :] = Rotation.from_euler('z', 2*ang).as_matrix()
+    
+#     precomputed = (curve.T, orientations)
+    
+#     def parametric_eq(time):
+#         return precomputed
+
+
+#     return parametric_eq
 def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent=True):
     theta = np.linspace(0, 2 * np.pi, num=maxtheta)
     cos_theta = np.cos(theta)
@@ -63,16 +91,22 @@ def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent
 
     curve = np.empty((3, len(theta)))
     for i, _ in enumerate(theta):
+        # curve[:, i] = rotz @ np.array([
+        #     c1 * cos_theta[i],
+        #     c2 * sin_theta[i],
+        #     h0 + c3 * cw2t * cos_theta[i] ** 2
+        # ])
         curve[:, i] = rotz @ np.array([
-            c1 * cos_theta[i],
-            c2 * sin_theta[i],
-            h0 + c3 * cw2t * cos_theta[i] ** 2
+            1/8*(sin_theta[i] + 2*np.sin(2*theta[i])),
+            1/8*(cos_theta[i] - 2*np.cos(2*theta[i])),
+            0.4 + 1/8*(-np.sin(3*theta[i]))
         ])
     orientations = np.empty((len(theta), 3, 3))
     for i, ang in enumerate(theta):
-        orientations[i, :, :] = Rotation.from_euler('z', ang).as_matrix()
+        orientations[i, :, :] = Rotation.from_euler('z', 2*ang).as_matrix() @ rotz
+        # orientations[i, :, :] = Rotation.from_euler('z', np.pi).as_matrix()
     
-    precomputed = (curve.T, orientations)
+    precomputed = ((curve.T, orientations))
     
     def parametric_eq(time):
         return precomputed
@@ -80,8 +114,12 @@ def parametric_eq_factory(w1, w2, c1, c2, c3, h0, maxtheta, T, dt, timedependent
 
     return parametric_eq
 
-eq = parametric_eq_factory(w1=0, w2=0, c1=1, c2=1, c3=0, h0=0.6, maxtheta=maxtheta, T=2, dt=1e-2, timedependent=False)
-vf = VectorField(eq, False, kf=1, vr=2e-1, wr=4e-1, beta=0.5, dt=1e-2)
+# eq = parametric_eq_factory(w1=0, w2=0, c1=0.5, c2=0.5, c3=0, h0=0.6, maxtheta=maxtheta, T=2, dt=1e-2, timedependent=False)
+# vf = VectorField(eq, False, kf=1, vr=2e-1, wr=5e-1, beta=0.5, dt=1e-2)
+eq = parametric_eq_factory(w1=0, w2=0, c1=0.3, c2=0.3, c3=0, h0=0.6, maxtheta=maxtheta, T=10, dt=1e-2, timedependent=False)
+vf = VectorField(eq, False, kf=5, vr=0.1, wr=0.25*2, beta=0.5, dt=1e-3) # w=0.2, kf=5, v=5e-2
+# vf = VectorField(eq, False, kf=1, vr=0.5, wr=0.7, beta=0.5, dt=1e-2)
+psi_old = np.zeros((6, 1))
 # Reference signals (combination of sinusoids)
 # v_d is the desired velocity, a_d is the desired acceleration
 # w_d is the desired angular velocity, al_d is the desired angular acceleration
@@ -106,7 +144,7 @@ def adaptive_dyn(
     # inputs: position x, desired pos. x_d, orientation R, des. orient. R_d, velocity dq, param estimates a_hat, r_hat, time t;
     # optional : drop time t_drop
     # outputs: state & parameter derivatives
-    global P_o, P_r, p, a_i, tol
+    global P_o, P_r, p, a_i, tol, psi_old
 
     dx = dq[:3, :].copy()
     # print('dx', dx.ravel())
@@ -116,7 +154,10 @@ def adaptive_dyn(
     Re = R_d.T @ R
     # print('Re', Re.ravel())
     psi = twist_d(x, R, t, store_points=False)
-    psi_dot = twist_derivative_d(x, R, dx, w, t)
+    psi_dot_ = twist_derivative_d(x, R, dx, w, t) #TODO
+    psi_dot = (psi - psi_old) / (dt/10)
+    # psi_dot[3:, :] = psi_dot_[3:, :]
+    # psi_old = psi.copy()
     we = w - psi[3:, :]
     # print('we', we.ravel())
     sigma = we + lambda_ * R_d @ vee(Pa(Re))
@@ -333,7 +374,8 @@ r_hat = 2 * rng.normal(0, 1, (N, 3, 1))
 
 
 # Kd Matrix
-Kd = 1e-1*np.diag(np.hstack([(5e4 / N) * np.ones(3), (5e3 / N) * np.ones(3)]))
+# Kd = 1*np.diag(np.hstack([(5e4 / N) * np.ones(3), (5e3 / N) * np.ones(3)]))
+Kd = 1*np.diag(np.hstack([(5e4 / N) * np.ones(3), (5e3 / N) * np.ones(3)]))
 
 # Sample random initial orientation
 quat = rng.random((4, 1))
@@ -342,7 +384,7 @@ quat = quat / np.linalg.norm(quat)
 quat_d = rng.random((4, 1))
 quat_d = np.array([0.47257332117500883, 0.1079226612474078, 0.7420069295427152, 0.46309056545506455])
 quat_d = quat_d / np.linalg.norm(quat_d)
-R = quat_to_rot(quat)
+R = np.eye(3)
 R_d = quat_to_rot(quat_d)
 
 # Initializations
@@ -359,13 +401,15 @@ w, x, x_d, dx, s = (
 dt = 1e-2  # Timestep -- numerical integration via Heun's; error is ~ O(dt^2)
 T = 20
 lambda_ = 1.5
-deadband = 0.01  # Deadband in which to stop adaptation
+deadband = 0.1  # Deadband in which to stop adaptation
 t_drop = T + 10  # Time to turn off agents
 p = 2  # l-p norm to be used for regularization
 verbose = False
 
-P_o = 3e1 * np.linalg.inv(np.diag(np.abs(a_i.ravel()) + 1e-2))
-P_r = 3e1 * np.eye(3)
+# P_o = 3e3 * np.linalg.inv(np.diag(np.abs(a_i.ravel()) + 1e-2)) #3e1 #TODO 3e2 better
+# P_r = 3e3 * np.eye(3)
+P_o = 3e1 * np.linalg.inv(np.diag(np.abs(a_i.ravel()) + 1e-2)) #3e1 #TODO 3e2 better
+P_r = 3e3 * np.eye(3)
 tol = 1e-5
 
 # Storage for simulation data
@@ -387,7 +431,9 @@ for t in np.arange(0, T + dt, dt):
     dx = dq[:3].copy()
     w = dq[3:].copy()
     psi = twist_d(x, R, t, store_points=True)
-    psi_dot = twist_derivative_d(x, R, dx, w, t)
+    if np.iscomplex(psi).any():
+        print('Complex number found')
+    # psi_dot = twist_derivative_d(x, R, dx, w, t)
     Re = R_d.T @ R
     we = w - psi[3:, :]
     dx_t = dx - psi[:3, :]
@@ -542,6 +588,7 @@ for t in np.arange(0, T + dt, dt):
     dq = dq + (dt / 2) * (ddq + ddq_p)
     dx = dq[:3].copy()
     w = dq[3:].copy()
+    psi_old = psi.copy()
 
     hist_x.append(x)
     hist_dx.append(dx)
@@ -554,13 +601,28 @@ for t in np.arange(0, T + dt, dt):
 
 #%%
 import plotly.express as px
-px.scatter(np.array(s_t)).show()
+import pickle
+
 pp, rr = zip(*vf.nearest_points)
+# with open('vfresults.pkl', 'wb') as f:
+#     data = {
+#         's_t': s_t,
+#         'hist_x': hist_x,
+#         'hist_R': hist_R,
+#         'hist_dx': hist_dx,
+#         'hist_vf': hist_vf,
+#         'hist_w': hist_w,
+#         'nearest_points': pp,
+#         'nearest_rotations': rr,
+#     }
+#     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+px.line(np.array(s_t)).show()
 px.line(np.linalg.norm(np.array(hist_x).reshape(-1, 3) - np.array(pp[::1]).reshape(-1, 3), axis=1)).show()
 fro_norms = []
 for rot, rot_d in zip(hist_R, rr):
     fro_norms.append(0.5 * np.linalg.norm(np.eye(3) - rot_d.T @ rot)**2)
 fig2 = px.line(x=np.arange(0, T+dt, dt), y=np.array(fro_norms))
+fig2.show()
 # px.line(np.array(hist_vf).reshape(-1, 6)[:, :3]).show()
 # px.line(np.array(hist_vf).reshape(-1, 6)[:, 3:]).show()
 # %%

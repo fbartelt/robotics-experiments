@@ -15,7 +15,7 @@ from uaibot.simobjects.pointlight import PointLight
 from uaibot.simobjects.ball import Ball
 from uaibot.robot._vector_field import _compute_ntd as compute_ntd
 from cvxopt import matrix, solvers, spmatrix
-from create_jaco import create_jaco2
+from uaibot_addons.create_jaco import create_jaco2
 from plotly.subplots import make_subplots
 from itertools import product
 from uaibot_addons.vectorfield import VectorField, vector_field_plot

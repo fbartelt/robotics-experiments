@@ -16,8 +16,8 @@ from simobjects.pointcloud import PointCloud
 from cvxopt import matrix, solvers
 from plotly.subplots import make_subplots
 from IPython.display import clear_output
-from planar_manipulator import create_2dof
-from create_jaco import create_jaco2
+from uaibot_addons.planar_manipulator import create_2dof
+from uaibot_addons.create_jaco import create_jaco2
 from simobjects.pointlight import PointLight
 from scipy.linalg import block_diag, solve_continuous_are, solve_continuous_lyapunov
 solvers.options['show_progress'] = False

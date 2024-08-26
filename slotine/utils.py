@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 
 def quat_to_rot(q):
     """Converts a quaternion to a rotation matrix"""
@@ -50,3 +51,9 @@ def L(v):
 def vee(R):
     return np.array([[R[2,1]], [R[0,2]], [R[1,0]]])
 
+def progress_bar(i, imax):
+    sys.stdout.write("\r")
+    sys.stdout.write(
+        "[%-20s] %d%%" % ("=" * round(20 * i / (imax - 1)), round(100 * i / (imax - 1)))
+    )
+    sys.stdout.flush()

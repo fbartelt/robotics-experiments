@@ -488,17 +488,32 @@ pp, rr = zip(*vf.nearest_points)
 #     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 time = np.arange(0, T+dt, dt)
 fig = px.line(x=time, y=np.array(s_t))
-fig.update_layout(xaxis_title='Time (s)', yaxis_title='Norm of error vector <b>s<\b>')
+fig.update_layout(xaxis_title='Time (s)', yaxis_title='Norm of the error vector', 
+                  xaxis_title_font=dict(size=22), yaxis_title_font=dict(size=22), 
+                  yaxis_tickfont_size=20, width=1200, height=600, 
+                  margin=dict(t=0, b=0, r=0, l=5), xaxis_tickfont_size=20)
 fig.show()
-px.line(np.linalg.norm(np.array(hist_x).reshape(-1, 3) - np.array(pp).reshape(-1, 3), axis=1)).show()
+# px.line(np.linalg.norm(np.array(hist_x).reshape(-1, 3) - np.array(pp).reshape(-1, 3), axis=1)).show()
 fro_norms = []
 for rot, rot_d in zip(hist_R, rr):
     fro_norms.append(0.5 * np.linalg.norm(np.eye(3) - rot_d.T @ rot)**2)
-fig2 = px.line(x=np.arange(0, T+dt, dt), y=np.array(fro_norms))
+fig2 = px.line(x=np.arange(0, T+dt, dt), y=np.array(fro_norms) + 
+               0.5*(np.linalg.norm(np.array(hist_x).reshape(-1, 3) 
+                                   - np.array(pp).reshape(-1, 3), axis=1)**2))
+fig2.update_layout(xaxis_title='Time (s)', yaxis_title='Value of metric <i>D</i>', 
+                  xaxis_title_font=dict(size=22), yaxis_title_font=dict(size=22), 
+                  yaxis_tickfont_size=20, width=1200, height=600, 
+                  margin=dict(t=0, b=0, r=0, l=5), xaxis_tickfont_size=20)
 fig2.show()
 px.line(np.array(hist_s).reshape(-1, 6)[:, :3]).show()
 px.line(np.array(hist_x).reshape(-1, 3) - np.array(pp).reshape(-1, 3)).show()
 # %%
 with open('vfresults.pkl', 'rb') as f:
     data = pickle.load(f)
+
+s_t = data['s_t']
+hist_x = data['hist_x']
+hist_R = data['hist_R']
+pp = data['nearest_points']
+rr = data['nearest_rotations']
 # %%

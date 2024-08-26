@@ -513,7 +513,7 @@ with open('/home/fbartelt/Documents/Projetos/robotics-experiments/dynmodel.pkl',
 
 #%%
 """Compare analytic with numeric"""
-from create_jaco import create_jaco2
+from uaibot_addons.create_jaco import create_jaco2
 
 robot = create_jaco2()
 fk_dh_a = fkm(dht, 'dh')

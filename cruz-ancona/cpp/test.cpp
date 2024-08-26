@@ -70,7 +70,8 @@ int main() {
   double I1 = 1.266, I2 = 0.093;
   double m1_bar = 0, m2_bar = 2;
   int n = 2;
-  double varrho = 5.03;
+  double varrho = 5.03; 
+  // double varrho = 0.503; //multiplied by 1/10
   double l = 10;
   double epsilon = 0.05;
   Matrix3d L, Xi;
@@ -97,14 +98,26 @@ int main() {
   VectorXd z(8);
   z << x0, b0, rho0;
   Eigen::MatrixXd P(4, 4);
-  P << 4.08497261, 0.0, 3.17175031, 0.0, 0.0, 4.08497261, 0.0, 3.17175031,
-      3.17175031, 0.0, 6.47825656, 0.0, 0.0, 3.17175031, 0.0, 6.47825656;
+  // P << 4.08497261, 0.0, 3.17175031, 0.0, 0.0, 4.08497261, 0.0, 3.17175031,
+  //     3.17175031, 0.0, 6.47825656, 0.0, 0.0, 3.17175031, 0.0, 6.47825656;
+  // P << 2.20360132, 0.0, 0.86861959, 0.0,
+  //        0.0, 2.20360132, 0.0, 0.86861959,
+  //        0.86861959, 0.0, 1.27606086, 0.0,
+  //        0.0, 0.86861959, 0.0, 1.27606086; // Change Q to 0.75*Q and R = 0.1varrho*I
+  // P << 4.08497261, 0.        , 3.17175031, 0.,
+  //       0.        , 4.08497261, 0.        , 3.17175031,
+  //       3.17175031, 0.        , 6.47825656, 0.,
+  //       0.        , 3.17175031, 0.        , 6.47825656;
+  P << 2.5539         0    0.6306         0;
+          0    2.5539         0    0.6306;
+     0.6306         0    0.8052         0;
+          0    0.6306         0    0.8052
   system.setP(P);
 
   // Define integration parameters
   double t0 = 0.0;
-  double tf = 10.0;
-  double dt = 1e-6;
+  double tf = 15.0;
+  double dt = 1e-5;
   // int steps = static_cast<int>((t0 - tf) / dt);
   typedef runge_kutta4<State> stepper_type;
 
@@ -122,11 +135,11 @@ int main() {
 
   // Process or save the history as needed
   // ...
-  saveTimeHistoryToCSV(globalHistory.timeHistory, "timeHistory_wDistnUnc2_1e6.csv");
-  saveEigenHistoryToCSV(globalHistory.zHistory, "zHistory_wDistnUnc2_1e6.csv");
-  saveEigenHistoryToCSV(globalHistory.tauHistory, "tauHistory_wDistnUnc2_1e6.csv");
-  saveEigenHistoryToCSV(globalHistory.wHistory, "wHistory_wDistnUnc2_1e6.csv");
-  saveEigenHistoryToCSV(globalHistory.qHistory, "qHistory_wDistnUnc2_1e6.csv");
-  saveEigenHistoryToCSV(globalHistory.qdotHistory, "qdotHistory_wDistnUnc2_1e6.csv");
+  saveTimeHistoryToCSV(globalHistory.timeHistory, "timeHistory_nominal15sx_1e6.csv");
+  saveEigenHistoryToCSV(globalHistory.zHistory, "zHistory_nominal15sx_1e6.csv");
+  saveEigenHistoryToCSV(globalHistory.tauHistory, "tauHistory_nominal15sx_1e6.csv");
+  saveEigenHistoryToCSV(globalHistory.wHistory, "wHistory_nominal15sx_1e6.csv");
+  saveEigenHistoryToCSV(globalHistory.qHistory, "qHistory_nominal15sx_1e6.csv");
+  saveEigenHistoryToCSV(globalHistory.qdotHistory, "qdotHistory_nominal15sx_1e6.csv");
   return 0;
 }

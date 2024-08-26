@@ -173,3 +173,6 @@ jjj/
 *.pkl
 *.zip
 libraries-master/
+*data/
+*/cpp/*.csv
+*.asv

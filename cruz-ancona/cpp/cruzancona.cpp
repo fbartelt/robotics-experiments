@@ -140,10 +140,10 @@ void System::sysdiffeq(const VectorXd& z, VectorXd& dzdt, const double t) {
     VectorXd x2 = x.segment(2, 2).eval();
     VectorXd qdot = x2 + qdot_d;
 
-    Matrix2d J = getJ(q);
-    Matrix2d Delta = getDelta(q);
-    Matrix2d C = getC(qdot);
-    Vector2d g = getG(q);
+    Matrix2d J = getJ(x1); // Change q-> x1, qdot->x2 
+    Matrix2d Delta = getDelta(x1); // Change q-> x1, qdot->x2
+    Matrix2d C = getC(x2); // Change q-> x1, qdot->x2
+    Vector2d g = getG(x1); // Change q-> x1, qdot->x2
 
     Matrix2d Jtilde = J + Delta;
     Matrix2d G = J.inverse();
@@ -158,7 +158,7 @@ void System::sysdiffeq(const VectorXd& z, VectorXd& dzdt, const double t) {
     VectorXd w = (B.transpose() * P) * x;
     VectorXd psi = -varrho * w;
     MatrixXd B_bar = B.transpose() * P * B * G;
-    VectorXd w_bar = B_bar.transpose() * w;
+    VectorXd w_bar = B_bar * w; // B_bar.transpose()
     double w_norm = w.norm();
     double w_bar_norm = w_bar.norm();
     VectorXd kappa(3);
