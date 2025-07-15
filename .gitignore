@@ -176,3 +176,5 @@ libraries-master/
 *data/
 */cpp/*.csv
 *.asv
+
+*.html
