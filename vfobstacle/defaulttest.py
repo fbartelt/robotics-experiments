@@ -244,7 +244,7 @@ def simulate():
         obstacles=obstacles,
         zeta=5.0,
         s_samples=n_samples,
-        r=0.8,
+        r=0.1,
         alpha=np.log(2) / 0.5,
     )
 
