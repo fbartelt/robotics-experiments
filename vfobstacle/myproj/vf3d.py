@@ -1,5 +1,6 @@
 import numpy as np
 from manim import *
+from itertools import combinations
 from scipy.optimize import brute, linprog
 from scipy.spatial import ConvexHull, HalfspaceIntersection
 
@@ -60,16 +61,20 @@ class Curve:
             index = self.get_index_from_s(s)
             h0s = self.h0[index]
             hs = self.h[index]
-            grad = self.deformation(hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma)
+            grad = self.deformation(
+                hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma
+            )
             # Add path lenght constraint
             prev_grad = hs - self.h[(index - 1) % self.n_samples]
             next_grad = hs - self.h[(index + 1) % self.n_samples]
             orig_prev_grad = h0s - self.h0[(index - 1) % self.n_samples]
             orig_next_grad = h0s - self.h0[(index + 1) % self.n_samples]
-            orig_const_grad = (orig_prev_grad + orig_next_grad) / (2.0 * (delta_s)**2)
-            const_grad = (prev_grad + next_grad) / (2.0 * (delta_s)**2)
+            orig_const_grad = (orig_prev_grad + orig_next_grad) / (2.0 * (delta_s) ** 2)
+            const_grad = (prev_grad + next_grad) / (2.0 * (delta_s) ** 2)
             len_grad = const_grad - orig_const_grad
-            self.h[index] = hs + dt * (-self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad)
+            self.h[index] = hs + dt * (
+                -self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad
+            )
 
     def eval(self, s, t=0, obstacles=None):
         """
@@ -101,7 +106,9 @@ class Curve:
             gain, _ = smooth_sat(1.0 / (abs(dist) + 1e-3), np.log(2) / (10.0))
         else:
             gain = np.sqrt(abs(dist)) * 1e4
-            grad = grad / (np.linalg.norm(grad) + 1e-6)  # Normalize grad to avoid scale issues
+            grad = grad / (
+                np.linalg.norm(grad) + 1e-6
+            )  # Normalize grad to avoid scale issues
             # print(f"Dist: {dist}, Gain: {gain}, Grad: {grad.ravel()}")
         return gain * grad.ravel()
 
@@ -178,7 +185,7 @@ class Curve:
         return self.s
 
 
-class GVF(Scene):
+class GVF(ThreeDScene):
     def construct(self):
         q0 = np.array([2.0, 0.0, 0.0])
         k_n = 2.0
@@ -189,20 +196,23 @@ class GVF(Scene):
 
         A0 = np.array(
             [
-                [1, 0],  # x ≤ 1
-                [-1, 0],  # -x ≤ 1 → x ≥ -1
-                [0, 1],  # y ≤ 1
-                [0, -1],  # -y ≤ 1 → y ≥ -1
+                [1, 0, 0],  # x ≤ 1
+                [-1, 0, 0],  # -x ≤ 1 → x ≥ -1
+                [0, 1, 0],  # y ≤ 1
+                [0, -1, 0],  # -y ≤ 1 → y ≥ -1
+                [0, 0, 1],  # z ≤ 1
+                [0, 0, -1],  # -z ≤ 1 → z ≥ -1
             ]
         )
-        b0 = np.array([0.1, 0.1, 0.1, 0.1])
-        b0 = b0 + (A0 @ np.array([-1.0, -1.0]).reshape(-1, 1)).ravel()
-        vel_vec = 0.75 * np.array([.5, 0.5])  # Velocity vector for the obstacle
+        b0 = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+        b0 = b0 + (A0 @ np.array([-1.0, -1.0, -1.0]).reshape(-1, 1)).ravel()
+        vel_vec = 0.75 * np.array([0.5, 0.5, 0.5])  # Velocity vector for the obstacle
         obstacle = MovingPolytope(A0, b0, v=vel_vec)
-        vertices = get_polytope_vertices(A0, b0)
-        vertices = np.hstack(
-            (vertices, np.zeros((vertices.shape[0], 1)))
-        )  # Add z=0 for 2D
+        # vertices = get_polytope_vertices(A0, b0)
+        vertices = get_polytope_vertices_3d_lp(A0, b0)
+        # vertices = np.hstack(
+        #     (vertices, np.zeros((vertices.shape[0], 1)))
+        # )  # Add z=0 for 2D
         curveobj = Curve(
             h0,
             dh0_ds,
@@ -217,29 +227,73 @@ class GVF(Scene):
         )
         print(f"delta_s: {curveobj.s[1] - curveobj.s[0]}")
         # print(vertices, *vertices)
-        square = Polygon(*vertices, color=PINK, fill_opacity=0.5, stroke_width=1.0)
+        initial_position = np.array([-1.0, -1.0, -1.0])
+        cube = Cube(side_length=0.2)
+        cube.move_to(initial_position)
+        def update_cube(mob):
+            t = t_tracker.get_value()
+            new_pos = mob.get_center() + vel_vec * t
+            mob.move_to(new_pos)
+        # square = ConvexHull3D(
+        #     *vertices,
+        #     faces_config={
+        #         "stroke_opacity": 0.5,
+        #     },
+        #     graph_config={
+        #         "vertex_type": Dot3D,
+        #         "edge_config": {
+        #             "stroke_color": PINK,
+        #             "stroke_width": 1.0,
+        #             "stroke_opacity": 0.5,
+        #         },
+        #     },
+        # )
+        cube.add_updater(update_cube)
 
         def update_obstacle(mob):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
             obstacle.curr_time = time
-            v_ = np.hstack((obstacle.v.ravel(), np.zeros(1)))  # Add z=0 for 2D
+            # v_ = np.hstack((obstacle.v.ravel(), np.zeros(1)))  # Add z=0 for 2D
             A_, b_ = obstacle(t=time)
-            vertices = get_polytope_vertices(A_, b_)
-            vertices = np.hstack((vertices, np.zeros((vertices.shape[0], 1))))
-            mob.become(Polygon(*vertices, color=PINK, fill_opacity=0.5))
+            # vertices = get_polytope_vertices(A_, b_)
+            vertices = get_polytope_vertices_3d_lp(A_, b_)
+            # vertices = np.hstack((vertices, np.zeros((vertices.shape[0], 1))))
+            new_square = ConvexHull3D(
+                *vertices,
+                faces_config={
+                    "stroke_opacity": 0.5,
+                },
+                graph_config={
+                    "vertex_type": Dot3D,
+                    "edge_config": {
+                        "stroke_color": PINK,
+                        "stroke_width": 1.0,
+                        "stroke_opacity": 0.5,
+                    },
+                },
+            )
+
+            mob.become(new_square)
             # mob.move_to(mob.get_center() + (v_ * time).ravel())
 
-        square.add_updater(update_obstacle)
+        # square.add_updater(update_obstacle)
 
         def aut_trajectory(q0, k_n=k_n, dt=dt):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
             trajectory, xi_ns, xi_ts, xis, ffs, curve_hist = simulate_trajectory(
-                q0, t=time, obstacles=obstacle, curve=curveobj, k_n=k_n, dt=dt, steps=steps
+                q0,
+                t=time,
+                obstacles=obstacle,
+                curve=curveobj,
+                k_n=k_n,
+                dt=dt,
+                steps=steps,
             )
             return trajectory, xi_ns, xi_ts, xis, ffs, curve_hist
 
         trajectory, xi_ns, xi_ts, xis, ffs, curve_hist = aut_trajectory(
-            q0, k_n=k_n, dt=dt)
+            q0, k_n=k_n, dt=dt
+        )
         print("Created trajectory")
 
         # Draw the curve
@@ -255,14 +309,18 @@ class GVF(Scene):
 
         curve.add_updater(update_curve)
 
-        dots_group = VGroup(*[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in curve_hist[0]])
+        dots_group = VGroup(
+            *[Dot3D(point=pt, radius=0.02, color=MAROON_E) for pt in curve_hist[0]]
+        )
 
         def update_dots(mob):
             index = int(t_tracker.get_value() * (len(curve_hist) - 1))
             new_points = curve_hist[index]
 
             # Replace existing dots with new ones
-            new_dots = VGroup(*[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in new_points])
+            new_dots = VGroup(
+                *[Dot3D(point=pt, radius=0.02, color=MAROON_E) for pt in new_points]
+            )
             mob.become(new_dots)
 
         dots_group.add_updater(update_dots)
@@ -281,7 +339,7 @@ class GVF(Scene):
         # Animate the trajectory
         path = VMobject(color=RED)
         path.set_points_as_corners([trajectory[0]])
-        dot = Dot(point=trajectory[0], color=YELLOW)
+        dot = Dot3D(point=trajectory[0], color=YELLOW)
 
         def update_arrow_wrapper(arrow):
             def update_arrow(mob):
@@ -293,44 +351,47 @@ class GVF(Scene):
                     size = min(0.3, norm_v)
                     v = size * v / (np.linalg.norm(v) + 1e-6)  # Normalize and scale
                     mob.put_start_and_end_on(q, q + v)
-                    mob.tip.set_opacity(1.0)
+                    mob.cone.set_opacity(1.0)
                     mob.set_stroke(opacity=1.0)
                 else:
                     mob.put_start_and_end_on(q, q + 1 * UL)
-                    mob.tip.set_opacity(0.0)
+                    mob.cone.set_opacity(0.0)
                     mob.set_stroke(opacity=0.0)
 
             return update_arrow
 
-        normal_arrow = Arrow(
+        normal_arrow = Arrow3D(
             trajectory[0],
             trajectory[0] + 0.2 * LEFT,
             color=PURE_RED,
-            max_tip_length_to_length_ratio=0.3,
-            stroke_width=4.0,
-            
         ).add_updater(update_arrow_wrapper(xi_ns))
-        tangent_arrow = Arrow(
-            trajectory[0],
-            trajectory[0] + 0.2 * UL,
-            color=PURE_GREEN,
-            max_tip_length_to_length_ratio=0.3,
-        ).add_updater(update_arrow_wrapper(xi_ts)).update()
-        sum_arrow = Arrow(
-            trajectory[0],
-            trajectory[0] + 0.2 * (UP - 0.5 * LEFT),
-            # trajectory[0],
-            # trajectory[0] + 0.2 * xis[0],
-            color=ORANGE,
-            max_tip_length_to_length_ratio=0.3,
-            stroke_width=3.0,
-        ).add_updater(update_arrow_wrapper(xis)).update()
-        ff_arrow = Arrow(
-            trajectory[0],
-            trajectory[0] + 0.2 * DL, 
-            color=PURE_BLUE,
-            max_tip_length_to_length_ratio=0.3,
-        ).add_updater(update_arrow_wrapper(ffs)).update()
+        tangent_arrow = (
+            Arrow3D(
+                trajectory[0],
+                trajectory[0] + 0.2 * UL,
+                color=PURE_GREEN,
+            )
+            .add_updater(update_arrow_wrapper(xi_ts))
+            .update()
+        )
+        sum_arrow = (
+            Arrow3D(
+                trajectory[0],
+                trajectory[0] + 0.2 * (UP - 0.5 * LEFT),
+                color=ORANGE,
+            )
+            .add_updater(update_arrow_wrapper(xis))
+            .update()
+        )
+        ff_arrow = (
+            Arrow3D(
+                trajectory[0],
+                trajectory[0] + 0.2 * DL,
+                color=PURE_BLUE,
+            )
+            .add_updater(update_arrow_wrapper(ffs))
+            .update()
+        )
         print("Done arrows")
 
         def update_path_and_dot(
@@ -380,14 +441,16 @@ class GVF(Scene):
         dot.add_updater(update_path_and_dot)
         print("Done vf, dot and path")
         trail = TracedPath(dot.get_center, stroke_color=YELLOW, dissipating_time=3.0)
-        plane = NumberPlane()
+        self.set_camera_orientation(phi=2 * PI / 5, theta=PI / 5)
+        plane = ThreeDAxes()
+        # plane = NumberPlane()
 
         print("Starting animation")
         self.play(Create(plane, run_time=1, lag_ratio=0.05))
         self.play(
             Create(curve, run_time=1, lag_ratio=0.05),
             DrawBorderThenFill(dot, run_time=1, lag_ratio=0.05),
-            DrawBorderThenFill(square, run_time=1, lag_ratio=0.05),
+            DrawBorderThenFill(cube, run_time=1, lag_ratio=0.05),
             Create(dots_group, run_time=1, lag_ratio=0.05),
         )
         # self.wait(1)
@@ -408,43 +471,20 @@ class GVF(Scene):
 
 
 def h0(s):
-    return np.array([np.cos(2 * np.pi * s), np.sin(2 * np.pi * s), 0.0])
-
-
-def h(s, t, obstacles):
-    point = h0(s)
-    if t > 0.0:
-        deform = deformation(point, obstacles, t, r=0.8, alpha=np.log(2) / 1.0).ravel()
-        # print(f"Time: {t}, deformation: {deform.ravel()}")
-        return point + deform
-    else:
-        return point
+    return np.array(
+        [np.cos(2 * np.pi * s), np.sin(2 * np.pi * s), np.cos(4 * np.pi * s)]
+    )
 
 
 def dh0_ds(s):
     dh0 = np.array(
-        [-2 * np.pi * np.sin(2 * np.pi * s), 2 * np.pi * np.cos(2 * np.pi * s), 0.0]
+        [
+            -2 * np.pi * np.sin(2 * np.pi * s),
+            2 * np.pi * np.cos(2 * np.pi * s),
+            -4 * np.pi * np.sin(4 * np.pi * s),
+        ]
     )
     return dh0
-
-
-def dh_ds(s, t, obstacles):
-    point = h0(s)
-    dh0ds = dh0_ds(s)
-
-    if t > 0.0:
-        # Numerical derivative of deformation
-        delta = 1e-3
-        deform_plus = deformation(
-            point + delta * dh0ds, obstacles, t, alpha=np.log(2) / 1.0
-        ).ravel()
-        deform_minus = deformation(
-            point - delta * dh0ds, obstacles, t, alpha=np.log(2) / 1.0
-        ).ravel()
-        ddef = (deform_plus - deform_minus) / (2 * delta)
-        return dh0ds + ddef
-    else:
-        return dh0ds
 
 
 def find_s_star(q, curve):
@@ -484,7 +524,7 @@ def simulate_trajectory(q0, t, obstacles, curve, k_n=2.0, k_t=1.0, dt=0.01, step
         # tangent = dh_ds(s_star, time, obstacles)
         norm_tan = tangent / (np.linalg.norm(tangent) + 1e-6)
         tangent = kt * norm_tan
-        ff = curve.dh_dt(s_star, time, obstacles, dt=dt/10)
+        ff = curve.dh_dt(s_star, time, obstacles, dt=dt / 10)
         # Null space projection (remove tangent component)
         ff = (np.eye(len(ff)) - np.outer(norm_tan, norm_tan)) @ ff
         # ff = ff / (np.linalg.norm(ff) + 1e-6)  # Normalize to avoid scale issues
@@ -543,9 +583,6 @@ def outer_distance(point, obstacles, t, gamma=0.1):
 
     for obstacle in obstacles:
         A, b = obstacle(t=t)
-        A = np.hstack(
-            (A.copy(), np.zeros((A.shape[0], 1)))
-        )  # Add a column for the point
         sigmas = [(ai @ point - bi).item() for ai, bi in zip(A, b)]
         # print(f"Sigmas: {sigmas}")
         itens = [phi(sigma, gamma=gamma) for sigma in sigmas]
@@ -571,9 +608,6 @@ def inner_distance(point, obstacles, t, r=0.1, gamma=0.1):
 
     for obstacle in obstacles:
         A, b = obstacle(t=t)
-        A = np.hstack(
-            (A.copy(), np.zeros((A.shape[0], 1)))
-        )  # Add a column for the point
         sigmas = [(bi - ai @ point).item() for ai, bi in zip(A, b)]
         items, ditens = [], []
         for i, sigma in enumerate(sigmas):
@@ -581,7 +615,12 @@ def inner_distance(point, obstacles, t, r=0.1, gamma=0.1):
             ai = A[i]
             if val > 1e-6:
                 item = val ** (-1 / r)
-                ditem = (-1 / r) * (val ** (-(1 + r) / r)) * dphi_dsigma(sigma, gamma=gamma) * (-ai)
+                ditem = (
+                    (-1 / r)
+                    * (val ** (-(1 + r) / r))
+                    * dphi_dsigma(sigma, gamma=gamma)
+                    * (-ai)
+                )
             else:
                 item = 1e-6 ** (-1 / r)
                 ditem = np.zeros_like(ai)  # Avoid division by zero
@@ -685,6 +724,34 @@ class MovingPolytope:
         self.A = A
         self.b = b
 
+def get_polytope_vertices_3d_lp(A, b, tol=1e-7):
+    m, n = A.shape
+    if n != 3:
+        raise ValueError("Only works for 3D")
+
+    vertices = []
+    for indices in combinations(range(m), 3):
+        A_eq = A[list(indices)]
+        b_eq = b[list(indices)]
+
+        try:
+            x = np.linalg.solve(A_eq, b_eq)
+        except np.linalg.LinAlgError:
+            continue  # skip degenerate or parallel constraints
+
+        if np.all(A @ x - b <= tol):  # Check feasibility
+            vertices.append(tuple(np.round(x, decimals=8)))  # round to remove duplicates
+
+    if not vertices:
+        raise ValueError("No vertices found; polytope might be unbounded or degenerate")
+
+    unique_vertices = np.unique(np.array(vertices), axis=0)
+
+    # Optional: order vertices using ConvexHull
+    hull = ConvexHull(unique_vertices)
+    ordered = unique_vertices[hull.vertices]
+
+    return ordered
 
 def get_polytope_vertices(A, b):
     m, n = A.shape
