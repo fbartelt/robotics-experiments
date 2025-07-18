@@ -178,3 +178,5 @@ libraries-master/
 *.asv
 
 *.html
+*.mp4
+media/

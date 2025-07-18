@@ -29,6 +29,7 @@ class Curve:
         # Discretize s ∈ [0, 1]
         self.s = np.linspace(0, 1, s_samples)
         self.n_samples = s_samples
+        self.delta_s = self.s[1] - self.s[0]
 
         # Store h0(s) as array [M, n]
         self.h0_func = h0_func
@@ -58,18 +59,20 @@ class Curve:
         delta_s = self.s[1] - self.s[0]  # Assuming uniform spacing
         for i, s in enumerate(self.s):
             index = self.get_index_from_s(s)
-            h0s = self.h0[index]
-            hs = self.h[index]
-            grad = self.deformation(hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma)
-            # Add path lenght constraint
-            prev_grad = hs - self.h[(index - 1) % self.n_samples]
-            next_grad = hs - self.h[(index + 1) % self.n_samples]
-            orig_prev_grad = h0s - self.h0[(index - 1) % self.n_samples]
-            orig_next_grad = h0s - self.h0[(index + 1) % self.n_samples]
-            orig_const_grad = (orig_prev_grad + orig_next_grad) / (2.0 * (delta_s)**2)
-            const_grad = (prev_grad + next_grad) / (2.0 * (delta_s)**2)
-            len_grad = const_grad - orig_const_grad
-            self.h[index] = hs + dt * (-self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad)
+            dh_dts = self.dh_dt(s, t, obstacles, dt=dt)
+            self.h[index] += dt * dh_dts
+            # h0s = self.h0[index]
+            # hs = self.h[index]
+            # grad = self.deformation(hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma)
+            # # Add path lenght constraint
+            # prev_grad = hs - self.h[(index - 1) % self.n_samples]
+            # next_grad = hs - self.h[(index + 1) % self.n_samples]
+            # orig_prev_grad = h0s - self.h0[(index - 1) % self.n_samples]
+            # orig_next_grad = h0s - self.h0[(index + 1) % self.n_samples]
+            # orig_const_grad = (orig_prev_grad + orig_next_grad) / (2.0 * (delta_s)**2)
+            # const_grad = (prev_grad + next_grad) / (2.0 * (delta_s)**2)
+            # len_grad = const_grad - orig_const_grad
+            # self.h[index] = hs + dt * (-self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad)
 
     def eval(self, s, t=0, obstacles=None):
         """
@@ -101,16 +104,20 @@ class Curve:
             gain, _ = smooth_sat(1.0 / (abs(dist) + 1e-3), np.log(2) / (10.0))
         else:
             gain = np.sqrt(abs(dist)) * 1e4
-            grad = grad / (np.linalg.norm(grad) + 1e-6)  # Normalize grad to avoid scale issues
+            grad = grad / (
+                np.linalg.norm(grad) + 1e-6
+            )  # Normalize grad to avoid scale issues
             # print(f"Dist: {dist}, Gain: {gain}, Grad: {grad.ravel()}")
         return gain * grad.ravel()
 
-    def dh_ds(self, s, t, obstacles, delta=1e-3):
+    def dh_ds(self, s, t, obstacles, delta=None):
         """
         Approximate ∂h/∂s at a specific s and t using directional derivative of the deformation
         deformation_func: function that takes (point, obstacles, t, alpha) and returns deformation vector
         """
         # h0(s)
+        if delta is None:
+            delta = self.s[1] - self.s[0]  # Assuming uniform spacing
         index = self.get_index_from_s(s)
         point = self.h[index]
 
@@ -120,20 +127,25 @@ class Curve:
         if t <= 0.0:
             return dh0_ds
 
-        # Directional numerical derivative of deformation
-        dir_vec = dh0_ds / (
-            np.linalg.norm(dh0_ds) + 1e-6
-        )  # normalize to avoid scale issues
+        next_point = self.h[(index + 1) % self.n_samples]
+        prev_point = self.h[(index - 1) % self.n_samples]
+        # Numerical derivative of the curve
+        dh_ds = (next_point - prev_point) / (2 * delta)
 
-        deform_plus = self.deformation(
-            point + delta * dir_vec, obstacles, t, r=self.r, alpha=self.alpha
-        ).ravel()
-        deform_minus = self.deformation(
-            point - delta * dir_vec, obstacles, t, r=self.r, alpha=self.alpha
-        ).ravel()
-        ddef = (deform_plus - deform_minus) / (2 * delta)
-
-        return dh0_ds + ddef
+        # # Directional numerical derivative of deformation
+        # dir_vec = dh0_ds / (
+        #     np.linalg.norm(dh0_ds) + 1e-6
+        # )  # normalize to avoid scale issues
+        #
+        # deform_plus = self.deformation(
+        #     point + delta * dir_vec, obstacles, t, r=self.r, alpha=self.alpha
+        # ).ravel()
+        # deform_minus = self.deformation(
+        #     point - delta * dir_vec, obstacles, t, r=self.r, alpha=self.alpha
+        # ).ravel()
+        # ddef = (deform_plus - deform_minus) / (2 * delta)
+        #
+        return dh_ds
 
     def dh_dt(self, s, t, obstacles=None, dt=1e-3):
         """
@@ -144,21 +156,37 @@ class Curve:
             obstacles = self.obstacles
         index = self.get_index_from_s(s)
         h0s = self.h0[index]
-        curr_hs = self.h[index]
+        hs = self.h[index]
+        grad = self.deformation(
+            hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma
+        )
+        # Add path lenght constraint
+        prev_grad = hs - self.h[(index - 1) % self.n_samples]
+        next_grad = hs - self.h[(index + 1) % self.n_samples]
+        orig_prev_grad = h0s - self.h0[(index - 1) % self.n_samples]
+        orig_next_grad = h0s - self.h0[(index + 1) % self.n_samples]
+        orig_const_grad = (orig_prev_grad + orig_next_grad) / (
+            2.0 * (self.delta_s) ** 2
+        )
+        const_grad = (prev_grad + next_grad) / (2.0 * (self.delta_s) ** 2)
+        len_grad = const_grad - orig_const_grad
+        dh_dt = -self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad
 
-        # grad = self.deformation(curr_hs, obstacles, t, r=self.r, alpha=self.alpha)
-        # next_hs = curr_hs + dt * (-self.zeta * (curr_hs - h0s) + 10 * grad)
-        # prev_hs = curr_hs - dt * (-self.zeta * (curr_hs - h0s) + 10 * grad)
-        # dh_dt = (next_hs - prev_hs) / (2 * dt)
-        next_deform = self.deformation(
-            curr_hs, obstacles, t + dt, r=self.r, alpha=self.alpha, gamma=self.gamma
-        )
-        prev_deform = self.deformation(
-            curr_hs, obstacles, t - dt, r=self.r, alpha=self.alpha, gamma=self.gamma
-        )
-        next_h = curr_hs + next_deform
-        prev_h = curr_hs + prev_deform
-        dh_dt = (next_h - prev_h) / (2 * dt)
+        # curr_hs = self.h[index]
+        #
+        # # grad = self.deformation(curr_hs, obstacles, t, r=self.r, alpha=self.alpha)
+        # # next_hs = curr_hs + dt * (-self.zeta * (curr_hs - h0s) + 10 * grad)
+        # # prev_hs = curr_hs - dt * (-self.zeta * (curr_hs - h0s) + 10 * grad)
+        # # dh_dt = (next_hs - prev_hs) / (2 * dt)
+        # next_deform = self.deformation(
+        #     curr_hs, obstacles, t + dt, r=self.r, alpha=self.alpha, gamma=self.gamma
+        # )
+        # prev_deform = self.deformation(
+        #     curr_hs, obstacles, t - dt, r=self.r, alpha=self.alpha, gamma=self.gamma
+        # )
+        # next_h = curr_hs + next_deform
+        # prev_h = curr_hs + prev_deform
+        # dh_dt = (next_h - prev_h) / (2 * dt)
         return dh_dt
 
     def get_index_from_s(self, s):
@@ -196,8 +224,33 @@ class GVF(Scene):
             ]
         )
         b0 = np.array([0.1, 0.1, 0.1, 0.1])
+
+        A0 = np.array(
+            [
+                [1.0, 0.0],  # x ≤ 1.2
+                [-1.0, 0.0],  # x ≥ -0.8 → -x ≤ 0.8
+                [0.0, 1.0],  # y ≤ 1.0
+                [0.0, -1.0],  # y ≥ -0.5 → -y ≤ 0.5
+                [0.5, 1.0],  # 0.5x + y ≤ 1.5
+                [-1.0, 0.5],  # -x + 0.5y ≤ 1.0
+                [1.0, -1.0],  # x - y ≤ 0.8
+            ]
+        )
+
+        b0 = np.array(
+            [
+                1.2,  # x ≤ 1.2
+                0.8,  # x ≥ -0.8
+                1.0,  # y ≤ 1.0
+                0.5,  # y ≥ -0.5
+                1.5,  # 0.5x + y ≤ 1.5
+                1.0,  # -x + 0.5y ≤ 1.0
+                0.8,  # x - y ≤ 0.8
+            ]
+        )
+        b0 /= 2.0  # Scale down the constraints
         b0 = b0 + (A0 @ np.array([-1.0, -1.0]).reshape(-1, 1)).ravel()
-        vel_vec = 0.75 * np.array([.5, 0.5])  # Velocity vector for the obstacle
+        vel_vec = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
         obstacle = MovingPolytope(A0, b0, v=vel_vec)
         vertices = get_polytope_vertices(A0, b0)
         vertices = np.hstack(
@@ -212,7 +265,7 @@ class GVF(Scene):
             r=0.8,
             alpha=np.log(2) / 0.4,
             gamma=0.1,
-            eta=0.3,
+            eta=0.2,
             beta=5e-3,
         )
         print(f"delta_s: {curveobj.s[1] - curveobj.s[0]}")
@@ -234,12 +287,19 @@ class GVF(Scene):
         def aut_trajectory(q0, k_n=k_n, dt=dt):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
             trajectory, xi_ns, xi_ts, xis, ffs, curve_hist = simulate_trajectory(
-                q0, t=time, obstacles=obstacle, curve=curveobj, k_n=k_n, dt=dt, steps=steps
+                q0,
+                t=time,
+                obstacles=obstacle,
+                curve=curveobj,
+                k_n=k_n,
+                dt=dt,
+                steps=steps,
             )
             return trajectory, xi_ns, xi_ts, xis, ffs, curve_hist
 
         trajectory, xi_ns, xi_ts, xis, ffs, curve_hist = aut_trajectory(
-            q0, k_n=k_n, dt=dt)
+            q0, k_n=k_n, dt=dt
+        )
         print("Created trajectory")
 
         # Draw the curve
@@ -255,14 +315,18 @@ class GVF(Scene):
 
         curve.add_updater(update_curve)
 
-        dots_group = VGroup(*[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in curve_hist[0]])
+        dots_group = VGroup(
+            *[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in curve_hist[0]]
+        )
 
         def update_dots(mob):
             index = int(t_tracker.get_value() * (len(curve_hist) - 1))
             new_points = curve_hist[index]
 
             # Replace existing dots with new ones
-            new_dots = VGroup(*[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in new_points])
+            new_dots = VGroup(
+                *[Dot(point=pt, radius=0.02, color=MAROON_E) for pt in new_points]
+            )
             mob.become(new_dots)
 
         dots_group.add_updater(update_dots)
@@ -289,7 +353,7 @@ class GVF(Scene):
                 q = np.array(trajectory[i])
                 v = np.array(arrow[i], dtype=float)
                 norm_v = np.linalg.norm(v)
-                if norm_v > 1e-2:
+                if norm_v > 1e-4:
                     size = min(0.3, norm_v)
                     v = size * v / (np.linalg.norm(v) + 1e-6)  # Normalize and scale
                     mob.put_start_and_end_on(q, q + v)
@@ -308,14 +372,13 @@ class GVF(Scene):
             color=PURE_RED,
             max_tip_length_to_length_ratio=0.3,
             stroke_width=4.0,
-            
         ).add_updater(update_arrow_wrapper(xi_ns))
         tangent_arrow = Arrow(
             trajectory[0],
             trajectory[0] + 0.2 * UL,
             color=PURE_GREEN,
             max_tip_length_to_length_ratio=0.3,
-        ).add_updater(update_arrow_wrapper(xi_ts)).update()
+        ).add_updater(update_arrow_wrapper(xi_ts))
         sum_arrow = Arrow(
             trajectory[0],
             trajectory[0] + 0.2 * (UP - 0.5 * LEFT),
@@ -324,13 +387,13 @@ class GVF(Scene):
             color=ORANGE,
             max_tip_length_to_length_ratio=0.3,
             stroke_width=3.0,
-        ).add_updater(update_arrow_wrapper(xis)).update()
+        ).add_updater(update_arrow_wrapper(xis))
         ff_arrow = Arrow(
             trajectory[0],
-            trajectory[0] + 0.2 * DL, 
+            trajectory[0] + 0.2 * DL,
             color=PURE_BLUE,
             max_tip_length_to_length_ratio=0.3,
-        ).add_updater(update_arrow_wrapper(ffs)).update()
+        ).add_updater(update_arrow_wrapper(ffs))
         print("Done arrows")
 
         def update_path_and_dot(
@@ -395,14 +458,14 @@ class GVF(Scene):
         # self.play(Create(vector_field, run_time=2, lag_ratio=0.05))
         # self.wait()
 
-        self.add(normal_arrow, tangent_arrow, sum_arrow, ff_arrow, trail)
-        # self.play(
-        #     GrowArrow(normal_arrow, run_time=2, lag_ratio=0.05),
-        #     GrowArrow(tangent_arrow, run_time=2, lag_ratio=0.05),
-        #     GrowArrow(sum_arrow, run_time=2, lag_ratio=0.05),
-        #     GrowArrow(ff_arrow, run_time=2, lag_ratio=0.05),
-        #     Create(trail, run_time=2, lag_ratio=0.05),
-        # )
+        # self.add(normal_arrow, tangent_arrow, sum_arrow, ff_arrow, trail)
+        self.play(
+            GrowArrow(normal_arrow, run_time=2, lag_ratio=0.05),
+            GrowArrow(tangent_arrow, run_time=2, lag_ratio=0.05),
+            GrowArrow(sum_arrow, run_time=2, lag_ratio=0.05),
+            GrowArrow(ff_arrow, run_time=2, lag_ratio=0.05),
+            Create(trail, run_time=2, lag_ratio=0.05),
+        )
         self.play(t_tracker.animate.set_value(1.0), run_time=15, rate_func=linear)
         self.wait(1)
 
@@ -484,17 +547,18 @@ def simulate_trajectory(q0, t, obstacles, curve, k_n=2.0, k_t=1.0, dt=0.01, step
         # tangent = dh_ds(s_star, time, obstacles)
         norm_tan = tangent / (np.linalg.norm(tangent) + 1e-6)
         tangent = kt * norm_tan
-        ff = curve.dh_dt(s_star, time, obstacles, dt=dt/10)
+        ff = curve.dh_dt(s_star, time, obstacles, dt=dt / 10)
         # Null space projection (remove tangent component)
         ff = (np.eye(len(ff)) - np.outer(norm_tan, norm_tan)) @ ff
         # ff = ff / (np.linalg.norm(ff) + 1e-6)  # Normalize to avoid scale issues
-        dq = normal + tangent + ff
+        # print(f"Debug: {ff.ravel()}")
+        dq = 1.5 * (normal + tangent) + ff
         xi_ns.append(normal.copy())
         xi_ts.append(tangent.copy())
         xis.append(dq.copy())
         ffs.append(ff.copy())
 
-        q = q + 1.5 * dq * dt
+        q = q + dq * dt
         trajectory.append(q.copy())
         curve_hist.append(hs_full.copy())
 
@@ -581,7 +645,12 @@ def inner_distance(point, obstacles, t, r=0.1, gamma=0.1):
             ai = A[i]
             if val > 1e-6:
                 item = val ** (-1 / r)
-                ditem = (-1 / r) * (val ** (-(1 + r) / r)) * dphi_dsigma(sigma, gamma=gamma) * (-ai)
+                ditem = (
+                    (-1 / r)
+                    * (val ** (-(1 + r) / r))
+                    * dphi_dsigma(sigma, gamma=gamma)
+                    * (-ai)
+                )
             else:
                 item = 1e-6 ** (-1 / r)
                 ditem = np.zeros_like(ai)  # Avoid division by zero
