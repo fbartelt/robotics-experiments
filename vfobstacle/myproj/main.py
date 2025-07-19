@@ -2,6 +2,7 @@ import numpy as np
 from manim import *
 from scipy.optimize import brute, linprog
 from scipy.spatial import ConvexHull, HalfspaceIntersection
+from scipy.special import factorial
 
 
 class Curve:
@@ -101,9 +102,9 @@ class Curve:
         if dist > threshold:
             grad = grad * 0.0
         if dist >= 0.0:
-            gain, _ = smooth_sat(1.0 / (abs(dist) + 1e-3), np.log(2) / (10.0))
+            gain, _ = smooth_sat(1.0 / (abs(dist) + 1e-6), np.log(2)/1.0)
         else:
-            gain = np.sqrt(abs(dist)) * 1e4
+            gain = np.sqrt(abs(dist)) * 1e0
             grad = grad / (
                 np.linalg.norm(grad) + 1e-6
             )  # Normalize grad to avoid scale issues
@@ -215,7 +216,7 @@ class GVF(Scene):
         steps = int(T / dt)
         t_tracker = ValueTracker(0)
 
-        A0 = np.array(
+        A0_1 = np.array(
             [
                 [1, 0],  # x ≤ 1
                 [-1, 0],  # -x ≤ 1 → x ≥ -1
@@ -223,9 +224,13 @@ class GVF(Scene):
                 [0, -1],  # -y ≤ 1 → y ≥ -1
             ]
         )
-        b0 = np.array([0.1, 0.1, 0.1, 0.1])
+        b0_1 = np.array([0.1, 0.1, 0.1, 0.1])
+        b0_1 = b0_1 + (A0_1 @ np.array([-1.0, 1.0]).reshape(-1, 1)).ravel()
+        vel_vec_1 = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
+        obstacle1 = MovingPolytope(A0_1, b0_1, v=vel_vec_1)
+        print("Created obstacle 1")
 
-        A0 = np.array(
+        A0_2 = np.array(
             [
                 [1.0, 0.0],  # x ≤ 1.2
                 [-1.0, 0.0],  # x ≥ -0.8 → -x ≤ 0.8
@@ -236,8 +241,7 @@ class GVF(Scene):
                 [1.0, -1.0],  # x - y ≤ 0.8
             ]
         )
-
-        b0 = np.array(
+        b0_2 = np.array(
             [
                 1.2,  # x ≤ 1.2
                 0.8,  # x ≥ -0.8
@@ -248,48 +252,71 @@ class GVF(Scene):
                 0.8,  # x - y ≤ 0.8
             ]
         )
-        b0 /= 2.0  # Scale down the constraints
-        b0 = b0 + (A0 @ np.array([-1.0, -1.0]).reshape(-1, 1)).ravel()
-        vel_vec = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
-        obstacle = MovingPolytope(A0, b0, v=vel_vec)
-        vertices = get_polytope_vertices(A0, b0)
-        vertices = np.hstack(
-            (vertices, np.zeros((vertices.shape[0], 1)))
-        )  # Add z=0 for 2D
+        b0_2 /= 2.0  # Scale down the constraints
+        b0_2 = b0_2 + (A0_2 @ np.array([-1.0, -1.0]).reshape(-1, 1)).ravel()
+        vel_vec_2 = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
+        obstacle2 = MovingPolytope(A0_2, b0_2, v=vel_vec_2)
+        print("Created obstacle 2")
+        obstacles = [
+            obstacle1,
+            obstacle2
+        ]
+        # vertices = get_polytope_vertices(A0, b0)
+        # vertices = np.hstack(
+        #     (vertices, np.zeros((vertices.shape[0], 1)))
+        # )  # Add z=0 for 2D
         curveobj = Curve(
             h0,
             dh0_ds,
-            obstacles=[obstacle],
-            zeta=0.2,
+            obstacles=obstacles,
+            zeta=0.1*0,
             s_samples=100,
             r=0.8,
-            alpha=np.log(2) / 0.4,
+            alpha=np.log(2) / 0.2,
             gamma=0.1,
-            eta=0.2,
-            beta=5e-3,
+            eta=8,
+            beta=1e-3*0,
         )
         print(f"delta_s: {curveobj.s[1] - curveobj.s[0]}")
         # print(vertices, *vertices)
-        square = Polygon(*vertices, color=PINK, fill_opacity=0.5, stroke_width=1.0)
+        # square = Polygon(*vertices, color=PINK, fill_opacity=0.5, stroke_width=1.0)
+        polygons = VGroup(*[
+            Polygon(*np.hstack((ob.vertices, np.zeros((ob.vertices.shape[0], 1)))),  # Add z=0 for 2D
+                    color=PINK, fill_opacity=0.5, stroke_width=1.0)
+            for ob in obstacles
+        ])
 
-        def update_obstacle(mob):
+        # def update_obstacle(mob):
+        #     time = int(t_tracker.get_value() * (steps - 1)) * dt
+        #     obstacle.curr_time = time
+        #     v_ = np.hstack((obstacle.v.ravel(), np.zeros(1)))  # Add z=0 for 2D
+        #     A_, b_ = obstacle(t=time)
+        #     vertices = get_polytope_vertices(A_, b_)
+        #     vertices = np.hstack((vertices, np.zeros((vertices.shape[0], 1))))
+        #     mob.become(Polygon(*vertices, color=PINK, fill_opacity=0.5))
+        #     # mob.move_to(mob.get_center() + (v_ * time).ravel())
+
+        # square.add_updater(update_obstacle)
+
+        def update_all_polygons(mob: VGroup):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
-            obstacle.curr_time = time
-            v_ = np.hstack((obstacle.v.ravel(), np.zeros(1)))  # Add z=0 for 2D
-            A_, b_ = obstacle(t=time)
-            vertices = get_polytope_vertices(A_, b_)
-            vertices = np.hstack((vertices, np.zeros((vertices.shape[0], 1))))
-            mob.become(Polygon(*vertices, color=PINK, fill_opacity=0.5))
-            # mob.move_to(mob.get_center() + (v_ * time).ravel())
+            for i, ob in enumerate(obstacles):
+                ob.curr_time = time
+                A_, b_ = ob(t=time)
+                verts = get_polytope_vertices(A_, b_)
+                verts = np.hstack((verts, np.zeros((verts.shape[0], 1))))  # Pad to 3D
 
-        square.add_updater(update_obstacle)
+                new_poly = Polygon(*verts, color=PINK, fill_opacity=0.5, stroke_width=1.0)
+                mob[i].become(new_poly)
+
+        polygons.add_updater(update_all_polygons)
 
         def aut_trajectory(q0, k_n=k_n, dt=dt):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
             trajectory, xi_ns, xi_ts, xis, ffs, curve_hist = simulate_trajectory(
                 q0,
                 t=time,
-                obstacles=obstacle,
+                obstacles=obstacles,
                 curve=curveobj,
                 k_n=k_n,
                 dt=dt,
@@ -450,7 +477,8 @@ class GVF(Scene):
         self.play(
             Create(curve, run_time=1, lag_ratio=0.05),
             DrawBorderThenFill(dot, run_time=1, lag_ratio=0.05),
-            DrawBorderThenFill(square, run_time=1, lag_ratio=0.05),
+            LaggedStart(*[Create(p) for p in polygons], lag_ratio=0.1),
+            # DrawBorderThenFill(polygons, run_time=1, lag_ratio=0.05),
             Create(dots_group, run_time=1, lag_ratio=0.05),
         )
         # self.wait(1)
@@ -531,6 +559,12 @@ def simulate_trajectory(q0, t, obstacles, curve, k_n=2.0, k_t=1.0, dt=0.01, step
     q = q0.copy()
     trajectory = [q.copy()]
     curve_hist = [curve.h0.copy()]
+    init_dists = [
+        signed_dist(p, obstacles, t=0.0, r=curve.r, alpha=curve.alpha, gamma=curve.gamma)[0]
+        for p in curve.h0
+    ]
+    print(f"Max initial distance: {np.max(init_dists)}, Min initial distance: {np.min(init_dists)}")
+
     for i in range(steps):
         time = i * dt
         curve.step(dt, time, obstacles=obstacles)
@@ -598,78 +632,65 @@ def dphi_dsigma(sigma, gamma=0.1):
         return ((sigma**2) * (2 * sigma + 3 * gamma)) / (2 * (sigma + gamma) ** 2)
 
 
-def outer_distance(point, obstacles, t, gamma=0.1):
+def outer_distance(point, A, b, t, gamma=0.1):
     point = np.array(point, dtype=float).reshape(-1, 1)
-    if not isinstance(obstacles, list):
-        obstacles = [obstacles]
-
-    dists, grads = [], []
-
-    for obstacle in obstacles:
-        A, b = obstacle(t=t)
+    A = A.copy()  # Ensure A is a copy to avoid modifying the original
+    # If A is 2D, add a zero column for 3D compatibility
+    if A.ndim == 2 and A.shape[1] == 2:
         A = np.hstack(
             (A.copy(), np.zeros((A.shape[0], 1)))
         )  # Add a column for the point
-        sigmas = [(ai @ point - bi).item() for ai, bi in zip(A, b)]
-        # print(f"Sigmas: {sigmas}")
-        itens = [phi(sigma, gamma=gamma) for sigma in sigmas]
-        ditens = [dphi_dsigma(sigma, gamma=gamma) for sigma in sigmas]
-        ditens = [ds * ai for ds, ai in zip(ditens, A)]
-        sum_ = sum(itens)
-        dsum_ = sum(ditens)
-        dists.append(sum_ / len(itens))
-        grads.append(dsum_ / len(itens))
-
-    imin = np.argmin(dists)
-    dist, grad = dists[imin], grads[imin]
+    sigmas = [(ai @ point - bi).item() for ai, bi in zip(A, b)]
+    # print(f"Sigmas: {sigmas}")
+    itens = [phi(sigma, gamma=gamma) for sigma in sigmas]
+    ditens = [dphi_dsigma(sigma, gamma=gamma) for sigma in sigmas]
+    ditens = [ds * ai for ds, ai in zip(ditens, A)]
+    sum_ = sum(itens)
+    dsum_ = sum(ditens)
+    dist = sum_ / len(itens)
+    grad = dsum_ / len(itens)
 
     return dist, grad.reshape(1, -1)
 
 
-def inner_distance(point, obstacles, t, r=0.1, gamma=0.1):
+def inner_distance(point, A, b, t, r=0.1, gamma=0.1, point_is_centroid=False, dist_to_centroid=1.0):
     point = np.array(point, dtype=float).reshape(-1, 1)
-    if not isinstance(obstacles, list):
-        obstacles = [obstacles]
-
-    dists, grads = [], []
-
-    for obstacle in obstacles:
-        A, b = obstacle(t=t)
+    # If point is 2D, ensure it has a third dimension for compatibility
+    if point.shape[0] < 3:
+        point = np.vstack((point, [0]))
+    A_orig = A.copy()
+    A = A_orig.copy()  # Ensure A is a copy to avoid modifying the original
+    # If A is 2D, add a zero column for 3D compatibility
+    if A.ndim == 2 and A.shape[1] == 2:
         A = np.hstack(
             (A.copy(), np.zeros((A.shape[0], 1)))
         )  # Add a column for the point
-        sigmas = [(bi - ai @ point).item() for ai, bi in zip(A, b)]
-        items, ditens = [], []
-        for i, sigma in enumerate(sigmas):
-            val = phi(sigma, gamma=gamma)
-            ai = A[i]
-            if val > 1e-6:
-                item = val ** (-1 / r)
-                ditem = (
-                    (-1 / r)
-                    * (val ** (-(1 + r) / r))
-                    * dphi_dsigma(sigma, gamma=gamma)
-                    * (-ai)
-                )
-            else:
-                item = 1e-6 ** (-1 / r)
-                ditem = np.zeros_like(ai)  # Avoid division by zero
-            items.append(item)
-            ditens.append(ditem)
-        # itens = [phi(sigma) ** (-1/r) for sigma in sigmas]
-        # ditens = [
-        #     (-1/r) * (phi(sigma) ** (-(1+r)/r)) * dphi_dsigma(sigma)
-        #     * (-ai) for sigma, ai in zip(sigmas, A)
-        # ]
-        sum_ = sum(items)
-        dist_ = (sum_ / len(items)) ** (-r)
-        first_chain = -r * (dist_ / sum_)
-        grad_ = first_chain * sum(ditens)
-        dists.append(dist_)
-        grads.append(grad_)
-
-    imin = np.argmax(dists)
-    dist, grad = dists[imin], grads[imin]
+    sigmas = [(bi - ai @ point).item() for ai, bi in zip(A, b)]
+    items, ditens = [], []
+    for i, sigma in enumerate(sigmas):
+        val = phi(sigma, gamma=gamma)
+        ai = A[i]
+        if val > 1e-6:
+            item = val ** (-1 / r)
+            ditem = (
+                (-1 / r)
+                * (val ** (-(1 + r) / r))
+                * dphi_dsigma(sigma, gamma=gamma)
+                * (-ai)
+            )
+        else:
+            item = 1e-6 ** (-1 / r)
+            ditem = np.zeros_like(ai)  # Avoid division by zero
+        items.append(item)
+        ditens.append(ditem)
+    sum_ = sum(items)
+    dist = (sum_ / len(items)) ** (-r)
+    first_chain = -r * (dist / sum_)
+    grad = first_chain * sum(ditens)
+    if not point_is_centroid:
+        dist_to_centroid = abs(dist_to_centroid)
+        dist = dist / dist_to_centroid
+        grad = grad / dist_to_centroid
 
     return -dist, -grad.reshape(1, -1)
 
@@ -682,13 +703,45 @@ def smooth_sat(x, alpha=np.log(2) / 0.2):
 
 def signed_dist(point, obstacles, t, r=0.1, alpha=np.log(2) / 0.2, gamma=0.1):
     point = np.array(point, dtype=float).reshape(-1, 1)
-    outer_dist, outer_grad = outer_distance(point, obstacles, t, gamma=gamma)
-    inner_dist, inner_grad = inner_distance(point, obstacles, t, r=r, gamma=gamma)
-    # print(outer_dist, outer_grad.ravel())
-    dist = outer_dist + inner_dist
-    grad = outer_grad + inner_grad
-    # dist, dsat = smooth_sat(dist, alpha)
-    # grad = dsat * grad
+    if not isinstance(obstacles, list):
+        obstacles = [obstacles]
+
+    dists, grads = [], []
+    for obstacle in obstacles:
+        if obstacle.dist_to_centroid is None:
+            dist_to_centroid, _ = inner_distance(
+                    point=obstacle.centroid,
+                    A=obstacle.A0,
+                    b=obstacle.b0,
+                    t=t,
+                    r=r,
+                    gamma=gamma,
+                    point_is_centroid=True,
+            )
+            dist_to_centroid = abs(dist_to_centroid)
+            obstacle.dist_to_centroid = dist_to_centroid
+        else:
+            dist_to_centroid = obstacle.dist_to_centroid
+        A, b = obstacle(t=t)
+        outer_dist, outer_grad = outer_distance(point=point, A=A, b=b, t=t, gamma=gamma)
+        inner_dist, inner_grad = inner_distance(
+            point=point, A=A, b=b, t=t, r=r, gamma=gamma, dist_to_centroid=dist_to_centroid
+        )
+        dist_ = outer_dist + inner_dist
+        grad_ = outer_grad + inner_grad
+        dists.append(dist_)
+        grads.append(grad_)
+
+    if len(dists) > 1:
+        dist = smooth_min(dists, r=r)
+        imin = smooth_argmin(dists, r=r)
+        grad = grads[imin]
+    else:
+        dist = dists[0]
+        grad = grads[0]
+    # imin = np.argmin(dists)
+    # dist = dists[imin]
+    # grad = grads[imin]
     # print(f"Sat: {dist}, Grad: {grad.ravel()}")
     return dist, grad.reshape(1, -1)
 
@@ -731,6 +784,9 @@ class MovingPolytope:
             self.b = self._default_b
         else:
             self.b = fun_b
+        self.vertices = get_polytope_vertices(self.A0, self.b0)
+        self.centroid = get_centroid(self.vertices)
+        self.dist_to_centroid = None
 
     def __call__(self, t=None, u=None):
         if t is None:
@@ -776,3 +832,137 @@ def get_polytope_vertices(A, b):
     hull = ConvexHull(reconstructed_vertices)
     ordered_vertices = reconstructed_vertices[hull.vertices]
     return ordered_vertices
+
+
+def get_centroid(vertices):
+    hull = ConvexHull(vertices)
+    dim = vertices.shape[1]
+    total_volume = 0.0
+    centroid = np.zeros(dim)
+
+    # Decompose the polytope into simplices from a fixed vertex (e.g., first one)
+    ref_point = np.mean(
+        vertices[hull.vertices], axis=0
+    )  # Could also use hull.points[0]
+
+    for simplex in hull.simplices:
+        pts = vertices[simplex]
+        simplex_points = np.vstack([ref_point, pts])
+        volume = abs(
+            np.linalg.det(simplex_points[1:] - simplex_points[0])
+        ) / factorial(dim)
+        simplex_centroid = np.mean(simplex_points, axis=0)
+        centroid += volume * simplex_centroid
+        total_volume += volume
+
+    if total_volume == 0:
+        raise ValueError("Degenerate polytope with zero volume.")
+
+    return centroid / total_volume
+
+def holder_mean(values, r=0.1):
+    v = np.array(values) + 1e-10
+    if np.any(v < 0):
+        raise ValueError("All values must be non-negative")
+    # Raise error if values is a list of lists or nested arrays
+    if v.ndim > 1:
+        raise ValueError("Input must be a 1D array or list")
+
+    raised = list(map(lambda x: x**(-1/r), v))
+    res = np.sum(raised)**(-r)
+    return res
+
+def holder_mean_derivative(values, r=0.1):
+    v = np.array(values) + 1e-10
+    if np.any(v < 0):
+        raise ValueError("All values must be non-negative")
+    # Raise error if values is a list of lists or nested arrays
+    if v.ndim > 1:
+        raise ValueError("Input must be a 1D array or list")
+
+    outer_der = np.array(list(map(lambda x: x**(-1/r), v)))
+    outer_der = -r * (np.sum(outer_der)**(-r - 1))
+    inner_der = np.array(list(map(lambda x: -1/r * (x**(-1/r - 1)), v)))
+    return outer_der * inner_der
+
+def _smooth_min_two_elements(x, y, r=0.1):
+    if x >= 0 and y >= 0:
+        return holder_mean([x, y], r)
+    elif x < 0 and y < 0:
+        return -1/holder_mean([-1/x, -1/y], r)
+    else:
+        return min(x, y)
+
+def _smooth_min_list(values, r=0.1):
+    if len(values) == 0:
+        raise ValueError("List of values cannot be empty")
+    if isinstance(values, np.ndarray):
+        if values.ndim > 1:
+            raise NotImplementedError("Input must be a 1D array in the current implementation")
+        values = values.tolist()
+    if len(values) == 1:
+        return values[0]
+    min_value = values[0]
+    for val in values[1:]:
+        min_value = _smooth_min_two_elements(min_value, val, r)
+    return min_value
+
+def smooth_min(x, y=None, r=0.1):
+    match (x, y):
+        case (list() | np.ndarray(), None):
+            return _smooth_min_list(x, r)
+        case (_, None):
+            return x
+        case (list() | np.ndarray(), _):
+            if isinstance(y, (list, np.ndarray)):
+                raise NotImplementedError("Cannot perform smooth_min on two lists or arrays directly")
+            return _smooth_min_two_elements(_smooth_min_list(x, r), y, r)
+        case (_, _):
+            return _smooth_min_two_elements(x, y, r)
+
+def _smooth_argmin_two_elements(x, y, r=0.1):
+    if x >= 0 and y >= 0:
+        grad = holder_mean_derivative([x, y], r)
+        return np.argmax(grad)
+    elif x < 0 and y < 0:
+        grad = holder_mean_derivative([-1/x, -1/y], r)
+        return np.argmax(grad)
+    else:
+        xs = np.array([x, y])
+        imin = np.argmin(xs)
+        return imin
+        # return xs[imin]
+
+def _smooth_argmin_list(values, r=0.1):
+    if len(values) == 0:
+        raise ValueError("List of values cannot be empty")
+    if isinstance(values, np.ndarray):
+        if values.ndim > 1:
+            raise NotImplementedError("Input must be a 1D array in the current implementation")
+        values = values.tolist()
+    if len(values) == 1:
+        return 0
+    min_index = 0
+    min_value = values[0]
+    for i, val in enumerate(values[1:]):
+        min_index_ = _smooth_argmin_two_elements(min_value, val, r)
+        if min_index_ == 1:
+            min_value = val
+        min_index = min_index_ if min_index_ == 0 else i + 1
+    return min_index
+
+def smooth_argmin(x, y=None, r=0.1):
+    match (x, y):
+        case (list() | np.ndarray(), None):
+            return _smooth_argmin_list(x, r)
+        case (_, None):
+            return x
+        case (list() | np.ndarray(), _):
+            if isinstance(y, (list, np.ndarray)):
+                raise NotImplementedError("Cannot perform smooth_argmin on two lists or arrays directly")
+            aux = _smooth_argmin_list(x, r) # This will be an array
+            return _smooth_argmin_list([aux, y], r)
+        case (_, _):
+            return _smooth_argmin_two_elements(x, y, r)
+
+
