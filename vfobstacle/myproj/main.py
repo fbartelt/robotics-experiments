@@ -3,7 +3,7 @@ from manim import *
 from scipy.optimize import brute, linprog
 from scipy.spatial import ConvexHull, HalfspaceIntersection
 from scipy.special import factorial
-
+from typing import Callable
 
 class Curve:
     def __init__(
@@ -62,18 +62,6 @@ class Curve:
             index = self.get_index_from_s(s)
             dh_dts = self.dh_dt(s, t, obstacles, dt=dt)
             self.h[index] += dt * dh_dts
-            # h0s = self.h0[index]
-            # hs = self.h[index]
-            # grad = self.deformation(hs, obstacles, t, r=self.r, alpha=self.alpha, gamma=self.gamma)
-            # # Add path lenght constraint
-            # prev_grad = hs - self.h[(index - 1) % self.n_samples]
-            # next_grad = hs - self.h[(index + 1) % self.n_samples]
-            # orig_prev_grad = h0s - self.h0[(index - 1) % self.n_samples]
-            # orig_next_grad = h0s - self.h0[(index + 1) % self.n_samples]
-            # orig_const_grad = (orig_prev_grad + orig_next_grad) / (2.0 * (delta_s)**2)
-            # const_grad = (prev_grad + next_grad) / (2.0 * (delta_s)**2)
-            # len_grad = const_grad - orig_const_grad
-            # self.h[index] = hs + dt * (-self.zeta * (hs - h0s) + self.eta * grad - self.beta * len_grad)
 
     def eval(self, s, t=0, obstacles=None):
         """
@@ -225,7 +213,7 @@ class GVF(Scene):
             ]
         )
         b0_1 = np.array([0.1, 0.1, 0.1, 0.1])
-        b0_1 = b0_1 + (A0_1 @ np.array([-1.0, 1.0]).reshape(-1, 1)).ravel()
+        b0_1 = b0_1 + (A0_1 @ np.array([-0.9, 0.9]).reshape(-1, 1)).ravel()
         vel_vec_1 = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
         obstacle1 = MovingPolytope(A0_1, b0_1, v=vel_vec_1)
         print("Created obstacle 1")
@@ -257,9 +245,43 @@ class GVF(Scene):
         vel_vec_2 = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
         obstacle2 = MovingPolytope(A0_2, b0_2, v=vel_vec_2)
         print("Created obstacle 2")
+
+        # Create a regular octagon with side length 0.2
+        A0_3 = np.array([
+            [1, 0],   # x <= a
+            [-1, 0],  # -x <= a (x >= -a)
+            [0, 1],   # y <= a
+            [0, -1],  # -y <= a (y >= -a)
+            [1, 1],   # x + y <= b
+            [-1, -1], # -x - y <= b (x + y >= -b)
+            [1, -1],  # x - y <= b
+            [-1, 1],   # -x + y <= b (x - y >= -b)
+        ])
+        b0_3 = np.array([
+            0.1 * (1 + np.sqrt(2)),
+            0.1 * (1 + np.sqrt(2)),
+            0.1 * (1 + np.sqrt(2)),
+            0.1 * (1 + np.sqrt(2)),
+            0.1 * (2 + np.sqrt(2)),
+            0.1 * (2 + np.sqrt(2)),
+            0.1 * (2 + np.sqrt(2)),
+            0.1 * (2 + np.sqrt(2)),
+        ])
+        displacement_3 = np.array([0.0, -1.3]).reshape(-1, 1)
+        b0_3 = b0_3 + (A0_3 @ displacement_3).ravel()
+        omega = 2 * np.pi / 5.0
+        obstacle3 = MovingPolytope(
+            A0_3,
+            b0_3,
+            v=lambda t: np.array([np.sin(omega * t + np.pi), np.cos(omega * t + np.pi)]) * 1.3 - displacement_3.ravel()
+            # v = np.array([0.0, 0.0])  # No movement for this obstacle
+        )
+        print("Created obstacle 3")
+
         obstacles = [
             obstacle1,
-            obstacle2
+            obstacle2,
+            obstacle3,
         ]
         # vertices = get_polytope_vertices(A0, b0)
         # vertices = np.hstack(
@@ -269,13 +291,13 @@ class GVF(Scene):
             h0,
             dh0_ds,
             obstacles=obstacles,
-            zeta=0.1*0,
+            zeta=0.1,
             s_samples=100,
             r=0.8,
-            alpha=np.log(2) / 0.2,
+            alpha=np.log(2) / 0.01,
             gamma=0.1,
             eta=8,
-            beta=1e-3*0,
+            beta=1e-3,
         )
         print(f"delta_s: {curveobj.s[1] - curveobj.s[0]}")
         # print(vertices, *vertices)
@@ -285,6 +307,12 @@ class GVF(Scene):
                     color=PINK, fill_opacity=0.5, stroke_width=1.0)
             for ob in obstacles
         ])
+        polygons = [
+            Polygon(*np.hstack((ob.vertices, np.zeros((ob.vertices.shape[0], 1)))),  # Add z=0 for 2D
+                    color=PINK, fill_opacity=0.5, stroke_width=1.0)
+            for ob in obstacles
+        ]
+
 
         # def update_obstacle(mob):
         #     time = int(t_tracker.get_value() * (steps - 1)) * dt
@@ -298,7 +326,18 @@ class GVF(Scene):
 
         # square.add_updater(update_obstacle)
 
-        def update_all_polygons(mob: VGroup):
+        def update_polygon_wrapper(poly):
+            def update_polygon(mob):
+                time = int(t_tracker.get_value() * (steps - 1)) * dt
+                ob.curr_time = time
+                A_, b_ = poly(t=time)
+                verts = get_polytope_vertices(A_, b_)
+                verts = np.hstack((verts, np.zeros((verts.shape[0], 1))))
+                new_poly = Polygon(*verts, color=PINK, fill_opacity=0.5, stroke_width=1.0)
+                mob.become(new_poly)
+            return update_polygon
+
+        def update_all_polygons(mob):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
             for i, ob in enumerate(obstacles):
                 ob.curr_time = time
@@ -309,7 +348,9 @@ class GVF(Scene):
                 new_poly = Polygon(*verts, color=PINK, fill_opacity=0.5, stroke_width=1.0)
                 mob[i].become(new_poly)
 
-        polygons.add_updater(update_all_polygons)
+        # polygons.add_updater(update_all_polygons)
+        for i, ob in enumerate(obstacles):
+            polygons[i].add_updater(update_polygon_wrapper(ob))
 
         def aut_trajectory(q0, k_n=k_n, dt=dt):
             time = int(t_tracker.get_value() * (steps - 1)) * dt
@@ -733,8 +774,10 @@ def signed_dist(point, obstacles, t, r=0.1, alpha=np.log(2) / 0.2, gamma=0.1):
         grads.append(grad_)
 
     if len(dists) > 1:
-        dist = smooth_min(dists, r=r)
-        imin = smooth_argmin(dists, r=r)
+        imin = np.argmin(dists)
+        dist = dists[imin]
+        # dist = smooth_min(dists, r=r)
+        # imin = smooth_argmin(dists, r=r)
         grad = grads[imin]
     else:
         dist = dists[0]
@@ -772,18 +815,9 @@ class MovingPolytope:
         self.A0 = A0
         self.b0 = b0.ravel()
         self.curr_time = 0.0
-        if v is None:
-            self.v = np.ones(A0.shape[1])
-        else:
-            self.v = np.array(v, dtype=float).reshape(-1, 1)
-        if fun_A is None:
-            self.A = self._default_A
-        else:
-            self.A = fun_A
-        if fun_b is None:
-            self.b = self._default_b
-        else:
-            self.b = fun_b
+        self.A = self._set_A(fun_A)
+        self.b = self._set_b(fun_b)
+        self.v = self._set_velocity(v)
         self.vertices = get_polytope_vertices(self.A0, self.b0)
         self.centroid = get_centroid(self.vertices)
         self.dist_to_centroid = None
@@ -800,8 +834,39 @@ class MovingPolytope:
 
     def _default_b(self, t, v=None):
         if v is None:
-            v = self.v
-        return self.b0 + (self.A0 @ v * t).ravel()
+            v = self.v(t)
+        return self.b0 + (self.A0 @ v).ravel()
+
+    def _default_v(self, vec, t):
+        return np.array(vec, dtype=float).reshape(-1, 1) * t
+
+    def _set_A(self, fun_A):
+        if fun_A is None:
+            return self._default_A
+        else:
+            return fun_A
+
+    def _set_b(self, fun_b):
+        if fun_b is None:
+            return self._default_b
+        else:
+            return fun_b
+
+    def _set_velocity(self, v : None | list | np.ndarray | Callable[[float], np.ndarray]):
+        if v is None:
+            vec = np.ones(self.A0.shape[1])
+            v_fun = lambda t: self._default_v(vec, t)
+            return v_fun
+        elif isinstance(v, (list, np.ndarray)):
+            print("Using list or numpy array velocity function")
+            vec = np.array(v, dtype=float).reshape(-1, 1)
+            v_fun = lambda t: self._default_v(vec, t)
+            return v_fun
+        elif callable(v):
+            print("Using callable velocity function")
+            return v
+        else:
+            raise ValueError("Velocity must be a list, numpy array, or callable function")
 
     def move(self, d):
         A = self.A0
