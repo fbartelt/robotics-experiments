@@ -213,7 +213,7 @@ class GVF(Scene):
             ]
         )
         b0_1 = np.array([0.1, 0.1, 0.1, 0.1])
-        b0_1 = b0_1 + (A0_1 @ np.array([-0.9, 0.9]).reshape(-1, 1)).ravel()
+        b0_1 = b0_1 + (A0_1 @ np.array([1.2, 0.0]).reshape(-1, 1)).ravel()
         vel_vec_1 = 0 * 0.75 * np.array([0.5, 0.5])  # Velocity vector for the obstacle
         obstacle1 = MovingPolytope(A0_1, b0_1, v=vel_vec_1)
         print("Created obstacle 1")
@@ -510,7 +510,7 @@ class GVF(Scene):
 
         dot.add_updater(update_path_and_dot)
         print("Done vf, dot and path")
-        trail = TracedPath(dot.get_center, stroke_color=YELLOW, dissipating_time=3.0)
+        trail = TracedPath(dot.get_center, stroke_color=YELLOW, dissipating_time=1.5)
         plane = NumberPlane()
 
         print("Starting animation")
