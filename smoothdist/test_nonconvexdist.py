@@ -1,5 +1,8 @@
+import sys, os
 import numpy as np
 import plotly.graph_objects as go
+
+sys.path.append(os.path.dirname("/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist/test_nonconvexdist.py"))
 from polygon import Polytope, NonConvexPolygon, add_polygon
 from distances import e_s_hat, smooth_min, holder_mean
 
@@ -35,6 +38,8 @@ def create_level_sets(
         pi = pi_.copy().reshape(-1, 1)
         dists_wo_const, dists_w_const = [], []
         for i, poly in enumerate(polygon.polytopes):
+            if i == -1:
+                continue
             A = poly.A.copy()
             b = poly.b.copy()
             if poly.dist_to_centroid is None:
@@ -50,7 +55,7 @@ def create_level_sets(
                 )
                 poly.dist_to_centroid = abs(aux)
 
-            shared = polygon.shared_boundaries[i, :, 0] # array with lists or 0.0
+            shared = polygon.shared_boundaries[i, :] # array with lists or 0.0
             dist2polyi, *_ = e_s_hat(
                 pi,
                 A,
@@ -64,6 +69,9 @@ def create_level_sets(
             dists_w_const.append(dist2polyi / poly.dist_to_centroid)
             dist_masks = []
             for k, s in enumerate(shared):
+                if j == 0:
+                    print(f"Polygon {i} shared with {k} at index {s}: {shared}")
+                    print(f"poly.shared_boundaries: {polygon.shared_boundaries}")
                 # Ignore rows of A with indices in s:
                 if s >= 0:
                     mask = np.ones(A.shape[0], dtype=bool)
@@ -80,10 +88,11 @@ def create_level_sets(
                         h=h,
                         eta=eta,
                     )
+                    polyk = polygon.polytopes[k]
                     A_k = polygon.polytopes[k].A.copy()
                     b_k = polygon.polytopes[k].b.copy()
                     # Theres only one shared boundary if both are convex
-                    shared_ki = polygon.shared_boundaries[k, i][0]
+                    shared_ki = polygon.shared_boundaries[k, i]
                     mask_k = np.ones(A_k.shape[0], dtype=bool)
                     mask_k[shared_ki] = False
                     A_k_ = A_k[mask_k, :]
@@ -92,22 +101,37 @@ def create_level_sets(
                         pi,
                         A_k_,
                         b_k_,
-                        kind="both",
+                        kind="in",
                         eps=eps,
                         r=r,
                         h=h,
                         eta=eta,
                     )
+                    if polyk.dist_to_centroid is None:
+                        aux, *_ = e_s_hat(
+                            polyk.centroid.reshape(-1, 1),
+                            A_k,
+                            b_k,
+                            kind=kind,
+                            eps=eps,
+                            r=r,
+                            h=h,
+                            eta=eta,
+                        )
+                        polyk.dist_to_centroid = abs(aux)
+
                     dist_masks.append(dist2polyi_masked / poly.dist_to_centroid)
-                    # dist = smooth_min(dist2polyi_masked, dist2polyk_masked, r=r)
-                    # dist = -holder_mean([abs(dist2polyi_masked), abs(dist2polyk_masked)], r=r)
-                # dist = smooth_min(dist, dist2polyi, r=r)
-                # dists.append(dist)
-            dists_wo_const.append(smooth_min(dist_masks, r=r))
+                    # dist_masks.append(dist2polyk_masked / polyk.dist_to_centroid)
+            # dists_wo_const.append(smooth_min(dist_masks, r=r))
+            min_mask = smooth_min(dist_masks, r=r)
+            test_mask = -holder_mean(list(map(abs, dist_masks)), r=r/10)
+            short_mask = -holder_mean(list(map(abs, dist_masks)) + [abs(min_mask)], r=r/10)
+            dists_wo_const.append(min_mask)
         dist_wo_const = -holder_mean(list(map(abs, dists_wo_const)), r=r)
+        # dist_wo_const = smooth_min(dists_wo_const, r=r)
         dist_w_const = smooth_min(dists_w_const, r=r)
-        # distances.append(dist_w_const)
         distances.append(smooth_min(dist_wo_const, dist_w_const, r=r))
+        # distances.append(dist_wo_const)
 
     distances = np.array(distances).reshape(P1.shape)
     contour = go.Contour(
@@ -138,6 +162,7 @@ eps = 5e-2
 bulge = True
 min_path = True
 k = 5e-1
+eta=1.0
 max_iters = 200
 bounding_box = (-6, -6, 6, 6)
 
@@ -176,38 +201,40 @@ A4 = np.array([
 ])
 b4 = np.array([-2.0, 2, 8, 2, -7])
 A5 = np.array([
-    [1.0, 0],
-    [-1, -1],
-    [-1, 1]
+    [1.0, 0],  # x <= 0
+    [-1, -1],  # x + y >= 1
+    [-1, 1]    # -x + y <= 3
 ])
 b5 = np.array([0.0, -1, 3])
 
 A_list = [
-    A1,
+    # A1,
     A2,
-    A3,
+    # A3,
     # A4,
-    # A5
+    A5
 ]
 b_list = [
-    b1,
+    # b1,
     b2,
-    b3,
+    # b3,
     # b4,
-    # b5
+    b5
 ]
-shared_boundaries = np.ones((len(b_list), len(b_list), 1), dtype=int) * -1
+shared_boundaries = np.ones((len(b_list), len(b_list)), dtype=int) * -1
 # 3d array S[i, j, k] means that the k-th constraint of the i-th polytope
 # is a common boundary with the j-th polytope.
 # S[i, j] is a list that contains the indices of each constraint shared
 # S[j, i] can be different from S[i, j] given that they are defined from
 # each matrix A_i and A_j.
-shared_boundaries[0, 1] = 3
-shared_boundaries[1, 0] = 3
-shared_boundaries[1, 2] = 2
-shared_boundaries[2, 1] = 2
+# shared_boundaries[0, 1] = 3
+# shared_boundaries[1, 0] = 3
+# shared_boundaries[1, 2] = 2
+# shared_boundaries[2, 1] = 2
 # shared_boundaries[2, 3] = 0
 # shared_boundaries[3, 2] = 0
+shared_boundaries[0, 1] = 1
+shared_boundaries[1, 0] = 0
 
 polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
 fig = create_level_sets(
@@ -215,7 +242,7 @@ fig = create_level_sets(
     eps=eps,
     r=r,
     h=h,
-    eta=k,
+    eta=eta,
     kind='both',
     bbox=bounding_box,
     n_points=n_points,
