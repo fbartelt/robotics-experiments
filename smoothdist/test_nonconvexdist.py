@@ -120,15 +120,17 @@ def create_level_sets(
                         )
                         polyk.dist_to_centroid = abs(aux)
 
-                    dist_masks.append(dist2polyi_masked / poly.dist_to_centroid)
-                    # dist_masks.append(dist2polyk_masked / polyk.dist_to_centroid)
+                    dist2polyi_masked = dist2polyi_masked / poly.dist_to_centroid
+                    dist2polyk_masked = dist2polyk_masked / polyk.dist_to_centroid
+                    dist_masks.append(-holder_mean(list(map(abs, [dist2polyi_masked, dist2polyk_masked])), r=r))
+                    # dist_masks.append()
             # dists_wo_const.append(smooth_min(dist_masks, r=r))
             min_mask = smooth_min(dist_masks, r=r)
             test_mask = -holder_mean(list(map(abs, dist_masks)), r=r/10)
             short_mask = -holder_mean(list(map(abs, dist_masks)) + [abs(min_mask)], r=r/10)
             dists_wo_const.append(min_mask)
-        dist_wo_const = -holder_mean(list(map(abs, dists_wo_const)), r=r)
-        # dist_wo_const = smooth_min(dists_wo_const, r=r)
+        # dist_wo_const = -holder_mean(list(map(abs, dists_wo_const)), r=r)
+        dist_wo_const = smooth_min(dists_wo_const, r=r)
         dist_w_const = smooth_min(dists_w_const, r=r)
         distances.append(smooth_min(dist_wo_const, dist_w_const, r=r))
         # distances.append(dist_wo_const)
@@ -154,7 +156,7 @@ def create_level_sets(
 
 
 
-n_points = 100
+n_points = 300
 max_iters = 100
 h = 0.1
 r = 0.1
@@ -162,9 +164,11 @@ eps = 5e-2
 bulge = True
 min_path = True
 k = 5e-1
-eta=1.0
+eta=10.0
+n_contours = 70
 max_iters = 200
-bounding_box = (-6, -6, 6, 6)
+# bounding_box = (-6, -6, 6, 6)
+bounding_box = (-1, -1, 5, 5)
 
 seed = 42 # 100 is cool
 # Bottom horizontal
@@ -208,17 +212,17 @@ A5 = np.array([
 b5 = np.array([0.0, -1, 3])
 
 A_list = [
-    # A1,
+    A1,
     A2,
-    # A3,
-    # A4,
+    A3,
+    A4,
     A5
 ]
 b_list = [
-    # b1,
+    b1,
     b2,
-    # b3,
-    # b4,
+    b3,
+    b4,
     b5
 ]
 shared_boundaries = np.ones((len(b_list), len(b_list)), dtype=int) * -1
@@ -227,14 +231,14 @@ shared_boundaries = np.ones((len(b_list), len(b_list)), dtype=int) * -1
 # S[i, j] is a list that contains the indices of each constraint shared
 # S[j, i] can be different from S[i, j] given that they are defined from
 # each matrix A_i and A_j.
-# shared_boundaries[0, 1] = 3
-# shared_boundaries[1, 0] = 3
-# shared_boundaries[1, 2] = 2
-# shared_boundaries[2, 1] = 2
-# shared_boundaries[2, 3] = 0
-# shared_boundaries[3, 2] = 0
-shared_boundaries[0, 1] = 1
-shared_boundaries[1, 0] = 0
+shared_boundaries[0, 1] = 3
+shared_boundaries[1, 0] = 3
+shared_boundaries[1, 2] = 2
+shared_boundaries[2, 1] = 2
+shared_boundaries[2, 3] = 0
+shared_boundaries[3, 2] = 0
+shared_boundaries[1, 4] = 1
+shared_boundaries[4, 1] = 0
 
 polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
 fig = create_level_sets(
@@ -246,6 +250,6 @@ fig = create_level_sets(
     kind='both',
     bbox=bounding_box,
     n_points=n_points,
-    n_countours=50,
+    n_countours=n_contours,
 )
 fig.show()
