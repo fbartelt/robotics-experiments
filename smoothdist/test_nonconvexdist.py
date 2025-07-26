@@ -21,10 +21,24 @@ def create_level_sets(
         test_=False):
     fig = go.Figure()
 
+    centroid_dists = []
     for poly in polygon.polytopes:
         A = poly.A.copy()
         b = poly.b.copy()
         add_polygon(fig, A, b)
+        aux, *_ = e_s_hat(
+            poly.centroid.reshape(-1, 1),
+            A,
+            b,
+            kind=kind,
+            eps=eps,
+            r=r,
+            h=h,
+            eta=eta,
+        )
+        poly.dist_to_centroid = abs(aux)
+        centroid_dists.append(abs(poly.dist_to_centroid))
+    centroid_dist = np.max(centroid_dists)
 
     x_min, y_min, x_max, y_max = bbox
     p1 = np.linspace(x_min, x_max, n_points)
@@ -42,20 +56,8 @@ def create_level_sets(
                 continue
             A = poly.A.copy()
             b = poly.b.copy()
-            if poly.dist_to_centroid is None:
-                aux, *_ = e_s_hat(
-                    poly.centroid.reshape(-1, 1),
-                    A,
-                    b,
-                    kind=kind,
-                    eps=eps,
-                    r=r,
-                    h=h,
-                    eta=eta,
-                )
-                poly.dist_to_centroid = abs(aux)
-
-            shared = polygon.shared_boundaries[i, :] # array with lists or 0.0
+            # shared = polygon.shared_boundaries[i, :] # array with lists or 0.0
+            shared = polygon.shared_boundaries[i]
             dist2polyi, *_ = e_s_hat(
                 pi,
                 A,
@@ -66,16 +68,19 @@ def create_level_sets(
                 h=h,
                 eta=eta,
             )
-            dists_w_const.append(dist2polyi / poly.dist_to_centroid)
+            dists_w_const.append(dist2polyi / centroid_dist)
             dist_masks = []
-            for k, s in enumerate(shared):
+            for k, list_s in enumerate(shared):
+                s = np.array(list_s, dtype=int)
                 if j == 0:
                     print(f"Polygon {i} shared with {k} at index {s}: {shared}")
                     print(f"poly.shared_boundaries: {polygon.shared_boundaries}")
                 # Ignore rows of A with indices in s:
-                if s >= 0:
+                if np.any(s >= 0):
                     mask = np.ones(A.shape[0], dtype=bool)
-                    mask[s] = False
+                    # Remove all -1 from s
+                    s_ = s[s >= 0]
+                    mask[s_] = False
                     A_ = A[mask, :]
                     b_ = b[mask]
                     dist2polyi_masked, *_ = e_s_hat(
@@ -92,7 +97,9 @@ def create_level_sets(
                     A_k = polygon.polytopes[k].A.copy()
                     b_k = polygon.polytopes[k].b.copy()
                     # Theres only one shared boundary if both are convex
-                    shared_ki = polygon.shared_boundaries[k, i]
+                    shared_ki = polygon.shared_boundaries[k][i]
+                    shared_ki = np.array(shared_ki, dtype=int)
+                    shared_ki = shared_ki[shared_ki >= 0]
                     mask_k = np.ones(A_k.shape[0], dtype=bool)
                     mask_k[shared_ki] = False
                     A_k_ = A_k[mask_k, :]
@@ -107,21 +114,8 @@ def create_level_sets(
                         h=h,
                         eta=eta,
                     )
-                    if polyk.dist_to_centroid is None:
-                        aux, *_ = e_s_hat(
-                            polyk.centroid.reshape(-1, 1),
-                            A_k,
-                            b_k,
-                            kind=kind,
-                            eps=eps,
-                            r=r,
-                            h=h,
-                            eta=eta,
-                        )
-                        polyk.dist_to_centroid = abs(aux)
-
-                    dist2polyi_masked = dist2polyi_masked / poly.dist_to_centroid
-                    dist2polyk_masked = dist2polyk_masked / polyk.dist_to_centroid
+                    dist2polyi_masked = dist2polyi_masked / centroid_dist
+                    dist2polyk_masked = dist2polyk_masked / centroid_dist
                     dist_masks.append(-holder_mean(list(map(abs, [dist2polyi_masked, dist2polyk_masked])), r=r))
                     # dist_masks.append()
             # dists_wo_const.append(smooth_min(dist_masks, r=r))
@@ -156,7 +150,7 @@ def create_level_sets(
 
 
 
-n_points = 300
+n_points = 100
 max_iters = 100
 h = 0.1
 r = 0.1
@@ -171,7 +165,9 @@ max_iters = 200
 bounding_box = (-1, -1, 5, 5)
 
 seed = 42 # 100 is cool
+
 # Bottom horizontal
+import numpy as np
 A1 = np.array([
     [1.0, 0], # x <= 2
     [-1, 0],  # x >= 0
@@ -210,7 +206,6 @@ A5 = np.array([
     [-1, 1]    # -x + y <= 3
 ])
 b5 = np.array([0.0, -1, 3])
-
 A_list = [
     A1,
     A2,
@@ -225,20 +220,30 @@ b_list = [
     b4,
     b5
 ]
-shared_boundaries = np.ones((len(b_list), len(b_list)), dtype=int) * -1
+shared_boundaries = (np.ones((len(b_list), len(b_list), 1), dtype=int) * -1).tolist()
 # 3d array S[i, j, k] means that the k-th constraint of the i-th polytope
 # is a common boundary with the j-th polytope.
 # S[i, j] is a list that contains the indices of each constraint shared
 # S[j, i] can be different from S[i, j] given that they are defined from
 # each matrix A_i and A_j.
-shared_boundaries[0, 1] = 3
-shared_boundaries[1, 0] = 3
-shared_boundaries[1, 2] = 2
-shared_boundaries[2, 1] = 2
-shared_boundaries[2, 3] = 0
-shared_boundaries[3, 2] = 0
-shared_boundaries[1, 4] = 1
-shared_boundaries[4, 1] = 0
+# shared_boundaries[0, 1] = 3
+# shared_boundaries[1, 0] = 3
+# shared_boundaries[1, 2] = 2
+# shared_boundaries[2, 1] = 2
+# shared_boundaries[2, 3] = 0
+# shared_boundaries[3, 2] = 0
+# shared_boundaries[1, 4] = 1
+# shared_boundaries[4, 1] = 0
+shared_boundaries[0][1] = [3]
+shared_boundaries[1][0] = [3]
+shared_boundaries[1][2] = [2]
+shared_boundaries[2][1] = [2]
+shared_boundaries[2][3] = [0] #, 2, 3]
+shared_boundaries[3][2] = [0, 1, 4]
+# shared_boundaries[1][4] = [1, 2, 3] # More triangular shape
+shared_boundaries[1][4] = [1] # More trapezoidal shape
+shared_boundaries[4][1] = [0]
+# print(shared_boundaries[3])
 
 polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
 fig = create_level_sets(
