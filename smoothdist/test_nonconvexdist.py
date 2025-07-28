@@ -206,11 +206,19 @@ A5 = np.array([
     [-1, 1]    # -x + y <= 3
 ])
 b5 = np.array([0.0, -1, 3])
+A6 = np.array([
+    [1.0, 0],   # x <= 4
+    [-1.0, 0],  # x >= 2
+    [0, -1.0],  # y >= 1
+    [0, 1.0],   # y <= 5
+])
+b6 = np.array([4.0, -2.0, 1.0, 5.0])
 A_list = [
     A1,
     A2,
     A3,
     A4,
+    # A6,
     A5
 ]
 b_list = [
@@ -218,6 +226,7 @@ b_list = [
     b2,
     b3,
     b4,
+    # b6,
     b5
 ]
 shared_boundaries = (np.ones((len(b_list), len(b_list), 1), dtype=int) * -1).tolist()
@@ -240,6 +249,12 @@ shared_boundaries[1][2] = [2]
 shared_boundaries[2][1] = [2]
 shared_boundaries[2][3] = [0] #, 2, 3]
 shared_boundaries[3][2] = [0, 1, 4]
+### Pentagon -> long rectangle ###
+# shared_boundaries[0][3] = [0]
+# shared_boundaries[3][0] = [1]
+# shared_boundaries[2][3] = [0]
+# shared_boundaries[3][2] = [1]
+### EDIT ###
 # shared_boundaries[1][4] = [1, 2, 3] # More triangular shape
 shared_boundaries[1][4] = [1] # More trapezoidal shape
 shared_boundaries[4][1] = [0]
