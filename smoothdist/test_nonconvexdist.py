@@ -3,7 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 sys.path.append(os.path.dirname("/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist/test_nonconvexdist.py"))
-from polygon import Polytope, NonConvexPolygon, add_polygon
+from polygon import Polytope, NonConvexPolygon, add_polygon, get_polytope_constraints
 from distances import e_s_hat, smooth_min, holder_mean
 
 
@@ -22,10 +22,10 @@ def create_level_sets(
     fig = go.Figure()
 
     centroid_dists = []
-    for poly in polygon.polytopes:
+    for iii, poly in enumerate(polygon.polytopes):
         A = poly.A.copy()
         b = poly.b.copy()
-        add_polygon(fig, A, b)
+        add_polygon(fig, A, b, aux=iii)
         aux, *_ = e_s_hat(
             poly.centroid.reshape(-1, 1),
             A,
@@ -206,6 +206,7 @@ A5 = np.array([
     [-1, 1]    # -x + y <= 3
 ])
 b5 = np.array([0.0, -1, 3])
+# Long rectangle (switch with A4)
 A6 = np.array([
     [1.0, 0],   # x <= 4
     [-1.0, 0],  # x >= 2
@@ -213,12 +214,21 @@ A6 = np.array([
     [0, 1.0],   # y <= 5
 ])
 b6 = np.array([4.0, -2.0, 1.0, 5.0])
+# Diagonally crossing rectangle (switch with A4)
+A7 = np.array([
+    [3.0, 1.0],    # 3x + y <= 7 (downward diag)
+    [-3.0, -1.0],  # 3x + y >= 5
+    [-1.0, 1.0],   # -x + y <= 3  (top upward diag)
+    [1.0, -1.0],   # -x + y >= -3 (bottom upward diag)
+])
+b7 = np.array([7.0, -5.0, 3.0, 3.0])
 A_list = [
     A1,
     A2,
     A3,
     A4,
     # A6,
+    # A7,
     A5
 ]
 b_list = [
@@ -227,6 +237,7 @@ b_list = [
     b3,
     b4,
     # b6,
+    # b7,
     b5
 ]
 shared_boundaries = (np.ones((len(b_list), len(b_list), 1), dtype=int) * -1).tolist()
@@ -247,18 +258,66 @@ shared_boundaries[0][1] = [3]
 shared_boundaries[1][0] = [3]
 shared_boundaries[1][2] = [2]
 shared_boundaries[2][1] = [2]
+# Pentagon
 shared_boundaries[2][3] = [0] #, 2, 3]
 shared_boundaries[3][2] = [0, 1, 4]
-### Pentagon -> long rectangle ###
+# END pentagon
+### Pentagon -> long rectangle ###  SWITCH WITH A4
 # shared_boundaries[0][3] = [0]
 # shared_boundaries[3][0] = [1]
 # shared_boundaries[2][3] = [0]
 # shared_boundaries[3][2] = [1]
-### EDIT ###
+### END Long Rectangle ###
+### Pentagon -> Diagonally crossing rectangle ### SWITCH WITH A4
+# shared_boundaries[0][3] = [0, 3]
+# shared_boundaries[3][0] = [1]
+# shared_boundaries[1][3] = [0, 2]
+# shared_boundaries[3][1] = [1]
+# shared_boundaries[2][3] = [2]
+# shared_boundaries[3][2] = [0, 1]
+### END Diagonally crossing rectangle ###
 # shared_boundaries[1][4] = [1, 2, 3] # More triangular shape
 shared_boundaries[1][4] = [1] # More trapezoidal shape
 shared_boundaries[4][1] = [0]
 # print(shared_boundaries[3])
+#
+# polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
+# fig = create_level_sets(
+#     polygon,
+#     eps=eps,
+#     r=r,
+#     h=h,
+#     eta=eta,
+#     kind='both',
+#     bbox=bounding_box,
+#     n_points=n_points,
+#     n_countours=n_contours,
+# )
+# fig.show()
+
+
+""" NEW TEST """
+poly1verts = np.array([[0, 2], [2, 1], [0, 0], [-2, 1]])
+poly2verts = np.array([[1, 1.5], [4, 1.5], [4, 1], [2, 1]])
+poly3verts = np.array([[2, 1], [5, 1], [4.5, 0], [0, 0]])
+poly4verts = np.array([[5, 1], [5, -2], [3, -3]])
+verts = [poly1verts, poly2verts, poly3verts, poly4verts]
+conts = [get_polytope_constraints(v) for v in verts]
+A_list = [c[0] for c in conts]
+b_list = [c[1] for c in conts]
+print("A_list:", A_list)
+print("b_list:", b_list)
+
+bounding_box = (-2.1, -3.1, 5.1, 2.1)
+shared_boundaries = (np.ones((len(b_list), len(b_list), 1), dtype=int) * -1).tolist()
+shared_boundaries[0][1] = [1, 3] # 3
+shared_boundaries[1][0] = [2]
+shared_boundaries[0][2] = [1, 3] # 1
+shared_boundaries[2][0] = [2]
+shared_boundaries[1][2] = [ 3] # 2
+shared_boundaries[2][1] = [ 3] # 3
+shared_boundaries[2][3] = [1]
+shared_boundaries[3][2] = [0]
 
 polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
 fig = create_level_sets(

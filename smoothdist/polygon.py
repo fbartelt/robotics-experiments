@@ -4,6 +4,23 @@ from scipy.optimize import linprog
 from scipy.spatial import HalfspaceIntersection, ConvexHull
 from scipy.special import factorial
 
+def get_polytope_constraints(vertices):
+    """
+    Given a set of vertices (points) of a convex polytope,
+    return the matrix A and vector b such that Ax <= b describes the polytope.
+    
+    Parameters:
+        vertices (ndarray): An (N, d) array of N points in d dimensions.
+
+    Returns:
+        A (ndarray): An (m, d) matrix.
+        b (ndarray): An (m,) vector.
+        The inequality Ax <= b defines the convex hull of the input vertices.
+    """
+    hull = ConvexHull(vertices)
+    A = hull.equations[:, :-1]
+    b = -hull.equations[:, -1]
+    return A, b
 
 def find_strictly_feasible_point(A, b):
     """
@@ -26,7 +43,7 @@ def find_strictly_feasible_point(A, b):
         raise ValueError("Could not find a strictly feasible point.")
 
 
-def add_polygon(fig, A, b):
+def add_polygon(fig, A, b, aux=0):
     interior_point = find_strictly_feasible_point(A, b)
     halfspaces = np.hstack((A, -b[:, None]))
     hs = HalfspaceIntersection(halfspaces, interior_point)
@@ -44,6 +61,48 @@ def add_polygon(fig, A, b):
         fillcolor="rgba(163, 159, 158, 0.2)",
         line=dict(color="rgba(163, 159, 158, 1)"),
     ))
+    # Draw each polygon edge with its own color
+    COLOR_CYCLE = [
+        "rgba(255, 0, 0, 0.8)",  # Red
+        "rgba(0, 255, 0, 0.8)",  # Green
+        "rgba(0, 0, 255, 0.8)",  # Blue
+        "rgba(255, 165, 0, 0.8)",  # Orange
+        "rgba(0, 255, 255, 0.8)",  # Cyan
+        "rgba(75, 0, 130, 0.8)",  # Indigo
+        "rgba(238, 130, 238, 0.8)",  # Violet
+        "rgba(255, 20, 147, 0.8)",  # Deep Pink
+        "rgba(255, 105, 180, 0.8)",  # Hot Pink
+    ]
+    MARKER_CYCLE = [
+        "circle", "square", "circle-open", "square-open", "triangle-up",
+        "triangle-down", "triangle-left", "triangle-right"
+    ]
+    x_range = fig.layout.xaxis.range or [x.min() - 1, x.max() + 1]
+    y_range = fig.layout.yaxis.range or [y.min() - 1, y.max() + 1]
+    xmin, xmax = x_range
+    ymin, ymax = y_range
+    for i, (a, bi) in enumerate(zip(A, b)):
+        a = np.asarray(a)
+        color = COLOR_CYCLE[i % len(COLOR_CYCLE)]
+        # Plot constraint line: a[0]*x + a[1]*y = b
+        if abs(a[1]) > 1e-8:
+            # Solve for y
+            x_vals = np.linspace(xmin, xmax, 10)
+            y_vals = (bi - a[0] * x_vals) / a[1]
+        elif abs(a[0]) > 1e-8:
+            # Vertical line
+            x_vals = np.full(500, bi / a[0])
+            y_vals = np.linspace(ymin, ymax, 10)
+        else:
+            continue  # skip invalid constraints
+
+        fig.add_trace(go.Scatter(
+            x=x_vals, y=y_vals,
+            mode="markers",
+            line=dict(color=color, width=2),
+            marker=dict(symbol=MARKER_CYCLE[aux % len(MARKER_CYCLE)], size=8),
+            name=f"Constraint {i}",
+        ))
 
 class Polytope:
     def __init__(self, A, b):
