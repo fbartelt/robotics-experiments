@@ -297,10 +297,14 @@ shared_boundaries[4][1] = [0]
 
 
 """ NEW TEST """
-poly1verts = np.array([[0, 2], [2, 1], [0, 0], [-2, 1]])
-poly2verts = np.array([[1, 1.5], [4, 1.5], [4, 1], [2, 1]])
-poly3verts = np.array([[2, 1], [5, 1], [4.5, 0], [0, 0]])
-poly4verts = np.array([[5, 1], [5, -2], [3, -3]])
+# poly1verts = np.array([[0, 2], [2, 1], [0, 0], [-2, 1]])
+poly1verts = np.array([[0, 2], [0, 0], [-2, 1]])
+# poly2verts = np.array([[1, 1.5], [4, 1.5], [4, 1], [2, 1]])
+poly2verts = np.array([[0, 1.5], [4, 1.5], [4, 1], [0, 1]])
+# poly3verts = np.array([[2, 1], [5, 1], [4.5, 0], [0, 0]])
+poly3verts = np.array([[0, 1], [5, 1], [5, 0], [0, 0]])
+# poly4verts = np.array([[5, 1], [5, -2], [3, -3]])
+poly4verts = np.array([[4.5, 0], [5, 0], [5, -2], [3, -3]])
 verts = [poly1verts, poly2verts, poly3verts, poly4verts]
 conts = [get_polytope_constraints(v) for v in verts]
 A_list = [c[0] for c in conts]
@@ -310,14 +314,14 @@ print("b_list:", b_list)
 
 bounding_box = (-2.1, -3.1, 5.1, 2.1)
 shared_boundaries = (np.ones((len(b_list), len(b_list), 1), dtype=int) * -1).tolist()
-shared_boundaries[0][1] = [1, 3] # 3
-shared_boundaries[1][0] = [2]
-shared_boundaries[0][2] = [1, 3] # 1
-shared_boundaries[2][0] = [2]
-shared_boundaries[1][2] = [ 3] # 2
-shared_boundaries[2][1] = [ 3] # 3
-shared_boundaries[2][3] = [1]
-shared_boundaries[3][2] = [0]
+shared_boundaries[0][1] = [2] # 3
+shared_boundaries[1][0] = [2, 3]
+shared_boundaries[0][2] = [2] # 1
+shared_boundaries[2][0] = [2, 0]
+shared_boundaries[1][2] = [3] # 2
+shared_boundaries[2][1] = [0] # 3
+shared_boundaries[2][3] = [3]
+shared_boundaries[3][2] = [1]
 
 polygon = NonConvexPolygon(A_list, b_list, shared_boundaries)
 fig = create_level_sets(

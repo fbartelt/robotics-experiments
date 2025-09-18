@@ -132,6 +132,9 @@ def test_argmin():
     print(smooth_argmin(xs, r=0.1))
     print(smooth_argmin(xs[::-1], r=0.1))
     print(smooth_argmin(xs, -20, r=0.1))
+    xt = np.array([0, 0, 0, 0])
+    print(-smooth_min(-xt, r=0.1))
+    print(smooth_min(xt, r=0.1))
 
 test_associativity()
 test_argmin()
