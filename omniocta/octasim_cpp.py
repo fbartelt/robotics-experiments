@@ -387,7 +387,7 @@ motor_tau = 0.1  # time constant of the motor dynamics
 dt = 1e-3
 dt = 10 * dt
 # dt = 0.0025
-T = 200
+T = 250
 imax = int(T / dt)
 
 
@@ -409,7 +409,7 @@ omega = np.array([0, 0, 0]).reshape(-1, 1)
 omega_dot = np.array([0, 0, 0]).reshape(-1, 1)
 u = np.zeros((n, 1)).reshape(-1, 1)
 
-kn1, kn2 = 1 * 0.2, 10
+kn1, kn2 = 1 * 0.2, 5
 kt1, kt2, kt3 = kn1 * 1, 1, kn2
 
 #
@@ -444,7 +444,8 @@ param.ds = 1e-3
 param.kv = 10
 param.komega = 10
 # Noise parameters (p, Q, v, omega, u)
-param.stds = np.array([0.1, 0.01, 0.001*0, 0.02*0, 0*0.00001]).reshape(-1, 1) * 0
+# param.stds = np.array([0.1, 0.1, 0, 0, 0]).reshape(-1, 1)
+param.stds = np.array([0.1, 1000.0, 0, 0, 0]).reshape(-1, 1)
 
 log_full = uaibot_cpp.vant_simulation(
     state, curve, curve_derivative, param
