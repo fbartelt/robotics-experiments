@@ -1,13 +1,20 @@
 import uaibot as ub
+import pickle
+import os
+import shutil
+import pathlib
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 import uaibot_cpp_bind as uaibot_cpp
-from uaibot_cpp_bind import expSO3, SmapSO3, SmapSE3, expSE3
+from uaibot_cpp_bind import expSO3, SmapSO3, SmapSE3, expSE3, ECdistance
 import plotly.graph_objects as go
 import plotly.colors as pc
 from uaibot.robot import Robot
 from uaibot.utils import Utils
 from scipy.linalg import block_diag
 from plotly.subplots import make_subplots
+
 
 def pose2htm(p, R):
     """Homogeneous transformation matrix from position and rotation."""
@@ -267,7 +274,7 @@ def hd(s, r=1, b=1, d=0.2):
         b + d * r**2 * (np.cos(theta) ** 2 - np.sin(theta) ** 2),
     ]
     hds[:3, 3] = np.array(position)
-    angle = np.pi/6 * np.sin(2*np.pi * s)
+    angle = np.pi / 6 * np.sin(2 * np.pi * s)
     # angle = theta
     orientation = np.array(
         [
@@ -299,7 +306,7 @@ def hd_derivative(s, r=1, b=1, d=0.2):
         * np.pi,
     ]
     dhds[:3, 3] = np.array(dposition_ds)
-    angle = np.pi/6 * np.sin(2*np.pi * s)
+    angle = np.pi / 6 * np.sin(2 * np.pi * s)
     # angle = theta
     orientation = np.array(
         [
@@ -308,14 +315,14 @@ def hd_derivative(s, r=1, b=1, d=0.2):
             [0, -np.sin(angle), np.cos(angle)],
         ]
     )
-    chain = np.pi/6 * 2 * np.pi * np.cos(2 * np.pi * s)
+    chain = np.pi / 6 * 2 * np.pi * np.cos(2 * np.pi * s)
     # chain = 2 * np.pi
-    dorientation_ds = chain * SmapSO3(np.array([1, 0, 0]))  @ orientation
+    dorientation_ds = chain * SmapSO3(np.array([1, 0, 0])) @ orientation
     # axis = np.array([1, 1, 1])
     # axis = axis / np.linalg.norm(axis)
     # dorientation_ds = 2 * np.pi * SmapSO3(axis * theta)
     dhds[:3, :3] = dorientation_ds
- 
+
     # dhds[:3, :3] = 2 * np.pi * np.array(
     #     [
     #         [0, 0, 0],
@@ -324,7 +331,6 @@ def hd_derivative(s, r=1, b=1, d=0.2):
     #     ]
     # )
     return dhds
-
 
 
 def precomputed_hd(curve_fun, n_points, *args, **kwargs):
@@ -354,6 +360,8 @@ def precomputed_hd(curve_fun, n_points, *args, **kwargs):
         precomputed.append(curve_fun(si, *args, **kwargs))
     precomputed = np.array(precomputed)
     return precomputed
+
+
 m = 3.2  # mass (Kg)
 M_body = 2 * 0.015 * np.eye(3)  # inertia (Kg*m^2)
 
@@ -387,7 +395,7 @@ motor_tau = 0.1  # time constant of the motor dynamics
 dt = 1e-3
 dt = 10 * dt
 # dt = 0.0025
-T = 250
+T = 250 * 4
 imax = int(T / dt)
 
 
@@ -401,7 +409,8 @@ R0 = np.eye(3)
 p0 = np.array([1, 1, 0]).reshape(-1, 1)
 # p0 = curve[0, :3, 3].reshape(-1, 1)  # Start at beginning of curve
 p = p0.copy()
-R0 = curve[0, :3, :3]  # Start with orientation of curve
+# R0 = curve[0, :3, :3]  # Start with orientation of curve
+R0 = np.eye(3)  # Start with no rotation
 R = R0.copy()
 v = np.array([0, 0, 0]).reshape(-1, 1)
 v_dot = np.array([0, 0, 0]).reshape(-1, 1)
@@ -412,64 +421,262 @@ u = np.zeros((n, 1)).reshape(-1, 1)
 kn1, kn2 = 1 * 0.2, 5
 kt1, kt2, kt3 = kn1 * 1, 1, kn2
 
+
 #
 # state = uaibot_cpp.DroneState()
-state = uaibot_cpp.CPP_DroneState()
-state.p = p
-state.Q = R
-state.v = v
-state.omega = omega
-state.u = u
+def get_average_stable_errors(p_hist, R_hist, curve, threshold=0.7, n_stable=30):
+    average_dist, average_pos_err, average_ori_err = -1, -1, -1
+    dist_hist, pos_err_hist, ori_err_hist = [], [], []
+    imax = len(p_hist)
+    for i in range(imax):
+        p = np.array(p_hist[i]).reshape(3, 1)
+        R = np.array(R_hist[i]).reshape(3, 3)
+        htm = pose2htm(p, R)
 
-param = uaibot_cpp.CPP_ParametersSim()
-param.A = A
-param.pinv_A = np.linalg.pinv(A)
-param.M = m
-param.J = M_body[0, 0]
-param.u_min = 0.0
-param.u_max = u_max
-param.tc = motor_tau
-param.dt = dt
-param.sim_time = T
-# Vector field parameters
-param.kt1 = kt1
-param.kt2 = kt2
-param.kt3 = kt3
-param.kn1 = kn1
-param.kn2 = kn2
-param.delta = 1e-3
-param.ds = 1e-3
-# PID gains
-# Current best: 10, 10
-param.kv = 10
-param.komega = 10
-# Noise parameters (p, Q, v, omega, u)
-# param.stds = np.array([0.1, 0.1, 0, 0, 0]).reshape(-1, 1)
-param.stds = np.array([0.1, 1000.0, 0, 0, 0]).reshape(-1, 1)
+        dist, idx = ECdistance(htm, curve)
+        dist_hist.append(dist)
+        closest_point = curve[idx]
+        p_near = closest_point[:3, 3]
+        ori_near = closest_point[:3, :3]
+        p_curr = p.copy()
+        ori_curr = R.copy()
+        pos_err_hist.append(np.linalg.norm(p_near - p_curr) * 100)
+        trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
+        acos = np.arccos((trace_ - 1) / 2)
+        # checks if acos is nan
+        if np.isnan(acos):
+            acos = 0
+        ori_err_hist.append(acos * 180 / np.pi)
+    # Get index where average of last 30 samples is below 0.7
+    dist_hist = np.array(dist_hist)
+    pos_err_hist = np.array(pos_err_hist)
+    ori_err_hist = np.array(ori_err_hist)
+    converge_idx = -1
+    for i in range(len(dist_hist) - n_stable):
+        if np.mean(dist_hist[i : i + n_stable]) < threshold:
+            converge_idx = i
+            break
+    if converge_idx == -1:
+        print("Did not converge in current file")
+    else:
+        average_dist = np.mean(dist_hist[converge_idx:])
+        average_pos_err = np.mean(pos_err_hist[converge_idx:])
+        average_ori_err = np.mean(ori_err_hist[converge_idx:])
 
-log_full = uaibot_cpp.vant_simulation(
-    state, curve, curve_derivative, param
-)
+    return average_dist, average_pos_err, average_ori_err
 
-# log = log_full
-steady_index = log_full[-1].steady_index
-log = log_full[steady_index:]
-print(steady_index)
-print(len(log))
-p_hist = np.array([np.array(z.p).reshape(-1, 1) for z in log]).reshape(-1, 3)
-R_hist = np.array([np.array(z.Q) for z in log]).reshape(-1, 3, 3)
-v_hist = [np.array(z.v).reshape(-1, 1) for z in log]
-u_hist = [np.array(z.u).reshape(-1, 1) for z in log]
-dist_hist = np.array([z.distance for z in log]).reshape(-1, 1)
-nearest_indexes = [z.nearest_index for z in log]
-nearest_htms = [curve[i] for i in nearest_indexes]
+
+def sim_single(pos_std, ori_std, seed):
+    # Initialize p0 as a random point uniformly sampled in a sphere of radius 3
+    rng = np.random.default_rng(seed)
+    state = uaibot_cpp.CPP_DroneState()
+    p0 = rng.uniform(-7, 7, size=(3, 1))
+    p = p0
+    R0 = expSO3(SmapSO3(rng.uniform(-np.pi, np.pi, size=(3,)))).reshape(3, 3)
+    state.p = p
+    state.Q = R
+    state.v = v
+    state.omega = omega
+    state.u = u
+
+    param = uaibot_cpp.CPP_ParametersSim()
+    param.A = A
+    param.pinv_A = np.linalg.pinv(A)
+    param.M = m
+    param.J = M_body[0, 0]
+    param.u_min = 0.0
+    param.u_max = u_max
+    param.tc = motor_tau
+    param.dt = dt
+    param.sim_time = T
+    # Vector field parameters
+    param.kt1 = kt1
+    param.kt2 = kt2
+    param.kt3 = kt3
+    param.kn1 = kn1
+    param.kn2 = kn2
+    param.delta = 1e-3
+    param.ds = 1e-3
+    # PID gains
+    # Current best: 10, 10
+    param.kv = 10
+    param.komega = 10
+    # Noise parameters (p, Q, v, omega, u)
+    # param.stds = np.array([0.1, 0.1, 0, 0, 0]).reshape(-1, 1)
+    param.stds = np.array([pos_std, ori_std, 0, 0, 0]).reshape(-1, 1)
+
+    print("running sim with pos std:", pos_std, "ori std:", ori_std)
+    log_full = uaibot_cpp.vant_simulation(state, curve, curve_derivative, param, seed)
+    print("sim finished")
+
+    # log = log_full
+    steady_index = log_full[-1].steady_index
+    log = log_full[steady_index:]
+    print(steady_index)
+    print(len(log))
+    p_hist = np.array([np.array(z.p).reshape(-1, 1) for z in log]).reshape(-1, 3)
+    R_hist = np.array([np.array(z.Q) for z in log]).reshape(-1, 3, 3)
+    v_hist = [np.array(z.v).reshape(-1, 1) for z in log]
+    u_hist = [np.array(z.u).reshape(-1, 1) for z in log]
+    omega_hist = [np.array(z.omega).reshape(-1, 1) for z in log]
+    dist_hist = np.array([z.distance for z in log]).reshape(-1, 1)
+    nearest_indexes = [z.nearest_index for z in log]
+    # nearest_htms = [curve[i] for i in nearest_indexes]
+    xi_d_hist = np.array([z.xi_d for z in log]).reshape(-1, 6)
+    u_d_hist = np.array([z.u_d for z in log]).reshape(-1, n)
+    w_d_hist = np.array([z.w_d for z in log]).reshape(-1, 6)
+    p_noisy_hist = np.array([np.array(z.p_noisy).reshape(-1, 1) for z in log]).reshape(
+        -1, 3
+    )
+    R_noisy_hist = np.array([np.array(z.Q_noisy) for z in log]).reshape(-1, 3, 3)
+    # Save logs as pickle file
+    file_name = f"pos_{pos_std}_ori_{ori_std}_seed_{seed}.pkl"
+    file_path = pathlib.Path(__file__).parent.resolve()
+    file_path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
+    file_path = os.path.join(file_path, file_name)
+    with open(file_path, "wb") as f:
+        pickle.dump(
+            {
+                "p0": p0,
+                "R0": R0,
+                "p_hist": p_hist,
+                "R_hist": R_hist,
+                "v_hist": v_hist,
+                "omega_hist": omega_hist,
+                "u_hist": u_hist,
+                "dist_hist": dist_hist,
+                "nearest_indexes": nearest_indexes,
+                "xi_d_hist": xi_d_hist,
+                "u_d_hist": u_d_hist,
+                "w_d_hist": w_d_hist,
+                "p_noisy_hist": p_noisy_hist,
+                "R_noisy_hist": R_noisy_hist,
+            },
+            f,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+    print(f"Saved log to {file_path}")
+    average_dist, average_pos_err, average_ori_err = get_average_stable_errors(
+        p_hist, R_hist, curve, threshold=0.7, n_stable=30
+    )
+    return_dict = {
+        "pos_std": pos_std,
+        "ori_std": ori_std,
+        "average_dist": average_dist,
+        "average_pos_err": average_pos_err,
+        "average_ori_err": average_ori_err,
+    }
+    return return_dict
+
+
+def grid_search(pos_std_list, ori_std_list, num_runs=20):
+    # Create all parameter combinations with multiple seeds
+    param_combinations = []
+    for pos_std in pos_std_list:
+        for ori_std in ori_std_list:
+            for run in range(num_runs):
+                seed = hash(f"{pos_std}_{ori_std}_{run}") % (
+                    2**32
+                )  # Create a unique seed
+                param_combinations.append((pos_std, ori_std, seed))
+    # param_combinations = [
+    #     (pos_std, ori_std) for pos_std in pos_std_list for ori_std in ori_std_list
+    # ]
+    # Create a partial function with fixed parameters
+    # Use all available CPU cores
+    num_cores = mp.cpu_count()
+    print(
+        f"Running grid search with {len(param_combinations)} combinations on {num_cores} cores"
+    )
+
+    batch_size = num_cores * 4
+    results = []
+
+    checkpoint_file = "grid_search_checkpoint.pkl"
+    backup_file = "grid_search_checkpoint.pkl.bak"
+    # Process in batches to avoid overwhelming the system
+    for i in range(0, len(param_combinations), batch_size):
+        batch = param_combinations[i : i + batch_size]
+        # Create a pool of workers and execute in parallel
+        with mp.Pool(processes=num_cores) as pool:
+            batch_results = pool.starmap(sim_single, batch)
+            results.extend(batch_results)
+
+        # Save checkpoint after each batch (if checkpoint file exists, copy into backup first)
+        if os.path.exists(checkpoint_file):
+            shutil.copy2(checkpoint_file, backup_file)
+        with open(checkpoint_file, "wb") as f:
+            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # Organize results by parameter combination
+    results_by_params = {}
+    for pos_std in pos_std_list:
+        for ori_std in ori_std_list:
+            results_by_params[(pos_std, ori_std)] = []
+
+    for result in results:
+        key = (result["pos_std"], result["ori_std"])
+        results_by_params[key].append(result)
+
+    # Compute statistics for each parameter combination
+    statistical_results = []
+    for (pos_std, ori_std), runs in results_by_params.items():
+        # Extract the metrics from all runs
+        avg_dists = [r["average_dist"] for r in runs if r["average_dist"] >= 0]
+        avg_pos_errs = [r["average_pos_err"] for r in runs if r["average_pos_err"] >= 0]
+        avg_ori_errs = [r["average_ori_err"] for r in runs if r["average_ori_err"] >= 0]
+
+        # Calculate statistics
+        n_converged = len(avg_dists)
+        convergence_rate = n_converged / len(runs)
+
+        if n_converged > 0:
+            mean_avg_dist = np.mean(avg_dists)
+            std_avg_dist = np.std(avg_dists)
+            mean_avg_pos_err = np.mean(avg_pos_errs)
+            std_avg_pos_err = np.std(avg_pos_errs)
+            mean_avg_ori_err = np.mean(avg_ori_errs)
+            std_avg_ori_err = np.std(avg_ori_errs)
+        else:
+            mean_avg_dist = std_avg_dist = np.nan
+            mean_avg_pos_err = std_avg_pos_err = np.nan
+            mean_avg_ori_err = std_avg_ori_err = np.nan
+
+        statistical_results.append(
+            {
+                "pos_std": pos_std,
+                "ori_std": ori_std,
+                "n_runs": len(runs),
+                "n_converged": n_converged,
+                "convergence_rate": convergence_rate,
+                "mean_avg_dist": mean_avg_dist,
+                "std_avg_dist": std_avg_dist,
+                "mean_avg_pos_err": mean_avg_pos_err,
+                "std_avg_pos_err": std_avg_pos_err,
+                "mean_avg_ori_err": mean_avg_ori_err,
+                "std_avg_ori_err": std_avg_ori_err,
+                "all_avg_dists": avg_dists,  # Keep all values for further analysis
+                "all_avg_pos_errs": avg_pos_errs,
+                "all_avg_ori_errs": avg_ori_errs,
+            }
+        )
+
+        with open("grid_search_results.pkl", "wb") as f:
+            pickle.dump(statistical_results, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print("Grid search completed and results saved to grid_search_results.pkl")
+
+
+pos_std_list = np.linspace(0, 0.1, 5)
+ori_std_list = np.linspace(0, 0.1, 5)
+grid_search(pos_std_list, ori_std_list, num_runs=30)
 
 # print("AAAA")
 # print(A @ np.linalg.pinv(A))
 # print(A @ np.array([-0.00000,  2.32703,  3.21962,  0.00000,  0.00000,  3.80230,  3.28829,  0.00000]).reshape(-1,1))
 # print(A)
 #
-print(u_max)
+# print(u_max)
+
 
 def nvim_plot():
     final_index = int(len(nearest_indexes)) - 1
@@ -589,4 +796,8 @@ def nvim_plot():
     fig.update_layout(width=718.110, height=605.9155)
     fig.show()
 
-nvim_plot()
+
+# nvim_plot()
+
+
+# print(log[100].xi_d, log[100].v, log[100].omega)
