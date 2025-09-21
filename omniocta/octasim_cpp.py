@@ -358,7 +358,7 @@ def precomputed_hd(curve_fun, n_points, *args, **kwargs):
     precomputed = []
     for si in s:
         precomputed.append(curve_fun(si, *args, **kwargs))
-    precomputed = np.array(precomputed)
+    # precomputed = np.array(precomputed)
     return precomputed
 
 
@@ -396,14 +396,15 @@ dt = 1e-3
 dt = 10 * dt
 # dt = 0.0025
 T = 250 * 4
+# T = 250
 imax = int(T / dt)
 
 
 # Initial conditions
 n_points = 5000
 r, b, d = 2.5, 1, 0.2
-curve = precomputed_hd(hd, n_points, r, b, d)
-curve_derivative = precomputed_hd(hd_derivative, n_points, r, b, d)
+curve_orig = precomputed_hd(hd, n_points, r, b, d)
+curve_derivative_orig = precomputed_hd(hd_derivative, n_points, r, b, d)
 R0 = np.eye(3)
 # p0 = np.array([2, -2, 0]).reshape(-1, 1)
 p0 = np.array([1, 1, 0]).reshape(-1, 1)
@@ -429,14 +430,14 @@ def get_average_stable_errors(p_hist, R_hist, curve, threshold=0.7, n_stable=30)
     dist_hist, pos_err_hist, ori_err_hist = [], [], []
     imax = len(p_hist)
     for i in range(imax):
-        p = np.array(p_hist[i]).reshape(3, 1)
-        R = np.array(R_hist[i]).reshape(3, 3)
+        p = p_hist[i, :].ravel()
+        R = R_hist[i, :, :]
         htm = pose2htm(p, R)
 
         dist, idx = ECdistance(htm, curve)
         dist_hist.append(dist)
         closest_point = curve[idx]
-        p_near = closest_point[:3, 3]
+        p_near = closest_point[:3, 3].ravel()
         ori_near = closest_point[:3, :3]
         p_curr = p.copy()
         ori_curr = R.copy()
@@ -466,13 +467,14 @@ def get_average_stable_errors(p_hist, R_hist, curve, threshold=0.7, n_stable=30)
     return average_dist, average_pos_err, average_ori_err
 
 
-def sim_single(pos_std, ori_std, seed):
+def sim_single(pos_std, ori_std, seed, save_file=False):
     # Initialize p0 as a random point uniformly sampled in a sphere of radius 3
     rng = np.random.default_rng(seed)
     state = uaibot_cpp.CPP_DroneState()
     p0 = rng.uniform(-7, 7, size=(3, 1))
     p = p0
-    R0 = expSO3(SmapSO3(rng.uniform(-np.pi, np.pi, size=(3,)))).reshape(3, 3)
+    R0 = np.array(expSO3(SmapSO3(rng.uniform(0, 2 * np.pi, size=(3,))))).reshape(3, 3)
+    R = R0
     state.p = p
     state.Q = R
     state.v = v
@@ -506,7 +508,32 @@ def sim_single(pos_std, ori_std, seed):
     param.stds = np.array([pos_std, ori_std, 0, 0, 0]).reshape(-1, 1)
 
     print("running sim with pos std:", pos_std, "ori std:", ori_std)
-    log_full = uaibot_cpp.vant_simulation(state, curve, curve_derivative, param, seed)
+    curve = curve_orig.copy()
+    curve_derivative = curve_derivative_orig.copy()
+    try:
+        log_full = uaibot_cpp.vant_simulation(
+            state, curve, curve_derivative, param, seed
+        )
+    except Exception as e:
+        with open("error_log.txt", "a") as f:
+            f.write(
+                f"Simulation failed for pos_std={pos_std}, ori_std={ori_std}, seed={seed}\n"
+            )
+            # Write error message to file
+            f.write(str(e) + "\n")
+
+        print(e)
+        print(
+            f"Simulation failed for pos_std={pos_std}, ori_std={ori_std}, seed={seed}"
+        )
+        print(type(curve), type(curve_derivative))
+        return {
+            "pos_std": pos_std,
+            "ori_std": ori_std,
+            "average_dist": -1,
+            "average_pos_err": -1,
+            "average_ori_err": -1,
+        }
     print("sim finished")
 
     # log = log_full
@@ -530,43 +557,92 @@ def sim_single(pos_std, ori_std, seed):
     )
     R_noisy_hist = np.array([np.array(z.Q_noisy) for z in log]).reshape(-1, 3, 3)
     # Save logs as pickle file
-    file_name = f"pos_{pos_std}_ori_{ori_std}_seed_{seed}.pkl"
-    file_path = pathlib.Path(__file__).parent.resolve()
-    file_path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
-    file_path = os.path.join(file_path, file_name)
-    with open(file_path, "wb") as f:
-        pickle.dump(
-            {
-                "p0": p0,
-                "R0": R0,
-                "p_hist": p_hist,
-                "R_hist": R_hist,
-                "v_hist": v_hist,
-                "omega_hist": omega_hist,
-                "u_hist": u_hist,
-                "dist_hist": dist_hist,
-                "nearest_indexes": nearest_indexes,
-                "xi_d_hist": xi_d_hist,
-                "u_d_hist": u_d_hist,
-                "w_d_hist": w_d_hist,
-                "p_noisy_hist": p_noisy_hist,
-                "R_noisy_hist": R_noisy_hist,
-            },
-            f,
-            protocol=pickle.HIGHEST_PROTOCOL,
+    if save_file:
+        file_name = f"pos_{pos_std}_ori_{ori_std}_seed_{seed}.pkl"
+        file_path = pathlib.Path(__file__).parent.resolve()
+        file_path = (
+            "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
         )
-    print(f"Saved log to {file_path}")
-    average_dist, average_pos_err, average_ori_err = get_average_stable_errors(
-        p_hist, R_hist, curve, threshold=0.7, n_stable=30
-    )
-    return_dict = {
-        "pos_std": pos_std,
-        "ori_std": ori_std,
-        "average_dist": average_dist,
-        "average_pos_err": average_pos_err,
-        "average_ori_err": average_ori_err,
-    }
-    return return_dict
+        file_path = os.path.join(file_path, file_name)
+        with open(file_path, "wb") as f:
+            pickle.dump(
+                {
+                    "p0": p0,
+                    "R0": R0,
+                    "p_hist": p_hist,
+                    "R_hist": R_hist,
+                    "v_hist": v_hist,
+                    "omega_hist": omega_hist,
+                    "u_hist": u_hist,
+                    "dist_hist": dist_hist,
+                    "nearest_indexes": nearest_indexes,
+                    "xi_d_hist": xi_d_hist,
+                    "u_d_hist": u_d_hist,
+                    "w_d_hist": w_d_hist,
+                    "p_noisy_hist": p_noisy_hist,
+                    "R_noisy_hist": R_noisy_hist,
+                },
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        print(f"Saved log to {file_path}")
+    else:
+        return_dict = {
+            "p_hist": p_hist,
+            "R_hist": R_hist,
+            "v_hist": v_hist,
+            "omega_hist": omega_hist,
+            "u_hist": u_hist,
+            "dist_hist": dist_hist,
+            "nearest_indexes": nearest_indexes,
+            "xi_d_hist": xi_d_hist,
+            "u_d_hist": u_d_hist,
+            "w_d_hist": w_d_hist,
+            "p_noisy_hist": p_noisy_hist,
+            "R_noisy_hist": R_noisy_hist,
+        }
+        return return_dict
+    # curve = curve_orig.copy()
+    # average_dist, average_pos_err, average_ori_err = get_average_stable_errors(
+    #     p_hist, R_hist, curve, threshold=0.7, n_stable=30
+    # )
+    # print("Returning statistics of single run")
+    # return_dict = {
+    #     "pos_std": pos_std,
+    #     "ori_std": ori_std,
+    #     "average_dist": average_dist,
+    #     "average_pos_err": average_pos_err,
+    #     "average_ori_err": average_ori_err,
+    # }
+    # return return_dict
+
+
+def process_single_file(file_info, path, curve):
+    """Process a single simulation file and return its metrics"""
+    file, pos_std, ori_std = file_info
+    try:
+        with open(os.path.join(path, file), "rb") as f:
+            run_log = pickle.load(f)
+
+        p_hist = run_log["p_hist"]
+        R_hist = run_log["R_hist"]
+        average_dist, average_pos_err, average_ori_err = get_average_stable_errors(
+            p_hist, R_hist, curve, threshold=0.7, n_stable=30
+        )
+
+        print(
+            f"file {file}: avg pos err {average_pos_err:.3f}, avg ori err {average_ori_err:.3f}"
+        )
+        return {
+            "pos_std": pos_std,
+            "ori_std": ori_std,
+            "average_dist": average_dist,
+            "average_pos_err": average_pos_err,
+            "average_ori_err": average_ori_err,
+        }
+    except Exception as e:
+        print(f"Error processing file {file}: {e}")
+        return None
 
 
 def grid_search(pos_std_list, ori_std_list, num_runs=20):
@@ -574,11 +650,12 @@ def grid_search(pos_std_list, ori_std_list, num_runs=20):
     param_combinations = []
     for pos_std in pos_std_list:
         for ori_std in ori_std_list:
-            for run in range(num_runs):
-                seed = hash(f"{pos_std}_{ori_std}_{run}") % (
-                    2**32
-                )  # Create a unique seed
-                param_combinations.append((pos_std, ori_std, seed))
+            for i, run in enumerate(range(num_runs)):
+                # seed = hash(f"{pos_std}_{ori_std}_{run}") % (
+                # 2**32
+                # )  # Create a unique seed
+                seed = i
+                param_combinations.append((pos_std, ori_std, seed, True))
     # param_combinations = [
     #     (pos_std, ori_std) for pos_std in pos_std_list for ori_std in ori_std_list
     # ]
@@ -589,26 +666,67 @@ def grid_search(pos_std_list, ori_std_list, num_runs=20):
         f"Running grid search with {len(param_combinations)} combinations on {num_cores} cores"
     )
 
+    with mp.Pool(processes=num_cores) as pool:
+        pool.starmap(sim_single, param_combinations)
+    print("All simulations completed.")
+    # Run simulations in parallel using multicore
     batch_size = num_cores * 4
     results = []
 
+    # for i in range(0, len(param_combinations), batch_size):
+    #     batch = param_combinations[i : i + batch_size]
+    #
+    #     print(
+    #         f"Processing batch {i//batch_size + 1}/{(len(param_combinations) + batch_size - 1)//batch_size}"
+    #     )
+    #
+    #     with mp.Pool(processes=num_cores) as pool:
+    #         batch_results = pool.starmap(sim_single, batch)
+    #         results.extend(batch_results)
+    #
+    #     print(
+    #         f"Completed {min(i + batch_size, len(param_combinations))}/{len(param_combinations)} simulations"
+    #     )
+
+
+def grid_search_analysis(pos_std_list, ori_std_list):
+    # Get statistics from each simulation
+    # Create a list of all files to process with their parameter information
+    num_cores = mp.cpu_count()
     checkpoint_file = "grid_search_checkpoint.pkl"
     backup_file = "grid_search_checkpoint.pkl.bak"
-    # Process in batches to avoid overwhelming the system
-    for i in range(0, len(param_combinations), batch_size):
-        batch = param_combinations[i : i + batch_size]
-        # Create a pool of workers and execute in parallel
-        with mp.Pool(processes=num_cores) as pool:
-            batch_results = pool.starmap(sim_single, batch)
-            results.extend(batch_results)
+    path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
+    file_name = "grid_search_results.pkl"
+    file_path = os.path.join(path, file_name)
+    # Get all pickle files in the path
+    pickle_files = [f for f in os.listdir(path) if f.endswith(".pkl")]
+    curve = curve_orig.copy()
+    files_to_process = []
+    for pos_std in pos_std_list:
+        for ori_std in ori_std_list:
+            # Find all files for this parameter combination
+            param_files = [
+                f for f in pickle_files if f.startswith(f"pos_{pos_std}_ori_{ori_std}_")
+            ]
+            for file in param_files:
+                files_to_process.append((file, pos_std, ori_std))
 
-        # Save checkpoint after each batch (if checkpoint file exists, copy into backup first)
-        if os.path.exists(checkpoint_file):
-            shutil.copy2(checkpoint_file, backup_file)
-        with open(checkpoint_file, "wb") as f:
-            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"Found {len(files_to_process)} files to process.")
+    # Create a partial function with fixed parameters
+    process_file_partial = partial(process_single_file, path=path, curve=curve)
+    # Process files in parallel
+    results = []
+    with mp.Pool(processes=num_cores) as pool:
+        # Use imap_unordered for better performance with many files
+        for i, result in enumerate(
+            pool.imap_unordered(process_file_partial, files_to_process)
+        ):
+            if result is not None:
+                results.append(result)
+            if (i + 1) % 100 == 0:
+                print(f"Processed {i + 1}/{len(files_to_process)} files")
 
-    # Organize results by parameter combination
+    # Group results by parameter combination
     results_by_params = {}
     for pos_std in pos_std_list:
         for ori_std in ori_std_list:
@@ -619,56 +737,62 @@ def grid_search(pos_std_list, ori_std_list, num_runs=20):
         results_by_params[key].append(result)
 
     # Compute statistics for each parameter combination
-    statistical_results = []
+    stats = []
     for (pos_std, ori_std), runs in results_by_params.items():
-        # Extract the metrics from all runs
-        avg_dists = [r["average_dist"] for r in runs if r["average_dist"] >= 0]
-        avg_pos_errs = [r["average_pos_err"] for r in runs if r["average_pos_err"] >= 0]
-        avg_ori_errs = [r["average_ori_err"] for r in runs if r["average_ori_err"] >= 0]
+        average_run_dists = [r["average_dist"] for r in runs]
+        average_run_pos_errs = [r["average_pos_err"] for r in runs]
+        average_run_ori_errs = [r["average_ori_err"] for r in runs]
 
-        # Calculate statistics
-        n_converged = len(avg_dists)
-        convergence_rate = n_converged / len(runs)
+        average_dist_param = np.mean(average_run_dists)
+        std_dist_param = np.std(average_run_dists)
+        average_pos_err_param = np.mean(average_run_pos_errs)
+        std_pos_err_param = np.std(average_run_pos_errs)
+        average_ori_err_param = np.mean(average_run_ori_errs)
+        std_ori_err_param = np.std(average_run_ori_errs)
 
-        if n_converged > 0:
-            mean_avg_dist = np.mean(avg_dists)
-            std_avg_dist = np.std(avg_dists)
-            mean_avg_pos_err = np.mean(avg_pos_errs)
-            std_avg_pos_err = np.std(avg_pos_errs)
-            mean_avg_ori_err = np.mean(avg_ori_errs)
-            std_avg_ori_err = np.std(avg_ori_errs)
-        else:
-            mean_avg_dist = std_avg_dist = np.nan
-            mean_avg_pos_err = std_avg_pos_err = np.nan
-            mean_avg_ori_err = std_avg_ori_err = np.nan
-
-        statistical_results.append(
+        stats.append(
             {
                 "pos_std": pos_std,
                 "ori_std": ori_std,
                 "n_runs": len(runs),
-                "n_converged": n_converged,
-                "convergence_rate": convergence_rate,
-                "mean_avg_dist": mean_avg_dist,
-                "std_avg_dist": std_avg_dist,
-                "mean_avg_pos_err": mean_avg_pos_err,
-                "std_avg_pos_err": std_avg_pos_err,
-                "mean_avg_ori_err": mean_avg_ori_err,
-                "std_avg_ori_err": std_avg_ori_err,
-                "all_avg_dists": avg_dists,  # Keep all values for further analysis
-                "all_avg_pos_errs": avg_pos_errs,
-                "all_avg_ori_errs": avg_ori_errs,
+                "mean_avg_dist": average_dist_param,
+                "std_avg_dist": std_dist_param,
+                "mean_avg_pos_err": average_pos_err_param,
+                "std_avg_pos_err": std_pos_err_param,
+                "mean_avg_ori_err": average_ori_err_param,
+                "std_avg_ori_err": std_ori_err_param,
+                "all_avg_dists": average_run_dists,
+                "all_avg_pos_errs": average_run_pos_errs,
+                "all_avg_ori_errs": average_run_ori_errs,
             }
         )
 
-        with open("grid_search_results.pkl", "wb") as f:
-            pickle.dump(statistical_results, f, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(file_path, "wb") as f:
+        pickle.dump(stats, f, protocol=pickle.HIGHEST_PROTOCOL)
     print("Grid search completed and results saved to grid_search_results.pkl")
 
 
 pos_std_list = np.linspace(0, 0.1, 5)
 ori_std_list = np.linspace(0, 0.1, 5)
-grid_search(pos_std_list, ori_std_list, num_runs=30)
+# grid_search(pos_std_list, ori_std_list, num_runs=30)
+# grid_search_analysis(pos_std_list, ori_std_list)
+
+# %%
+log_dict = sim_single(0.4, 0.0, seed=42, save_file=False)
+curve = np.array(curve_orig.copy())
+p_hist = log_dict["p_hist"]
+R_hist = log_dict["R_hist"]
+v_hist = log_dict["v_hist"]
+u_hist = log_dict["u_hist"]
+dist_hist = log_dict["dist_hist"]
+nearest_indexes = log_dict["nearest_indexes"]
+nearest_htms = [curve_orig[i] for i in nearest_indexes]
+xi_d_hist = log_dict["xi_d_hist"]
+u_d_hist = log_dict["u_d_hist"]
+w_d_hist = log_dict["w_d_hist"]
+p_noisy_hist = log_dict["p_noisy_hist"]
+R_noisy_hist = log_dict["R_noisy_hist"]
+print(np.linalg.norm(p_hist - p_noisy_hist, axis=1).mean())
 
 # print("AAAA")
 # print(A @ np.linalg.pinv(A))
@@ -797,7 +921,129 @@ def nvim_plot():
     fig.show()
 
 
-# nvim_plot()
+nvim_plot()
+
+
+# %%
+def progress_bar(i, imax):
+    """Prints a progress bar in the terminal."""
+    bar_len = 60
+    filled_len = int(round(bar_len * i / float(imax)))
+
+    percents = round(100.0 * i / float(imax), 1)
+    bar = "=" * filled_len + "-" * (bar_len - filled_len)
+
+    print(f"[{bar}] {percents}%\r", end="")
+    if i == imax:
+        print()
+
+
+def get_average_stable_errors2(p_hist, R_hist, curve, threshold=0.7, n_stable=30):
+    average_dist, average_pos_err, average_ori_err = -1, -1, -1
+    dist_hist, pos_err_hist, ori_err_hist = [], [], []
+    imax = len(p_hist)
+    for i in range(imax):
+        progress_bar(i, imax)
+        p = p_hist[i, :].ravel()
+        R = R_hist[i, :, :]
+        # p = np.array(p_hist[i]).reshape(3, 1)
+        # R = np.array(R_hist[i]).reshape(3, 3)
+        htm = pose2htm(p, R)
+
+        dist, idx = ECdistance(htm, curve)
+        dist_hist.append(dist)
+        closest_point = curve[idx]
+        p_near = closest_point[:3, 3].ravel()
+        ori_near = closest_point[:3, :3]
+        p_curr = p.copy()
+        ori_curr = R.copy()
+        pos_err_hist.append(np.linalg.norm(p_near - p_curr) * 100)
+        trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
+        acos = np.arccos((trace_ - 1) / 2)
+        # checks if acos is nan
+        if np.isnan(acos):
+            acos = 0
+        ori_err_hist.append(acos * 180 / np.pi)
+    # Get index where average of last 30 samples is below 0.7
+    dist_hist = np.array(dist_hist)
+    pos_err_hist = np.array(pos_err_hist)
+    ori_err_hist = np.array(ori_err_hist)
+    converge_idx = -1
+    for i in range(len(dist_hist) - n_stable):
+        if np.mean(dist_hist[i : i + n_stable]) < threshold:
+            converge_idx = i
+            break
+    if converge_idx == -1:
+        print("Did not converge in ")
+    else:
+        print(converge_idx)
+        average_dist = np.mean(dist_hist[converge_idx:])
+        average_pos_err = np.mean(pos_err_hist[converge_idx:])
+        average_ori_err = np.mean(ori_err_hist[converge_idx:])
+
+    return (
+        average_dist,
+        average_pos_err,
+        average_ori_err,
+        dist_hist,
+        pos_err_hist,
+        ori_err_hist,
+    )
+
+
+mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = (
+    get_average_stable_errors2(p_hist, R_hist, curve)
+)
+
+
+def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=(
+            "Distance to curve",
+            "Position error (cm)",
+            "Orientation error (deg)",
+        ),
+    )
+    xvec = np.arange(len(dist_hist)) * 10e-3
+    fig.add_trace(
+        go.Scatter(
+            y=dist_hist,
+            mode="lines",
+            name="Distance to curve",
+            line=dict(color="blue"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            y=pos_err_hist,
+            mode="lines",
+            name="Position error (cm)",
+            line=dict(color="orange"),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            y=ori_err_hist,
+            mode="lines",
+            name="Orientation error (deg)",
+            line=dict(color="green"),
+        ),
+        row=3,
+        col=1,
+    )
+
+    return fig
+
+
+fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
+fig.show()
 
 
 # print(log[100].xi_d, log[100].v, log[100].omega)
