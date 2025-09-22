@@ -570,8 +570,12 @@ with open(path, 'rb') as file:
     results = pickle.load(file)
 
 df = pd.DataFrame.from_dict(results)
+print(df.columns)
 sub_df = df[["pos_std", "ori_std", "mean_avg_pos_err",  "std_avg_pos_err", "mean_avg_ori_err", "std_avg_ori_err"]]
-sub_df.sort_values(by=["mean_avg_pos_err", "std_avg_pos_err"], )
+# sub_df.sort_values(by=["mean_avg_pos_err", "std_avg_pos_err"], )
+sub_df.sort_values(by=["pos_std", "ori_std"], )
+
+np.array(df[["all_avg_pos_errs"]].iloc[-1].values[0]).max()
 #%%
 path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data/pos_0.1_ori_0.0_seed_0.pkl"
 
@@ -587,6 +591,13 @@ curve = precomputed_hd(hd, n_points, r, b, d)
 curve_pos = np.array([c[:3, 3] for c in curve])
 print(data.keys())
 np.mean(df.iloc[0]['all_avg_pos_errs'])
+fig = vector_field_plot(p_hist, v_hist, R_hist, curve_pos, num_arrows=0, init_ball=0, final_ball=len(p_hist)-1, num_balls=20, add_lineplot=False, show_curve=True, ball_size=3, frame_scale=0.1)
+fig.show()
+go.Figure(go.Scatter(y=data['dist_hist'].ravel(), mode='lines')).show()
+
+
+
+#%%
 mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = get_average_stable_errors(p_hist, R_hist, curve)
 
 def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
@@ -622,5 +633,4 @@ def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
 fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
 fig.show()
 
-fig = vector_field_plot(p_hist, v_hist, R_hist, curve_pos, num_arrows=0, init_ball=0, final_ball=len(p_hist)-1, num_balls=20, add_lineplot=False, show_curve=True, ball_size=3, frame_scale=0.1)
-fig.show()
+

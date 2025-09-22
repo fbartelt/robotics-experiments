@@ -556,6 +556,10 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
         -1, 3
     )
     R_noisy_hist = np.array([np.array(z.Q_noisy) for z in log]).reshape(-1, 3, 3)
+    true_distance = np.array([z.true_distance for z in log])
+    true_pos_error = np.array([z.true_pos_error for z in log])
+    true_ori_error = np.array([z.true_angle_error for z in log])
+    true_nearest_indexes = np.array([z.true_nearest_index for z in log])
     # Save logs as pickle file
     if save_file:
         file_name = f"pos_{pos_std}_ori_{ori_std}_seed_{seed}.pkl"
@@ -581,6 +585,10 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
                     "w_d_hist": w_d_hist,
                     "p_noisy_hist": p_noisy_hist,
                     "R_noisy_hist": R_noisy_hist,
+                    "true_distance": true_distance,
+                    "true_pos_error": true_pos_error,
+                    "true_ori_error": true_ori_error,
+                    "true_nearest_indexes": true_nearest_indexes,
                 },
                 f,
                 protocol=pickle.HIGHEST_PROTOCOL,
@@ -600,6 +608,10 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
             "w_d_hist": w_d_hist,
             "p_noisy_hist": p_noisy_hist,
             "R_noisy_hist": R_noisy_hist,
+            "true_distance": true_distance,
+            "true_pos_error": true_pos_error,
+            "true_ori_error": true_ori_error,
+            "true_nearest_indexes": true_nearest_indexes,
         }
         return return_dict
     # curve = curve_orig.copy()
@@ -778,7 +790,7 @@ ori_std_list = np.linspace(0, 0.1, 5)
 # grid_search_analysis(pos_std_list, ori_std_list)
 
 # %%
-log_dict = sim_single(0.4, 0.0, seed=42, save_file=False)
+log_dict = sim_single(0.6, 0.0, seed=10, save_file=False)
 curve = np.array(curve_orig.copy())
 p_hist = log_dict["p_hist"]
 R_hist = log_dict["R_hist"]
@@ -853,9 +865,9 @@ def nvim_plot():
     states = [pose2htm(p_hist[i, :], R_hist[i, :, :]) for i in range(final_index)]
     # Compute the distance, position error, and orientation error
     for closest_point, state in zip(nearest_htms, states):
-        p_near = closest_point[:3, 3]
+        p_near = closest_point[:3, 3].ravel()
         ori_near = closest_point[:3, :3]
-        p_curr = state[:3, 3]
+        p_curr = state[:3, 3].ravel()
         ori_curr = state[:3, :3]
         pos_errs.append(np.linalg.norm(p_near - p_curr) * 100)
         trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
@@ -923,6 +935,11 @@ def nvim_plot():
 
 nvim_plot()
 
+true_pos_err = log_dict["true_pos_error"]
+go.Figure(go.Scatter(y=log_dict["true_distance"], mode="lines")).show()
+go.Figure(go.Scatter(y=100*true_pos_err, mode="lines")).show()
+go.Figure(go.Scatter(y=np.rad2deg(log_dict["true_ori_error"]), mode="lines")).show()
+print(log_dict.keys())
 
 # %%
 def progress_bar(i, imax):
