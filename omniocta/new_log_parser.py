@@ -6,125 +6,10 @@ import uaibot as ub
 import pandas as pd
 import os
 import plotly.graph_objects as go
+import plotly.express as px
 from uaibot_cpp_bind import expSO3, SmapSO3, SmapSE3, expSE3, ECdistance
 import plotly.colors as pc
 from plotly.subplots import make_subplots
-
-def hd(s, r=1, b=1, d=0.2):
-    """Curve parametrization used in paper. This is based on the hyperbolic
-    paraboloid.
-
-    Parameters
-    ----------
-    s : float
-        Parameter of the curve. It must be in the interval [0, 1].
-    r : float, optional
-        Radius of the curve in XY plane. The default is 1.
-    b : float, optional
-        Height of the curve. The default is 1.
-    d : float, optional
-        Curvature of the curve. The default is 0.2.
-
-    Returns
-    -------
-    hds : np.array
-        Homogeneous transformation matrix of the curve evaluated at parameter s.
-        This is a 'list' of elements of the SE(3) group.
-    """
-    theta = 2 * np.pi * s
-    hds = np.identity(4)  # initialize the homogeneous transformation matrix
-    position = [
-        r * np.cos(theta),
-        r * np.sin(theta),
-        b + d * r**2 * (np.cos(theta) ** 2 - np.sin(theta) ** 2),
-    ]
-    hds[:3, 3] = np.array(position)
-    angle = np.pi / 6 * np.sin(2 * np.pi * s)
-    # angle = theta
-    orientation = np.array(
-        [
-            [1, 0, 0],
-            [0, np.cos(angle), np.sin(angle)],
-            [0, -np.sin(angle), np.cos(angle)],
-        ]
-    )
-    # axis = np.array([1, 1, 1])
-    # axis = axis / np.linalg.norm(axis)
-    # skew_mat = SmapSO3(axis)
-    # orientation = expSO3(theta * skew_mat)
-    # orientation = np.eye(3)
-    hds[:3, :3] = orientation
-    return hds
-
-
-def hd_derivative(s, r=1, b=1, d=0.2):
-    theta = 2 * np.pi * s
-    dhds = np.zeros((4, 4))
-    dposition_ds = [
-        -r * 2 * np.pi * np.sin(theta),
-        r * 2 * np.pi * np.cos(theta),
-        d
-        * r**2
-        * 2
-        * (-2 * np.cos(theta) * np.sin(theta) - 2 * np.sin(theta) * np.cos(theta))
-        * 2
-        * np.pi,
-    ]
-    dhds[:3, 3] = np.array(dposition_ds)
-    angle = np.pi / 6 * np.sin(2 * np.pi * s)
-    # angle = theta
-    orientation = np.array(
-        [
-            [1, 0, 0],
-            [0, np.cos(angle), np.sin(angle)],
-            [0, -np.sin(angle), np.cos(angle)],
-        ]
-    )
-    chain = np.pi / 6 * 2 * np.pi * np.cos(2 * np.pi * s)
-    # chain = 2 * np.pi
-    dorientation_ds = chain * SmapSO3(np.array([1, 0, 0])) @ orientation
-    # axis = np.array([1, 1, 1])
-    # axis = axis / np.linalg.norm(axis)
-    # dorientation_ds = 2 * np.pi * SmapSO3(axis * theta)
-    dhds[:3, :3] = dorientation_ds
-
-    # dhds[:3, :3] = 2 * np.pi * np.array(
-    #     [
-    #         [0, 0, 0],
-    #         [0, -np.sin(theta), np.cos(theta)],
-    #         [0, -np.cos(theta), -np.sin(theta)],
-    #     ]
-    # )
-    return dhds
-
-
-def precomputed_hd(curve_fun, n_points, *args, **kwargs):
-    """Function that precomputes the curve for each parameter s.
-
-    Parameters
-    ----------
-    curve_fun : function
-        Function that computes the curve. It must be a function that takes as
-        first argument the parameter s, and returns a homogeneous transformation
-        matrix.
-    n_points : int
-        Number of points in the curve.
-    *args : list
-        Arguments of the curve function.
-    **kwargs : dict
-        Keyword arguments of the curve function.
-
-    Returns
-    -------
-    precomputed : np.array
-        Array with the precomputed curve. The shape is (n_points, 4, 4).
-    """
-    s = np.linspace(0, 1, num=n_points)
-    precomputed = []
-    for si in s:
-        precomputed.append(curve_fun(si, *args, **kwargs))
-    # precomputed = np.array(precomputed)
-    return precomputed
 
 
 def vector_field_plot(
@@ -368,179 +253,190 @@ def pose2htm(p, R):
     htm[0:3, 3] = p.ravel()
     return htm
 
-
-def hd(s, r=1, b=1, d=0.2):
-    """Curve parametrization used in paper. This is based on the hyperbolic
-    paraboloid.
-
-    Parameters
-    ----------
-    s : float
-        Parameter of the curve. It must be in the interval [0, 1].
-    r : float, optional
-        Radius of the curve in XY plane. The default is 1.
-    b : float, optional
-        Height of the curve. The default is 1.
-    d : float, optional
-        Curvature of the curve. The default is 0.2.
-
-    Returns
-    -------
-    hds : np.array
-        Homogeneous transformation matrix of the curve evaluated at parameter s.
-        This is a 'list' of elements of the SE(3) group.
+def get_stable_index(distances, threshold=0.7, window_size=30):
+    """Get the index where the distance to the curve is stable, i.e. the
+    average of the last 30 samples is below the threshold.
     """
-    theta = 2 * np.pi * s
-    hds = np.identity(4)  # initialize the homogeneous transformation matrix
-    position = [
-        r * np.cos(theta),
-        r * np.sin(theta),
-        b + d * r**2 * (np.cos(theta) ** 2 - np.sin(theta) ** 2),
-    ]
-    hds[:3, 3] = np.array(position)
-    angle = np.pi / 6 * np.sin(2 * np.pi * s)
-    # angle = theta
-    orientation = np.array(
-        [
-            [1, 0, 0],
-            [0, np.cos(angle), np.sin(angle)],
-            [0, -np.sin(angle), np.cos(angle)],
-        ]
-    )
-    # axis = np.array([1, 1, 1])
-    # axis = axis / np.linalg.norm(axis)
-    # skew_mat = SmapSO3(axis)
-    # orientation = expSO3(theta * skew_mat)
-    # orientation = np.eye(3)
-    hds[:3, :3] = orientation
-    return hds
+    for i in range(len(distances) - window_size):
+        if np.mean(distances[i:i+window_size]) < threshold:
+            return i
+    return -1
 
-
-def hd_derivative(s, r=1, b=1, d=0.2):
-    theta = 2 * np.pi * s
-    dhds = np.zeros((4, 4))
-    dposition_ds = [
-        -r * 2 * np.pi * np.sin(theta),
-        r * 2 * np.pi * np.cos(theta),
-        d
-        * r**2
-        * 2
-        * (-2 * np.cos(theta) * np.sin(theta) - 2 * np.sin(theta) * np.cos(theta))
-        * 2
-        * np.pi,
-    ]
-    dhds[:3, 3] = np.array(dposition_ds)
-    angle = np.pi / 6 * np.sin(2 * np.pi * s)
-    # angle = theta
-    orientation = np.array(
-        [
-            [1, 0, 0],
-            [0, np.cos(angle), np.sin(angle)],
-            [0, -np.sin(angle), np.cos(angle)],
-        ]
-    )
-    chain = np.pi / 6 * 2 * np.pi * np.cos(2 * np.pi * s)
-    # chain = 2 * np.pi
-    dorientation_ds = chain * SmapSO3(np.array([1, 0, 0])) @ orientation
-    # axis = np.array([1, 1, 1])
-    # axis = axis / np.linalg.norm(axis)
-    # dorientation_ds = 2 * np.pi * SmapSO3(axis * theta)
-    dhds[:3, :3] = dorientation_ds
-
-    # dhds[:3, :3] = 2 * np.pi * np.array(
-    #     [
-    #         [0, 0, 0],
-    #         [0, -np.sin(theta), np.cos(theta)],
-    #         [0, -np.cos(theta), -np.sin(theta)],
-    #     ]
-    # )
-    return dhds
-
-
-def precomputed_hd(curve_fun, n_points, *args, **kwargs):
-    """Function that precomputes the curve for each parameter s.
-
-    Parameters
-    ----------
-    curve_fun : function
-        Function that computes the curve. It must be a function that takes as
-        first argument the parameter s, and returns a homogeneous transformation
-        matrix.
-    n_points : int
-        Number of points in the curve.
-    *args : list
-        Arguments of the curve function.
-    **kwargs : dict
-        Keyword arguments of the curve function.
-
-    Returns
-    -------
-    precomputed : np.array
-        Array with the precomputed curve. The shape is (n_points, 4, 4).
+def check_traversal(indexes, n_points):
+    """Check if the system traversed the whole curve. Returns True if the
+    system traversed the whole curve, False otherwise. Also returns the
+    time spent in seconds, assuming a control frequency of 100 Hz.
+    Accepts 98% of the points to account for noise.
     """
-    s = np.linspace(0, 1, num=n_points)
-    precomputed = []
-    for si in s:
-        precomputed.append(curve_fun(si, *args, **kwargs))
-    precomputed = np.array(precomputed)
-    return precomputed
-
-def get_average_stable_errors(p_hist, R_hist, curve, threshold=0.7, n_stable=30):
-    average_dist, average_pos_err, average_ori_err = -1, -1, -1
-    dist_hist, pos_err_hist, ori_err_hist = [], [], []
-    imax = len(p_hist)
-    for i in range(imax):
-        progress_bar(i, imax)
-        p = p_hist[i, :].ravel()
-        R = R_hist[i, :, :]
-        # p = np.array(p_hist[i]).reshape(3, 1)
-        # R = np.array(R_hist[i]).reshape(3, 3)
-        htm = pose2htm(p, R)
-
-        dist, idx = ECdistance(htm, curve)
-        dist_hist.append(dist)
-        closest_point = curve[idx]
-        p_near = closest_point[:3, 3].ravel()
-        ori_near = closest_point[:3, :3]
-        p_curr = p.copy()
-        ori_curr = R.copy()
-        pos_err_hist.append(np.linalg.norm(p_near - p_curr) * 100)
-        trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
-        acos = np.arccos((trace_ - 1) / 2)
-        # checks if acos is nan
-        if np.isnan(acos):
-            acos = 0
-        ori_err_hist.append(acos * 180 / np.pi)
-    # Get index where average of last 30 samples is below 0.7
-    dist_hist = np.array(dist_hist)
-    pos_err_hist = np.array(pos_err_hist)
-    ori_err_hist = np.array(ori_err_hist)
-    converge_idx = -1
-    for i in range(len(dist_hist) - n_stable):
-        if np.mean(dist_hist[i:i+n_stable]) < threshold:
-            converge_idx = i
-            break
-    if converge_idx == -1:
-        print("Did not converge in ")
-    else:
-        print(converge_idx)
-        average_dist = np.mean(dist_hist[converge_idx:])
-        average_pos_err = np.mean(pos_err_hist[converge_idx:])
-        average_ori_err = np.mean(ori_err_hist[converge_idx:])
-
-    return average_dist, average_pos_err, average_ori_err, dist_hist, pos_err_hist, ori_err_hist
+    indexes = np.array(indexes)
+    unique_indexes = np.unique(indexes)
+    success = len(unique_indexes) >= 0.98 * n_points
+    # Checks the time spent
+    dt = 10e-3
+    time_spent = len(indexes) * dt
+    return success, time_spent
 
 
-# n_points = 5000
-# r, b, d = 2.5, 1, 0.2
-# curve = precomputed_hd(hd, n_points, r, b, d)
-# curve_derivative = precomputed_hd(hd_derivative, n_points, r, b, d)
-#
-# path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
-# # Get all pickle files in the path
-# files = [f for f in os.listdir(path) if f.endswith('.pkl')]
-#
-# stats = {}
+path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
+# Get all pickle files in the path
+files = [f for f in os.listdir(path) if f.endswith('.pkl')]
+pos_std_opts = sorted(list(set(re.findall(r"pos_(\d+\.\d+)_", "\n".join(files)))))
+ori_std_opts = sorted(list(set(re.findall(r"ori_(\d+\.\d+)_", "\n".join(files)))))
+all_combinations = [(p, ori_std_opts[i]) for i, p in enumerate(pos_std_opts)]
+
+stats_by_pair = {}
+for pos_std, ori_std in all_combinations:
+    pair_files = [f for f in files if f.startswith(f"pos_{pos_std}_ori_{ori_std}")]
+    pos_means, pos_stds, pos_mins, pos_maxs = [], [], [], []
+    ori_means, ori_stds, ori_mins, ori_maxs = [], [], [], []
+    time_traversal = []
+    fails_convergence, fails_traversal = 0, 0
+    for file in pair_files:
+        with open(os.path.join(path, file), 'rb') as file_:
+            data = pickle.load(file_)
+        pos_err = np.array(data["true_pos_error"]) * 100
+        ori_err = np.rad2deg(np.array(data["true_ori_error"]))
+        true_distance = data["true_distance"]
+        stable_index = get_stable_index(true_distance, threshold=0.7, window_size=30)
+        if stable_index == -1:
+            print(f"File {file} did not stabilize.")
+            fails_convergence += 1
+        else:
+            pos_means.append(np.mean(pos_err[stable_index:]))
+            pos_stds.append(np.std(pos_err[stable_index:]))
+            pos_mins.append(np.min(pos_err[stable_index:]))
+            pos_maxs.append(np.max(pos_err[stable_index:]))
+            ori_means.append(np.mean(ori_err[stable_index:]))
+            ori_stds.append(np.std(ori_err[stable_index:]))
+            ori_mins.append(np.min(ori_err[stable_index:]))
+            ori_maxs.append(np.max(ori_err[stable_index:]))
+            nearest_indexes = data["true_nearest_indexes"][stable_index:]
+            success_flag, time_spent = check_traversal(nearest_indexes, 500)
+            success = data["traversed"][-1]
+            if not success:
+                print(f"File {file} did not traverse the whole curve.")
+                fails_traversal += 1
+
+            else:
+                time_traversal.append(time_spent)
+
+    stats_by_pair[f"{pos_std}_{ori_std}"] = {
+        "mean_avg_pos_err": np.mean(pos_means),
+        "mean_std_pos_err": np.mean(pos_stds),
+        "mean_min_pos_err": np.mean(pos_mins),
+        "mean_max_pos_err": np.mean(pos_maxs),
+        "std_avg_pos_err": np.std(pos_means),
+        "std_std_pos_err": np.std(pos_stds),
+        "std_min_pos_err": np.std(pos_mins),
+        "std_max_pos_err": np.std(pos_maxs),
+        "mean_avg_ori_err": np.mean(ori_means),
+        "mean_std_ori_err": np.mean(ori_stds),
+        "mean_min_ori_err": np.mean(ori_mins),
+        "mean_max_ori_err": np.mean(ori_maxs),
+        "std_avg_ori_err": np.std(ori_means),
+        "std_std_ori_err": np.std(ori_stds),
+        "std_min_ori_err": np.std(ori_mins),
+        "std_max_ori_err": np.std(ori_maxs),
+        "mean_time_traversal": np.mean(time_traversal),
+        "std_time_traversal": np.std(time_traversal),
+        "min_time_traversal": np.min(time_traversal) if time_traversal else None,
+        "max_time_traversal": np.max(time_traversal) if time_traversal else None,
+        "all_avg_pos_errs": pos_means,
+        "all_avg_ori_errs": ori_means,
+        "fails_convergence": fails_convergence,
+        "fails_traversal": fails_traversal,
+        }
+
+# with open(os.path.join(path, 'summary_stats.pkl'), 'wb') as file:
+#     pickle.dump(stats_by_pair, file)
+
+df = pd.DataFrame.from_dict(stats_by_pair)
+
+ix = 8
+df[[pos_std_opts[ix] + '_' + ori_std_opts[ix]]]
+
+# df[["pos_std", "ori_std", "mean_avg_pos_err", "std_avg_pos_err"]]
+
+# Split into position df and orientation df
+# pos_df = df.T[["mean_avg_pos_err", "std_avg_pos_err", "mean_min_pos_err", "mean_max_pos_err", "fails"]]
+# pos_df
+# ori_df = df.T[["mean_avg_ori_err", "std_avg_ori_err", "mean_min_ori_err", "mean_max_ori_err", "fails"]]
+# ori_df
+
+for val in ("pos", "ori"):
+    print(f"Results for {val} error:")
+    result_table = pd.DataFrame(index=ori_std_opts, columns=pos_std_opts)
+
+    # Fill the result table
+    for pos_std in pos_std_opts:
+        for ori_std in ori_std_opts:
+            col_name = f"{pos_std}_{ori_std}"
+            value = df[col_name].loc[f'mean_avg_{val}_err']
+            result_table.loc[ori_std, pos_std] = np.round(value, 2)
+
+    result_table.index = result_table.index.astype(float).round(2)
+    result_table.columns = result_table.columns.astype(float).round(2)
+    print(result_table)
+
+#%%
+# Get subdf with all columns and only "all_avg_pos_errs" and "all_avg_ori_errs"
+pos_df = df.T[["all_avg_pos_errs"]]
+ori_df = df.T[["all_avg_ori_errs"]]
+# Create boxplot using plotly
+fig = px.box(pos_df, points="all", y="all_avg_pos_errs", title="Position error distribution for all parameter combinations", labels={"index": "Parameter combination (pos_std, ori_std)", "all_avg_pos_errs": "Position error (cm)"})
+fig.show()
+
+#%%
+import plotly.express as px
+import plotly.io as pio
+import pandas as pd
+import webbrowser
+import tempfile
+import os
+
+def plot_heatmap_in_browser(dataframe, title="Mean Avg Pos Error"):
+    """
+    Plots a heatmap using Plotly and opens it in the default web browser.
+
+    Parameters:
+    - dataframe: A pandas DataFrame with numeric row and column labels and values.
+    - title: Title for the plot.
+    """
+    # Reset index to get ori_std as a column for plotly
+    df_plot = dataframe.copy()
+    df_plot['ori_std'] = df_plot.index
+    df_melted = df_plot.melt(id_vars='ori_std', var_name='pos_std', value_name='mean_avg_pos_err')
+
+    # Create heatmap
+    fig = px.density_heatmap(
+        df_melted,
+        x="pos_std",
+        y="ori_std",
+        z="mean_avg_pos_err",
+        color_continuous_scale="Viridis",
+        text_auto=True,
+        title=title
+    )
+
+    # Improve layout
+    fig.update_layout(
+        xaxis_title="pos_std",
+        yaxis_title="ori_std",
+        title_x=0.5,
+        width=1200,
+        height=800,
+    )
+
+    # Save to a temporary HTML file and open in browser
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmpfile:
+        tmp_path = tmpfile.name
+        pio.write_html(fig, file=tmp_path, auto_open=False)
+        webbrowser.open("file://" + os.path.realpath(tmp_path))
+
+plot_heatmap_in_browser(result_table, title="Mean Avg Pos Error")
+#%%
+# Get files per combination (pos_std, ori_std)
+
 # for f in files:
 #     with open(os.path.join(path, f), 'rb') as file:
 #         pos_std = re.findall(r'pos_(\d+\.\d+)', f)
@@ -556,15 +452,15 @@ def get_average_stable_errors(p_hist, R_hist, curve, threshold=0.7, n_stable=30)
 #             'avg_pos_err': avg_pos_err,
 #             'avg_ori_err': avg_ori_err,
 #         }
-# # Create df and order by index
-# df = pd.DataFrame.from_dict(stats, orient='index')
-# df
-# # Plot distances of each file
-# # fig = go.Figure()
-# # for i, dist in enumerate(average_dists):
-# #     fig.add_trace(go.Scatter(y=dist, mode='lines+markers', name=f'Run {i+1}'))
-# # fig.show()
-# # print(average_dists)
+# Create df and order by index
+df = pd.DataFrame.from_dict(stats, orient='index')
+df
+# Plot distances of each file
+# fig = go.Figure()
+# for i, dist in enumerate(average_dists):
+#     fig.add_trace(go.Scatter(y=dist, mode='lines+markers', name=f'Run {i+1}'))
+# fig.show()
+# print(average_dists)
 
 path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/gibberish.pkl"
 with open(path, 'rb') as file:
@@ -599,8 +495,8 @@ np.min(pos_err[int(len(pos_err) * 0.4):]*100)
 np.median(pos_err[int(len(pos_err) * 0.4):]*100)
 sp.stats.kurtosis(pos_err[int(len(pos_err) * 0.4):]*100)
 # np.mean(df.iloc[0]['all_avg_pos_errs'])
-# fig = vector_field_plot(p_hist, v_hist, R_hist, curve_pos, num_arrows=0, init_ball=0, final_ball=len(p_hist)-1, num_balls=20, add_lineplot=False, show_curve=True, ball_size=3, frame_scale=0.1)
-# fig.show()
+fig = vector_field_plot(p_hist, v_hist, R_hist, curve_pos, num_arrows=0, init_ball=0, final_ball=len(p_hist)-1, num_balls=20, add_lineplot=False, show_curve=True, ball_size=3, frame_scale=0.1)
+fig.show()
 # go.Figure(go.Scatter(y=data['dist_hist'].ravel(), mode='lines')).show()
 
 

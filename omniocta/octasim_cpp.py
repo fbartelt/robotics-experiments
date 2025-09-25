@@ -395,7 +395,7 @@ motor_tau = 0.1  # time constant of the motor dynamics
 dt = 1e-3
 dt = 10 * dt
 # dt = 0.0025
-T = 250 * 4
+T = 3000
 # T = 250
 imax = int(T / dt)
 
@@ -560,13 +560,12 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
     true_pos_error = np.array([z.true_pos_error for z in log])
     true_ori_error = np.array([z.true_angle_error for z in log])
     true_nearest_indexes = np.array([z.true_nearest_index for z in log])
+    traversed = np.array([z.traversed for z in log])
     # Save logs as pickle file
     if save_file:
         file_name = f"pos_{pos_std}_ori_{ori_std}_seed_{seed}.pkl"
         file_path = pathlib.Path(__file__).parent.resolve()
-        file_path = (
-            "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
-        )
+        file_path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
         file_path = os.path.join(file_path, file_name)
         with open(file_path, "wb") as f:
             pickle.dump(
@@ -589,6 +588,7 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
                     "true_pos_error": true_pos_error,
                     "true_ori_error": true_ori_error,
                     "true_nearest_indexes": true_nearest_indexes,
+                    "traversed": traversed,
                 },
                 f,
                 protocol=pickle.HIGHEST_PROTOCOL,
@@ -612,6 +612,7 @@ def sim_single(pos_std, ori_std, seed, save_file=False):
             "true_pos_error": true_pos_error,
             "true_ori_error": true_ori_error,
             "true_nearest_indexes": true_nearest_indexes,
+            "traversed": traversed,
         }
         return return_dict
     # curve = curve_orig.copy()
@@ -659,14 +660,16 @@ def process_single_file(file_info, path, curve):
 
 def grid_search(pos_std_list, ori_std_list, num_runs=20):
     # Create all parameter combinations with multiple seeds
+    pos_std_list = sorted(pos_std_list)
+    ori_std_list = sorted(ori_std_list)
     param_combinations = []
-    for pos_std in pos_std_list:
-        for ori_std in ori_std_list:
-            for i, run in enumerate(range(num_runs)):
+    for j, pos_std in enumerate(pos_std_list):
+        for i, run in enumerate(range(num_runs)):
                 # seed = hash(f"{pos_std}_{ori_std}_{run}") % (
                 # 2**32
                 # )  # Create a unique seed
                 seed = i
+                ori_std = ori_std_list[j]
                 param_combinations.append((pos_std, ori_std, seed, True))
     # param_combinations = [
     #     (pos_std, ori_std) for pos_std in pos_std_list for ori_std in ori_std_list
@@ -707,7 +710,7 @@ def grid_search_analysis(pos_std_list, ori_std_list):
     num_cores = mp.cpu_count()
     checkpoint_file = "grid_search_checkpoint.pkl"
     backup_file = "grid_search_checkpoint.pkl.bak"
-    path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
+    path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
     file_name = "grid_search_results.pkl"
     file_path = os.path.join(path, file_name)
     # Get all pickle files in the path
@@ -784,283 +787,284 @@ def grid_search_analysis(pos_std_list, ori_std_list):
     print("Grid search completed and results saved to grid_search_results.pkl")
 
 
-pos_std_list = np.linspace(0, 0.1, 5)
-ori_std_list = np.linspace(0, 0.1, 5)
-# grid_search(pos_std_list, ori_std_list, num_runs=30)
+# pos_std_list = np.linspace(0, 1.0, 10)
+pos_std_list = np.linspace(0, 0.5, 20)
+ori_std_list = np.linspace(0, 0.1, 20)
+grid_search(pos_std_list, ori_std_list, num_runs=20)
 # grid_search_analysis(pos_std_list, ori_std_list)
 
 # %%
-log_dict = sim_single(0.6, 0.0, seed=10, save_file=False)
-curve = np.array(curve_orig.copy())
-p_hist = log_dict["p_hist"]
-R_hist = log_dict["R_hist"]
-v_hist = log_dict["v_hist"]
-u_hist = log_dict["u_hist"]
-dist_hist = log_dict["dist_hist"]
-nearest_indexes = log_dict["nearest_indexes"]
-nearest_htms = [curve_orig[i] for i in nearest_indexes]
-xi_d_hist = log_dict["xi_d_hist"]
-u_d_hist = log_dict["u_d_hist"]
-w_d_hist = log_dict["w_d_hist"]
-p_noisy_hist = log_dict["p_noisy_hist"]
-R_noisy_hist = log_dict["R_noisy_hist"]
-print(np.linalg.norm(p_hist - p_noisy_hist, axis=1).mean())
-
-# print("AAAA")
-# print(A @ np.linalg.pinv(A))
-# print(A @ np.array([-0.00000,  2.32703,  3.21962,  0.00000,  0.00000,  3.80230,  3.28829,  0.00000]).reshape(-1,1))
-# print(A)
+# log_dict = sim_single(0.6, 0.0, seed=10, save_file=False)
+# curve = np.array(curve_orig.copy())
+# p_hist = log_dict["p_hist"]
+# R_hist = log_dict["R_hist"]
+# v_hist = log_dict["v_hist"]
+# u_hist = log_dict["u_hist"]
+# dist_hist = log_dict["dist_hist"]
+# nearest_indexes = log_dict["nearest_indexes"]
+# nearest_htms = [curve_orig[i] for i in nearest_indexes]
+# xi_d_hist = log_dict["xi_d_hist"]
+# u_d_hist = log_dict["u_d_hist"]
+# w_d_hist = log_dict["w_d_hist"]
+# p_noisy_hist = log_dict["p_noisy_hist"]
+# R_noisy_hist = log_dict["R_noisy_hist"]
+# print(np.linalg.norm(p_hist - p_noisy_hist, axis=1).mean())
 #
-# print(u_max)
-
-
-def nvim_plot():
-    final_index = int(len(nearest_indexes)) - 1
-    fig = vector_field_plot(
-        p_hist,
-        v_hist,
-        R_hist,
-        curve[:, :3, 3],
-        num_arrows=20,
-        init_ball=0,
-        final_ball=final_index,
-        num_balls=20,
-        add_lineplot=False,
-        colorscale=None,
-        show_curve=True,
-        ball_size=3,
-        curve_width=2,
-        path_width=5,
-        frame_scale=0.05,
-        frame_width=2,
-        curr_path_style="solid",
-        prev_path_style="dash",
-        sizemode="absolute",
-        sizeref=3e-2,
-        anchor="tail",
-    )
-    fig.update_layout(showlegend=False)
-    fig.show()
-
-    # Plot every component of the control input u
-    fig = go.Figure()
-    time_vec = np.arange(0, len(u_hist) * dt, dt)
-    for i in range(n):
-        fig.add_trace(
-            go.Scatter(
-                x=time_vec,
-                y=[u_hist[j][i, 0] for j in range(len(u_hist))],
-                name=f"u_{i+1}",
-                line=dict(width=3),
-            )
-        )
-    fig.update_xaxes(title_text="Time (s)", gridcolor="gray", zerolinecolor="gray")
-    fig.update_yaxes(
-        title_text="Control inputs (RPM^2)", gridcolor="gray", zerolinecolor="gray"
-    )
-    fig.show()
-    # Plot Distance + position/angle error
-    ori_errs = []
-    pos_errs = []
-    states = [pose2htm(p_hist[i, :], R_hist[i, :, :]) for i in range(final_index)]
-    # Compute the distance, position error, and orientation error
-    for closest_point, state in zip(nearest_htms, states):
-        p_near = closest_point[:3, 3].ravel()
-        ori_near = closest_point[:3, :3]
-        p_curr = state[:3, 3].ravel()
-        ori_curr = state[:3, :3]
-        pos_errs.append(np.linalg.norm(p_near - p_curr) * 100)
-        trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
-        acos = np.arccos((trace_ - 1) / 2)
-        # checks if acos is nan
-        if np.isnan(acos):
-            acos = 0
-        ori_errs.append(acos * 180 / np.pi)
-
-    # Create a figure with three plots, one above another. First the distance,
-    # then position error, and the orientation error
-    time_vec = np.arange(0, len(pos_errs) * dt, dt)
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.02)
-    fig.add_trace(
-        go.Scatter(x=time_vec, y=dist_hist[:, 0], showlegend=False, line=dict(width=3)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=time_vec, y=pos_errs, showlegend=False, line=dict(width=3)),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=time_vec, y=ori_errs, showlegend=False, line=dict(width=3)),
-        row=3,
-        col=1,
-    )
-    fig.update_xaxes(
-        title_text="Time (s)", gridcolor="gray", zerolinecolor="gray", row=3, col=1
-    )
-    fig.update_xaxes(
-        title_text="", gridcolor="gray", zerolinecolor="gray", row=1, col=1
-    )
-    fig.update_xaxes(
-        title_text="", gridcolor="gray", zerolinecolor="gray", row=2, col=1
-    )
-    fig.update_yaxes(
-        title_text="Distance D",
-        gridcolor="gray",
-        zerolinecolor="gray",
-        row=1,
-        col=1,
-        title_standoff=30,
-    )
-    fig.update_yaxes(
-        title_text="Pos. error (cm)",
-        gridcolor="gray",
-        zerolinecolor="gray",
-        row=2,
-        col=1,
-        title_standoff=30,
-    )
-    fig.update_yaxes(
-        title_text="Ori. error (deg)",
-        gridcolor="gray",
-        zerolinecolor="gray",
-        row=3,
-        col=1,
-        title_standoff=30,
-    )
-    fig.update_layout(width=718.110, height=605.9155)
-    fig.show()
-
-
-nvim_plot()
-
-true_pos_err = log_dict["true_pos_error"]
-go.Figure(go.Scatter(y=log_dict["true_distance"], mode="lines")).show()
-go.Figure(go.Scatter(y=100*true_pos_err, mode="lines")).show()
-go.Figure(go.Scatter(y=np.rad2deg(log_dict["true_ori_error"]), mode="lines")).show()
-print(log_dict.keys())
-
-# %%
-def progress_bar(i, imax):
-    """Prints a progress bar in the terminal."""
-    bar_len = 60
-    filled_len = int(round(bar_len * i / float(imax)))
-
-    percents = round(100.0 * i / float(imax), 1)
-    bar = "=" * filled_len + "-" * (bar_len - filled_len)
-
-    print(f"[{bar}] {percents}%\r", end="")
-    if i == imax:
-        print()
-
-
-def get_average_stable_errors2(p_hist, R_hist, curve, threshold=0.7, n_stable=30):
-    average_dist, average_pos_err, average_ori_err = -1, -1, -1
-    dist_hist, pos_err_hist, ori_err_hist = [], [], []
-    imax = len(p_hist)
-    for i in range(imax):
-        progress_bar(i, imax)
-        p = p_hist[i, :].ravel()
-        R = R_hist[i, :, :]
-        # p = np.array(p_hist[i]).reshape(3, 1)
-        # R = np.array(R_hist[i]).reshape(3, 3)
-        htm = pose2htm(p, R)
-
-        dist, idx = ECdistance(htm, curve)
-        dist_hist.append(dist)
-        closest_point = curve[idx]
-        p_near = closest_point[:3, 3].ravel()
-        ori_near = closest_point[:3, :3]
-        p_curr = p.copy()
-        ori_curr = R.copy()
-        pos_err_hist.append(np.linalg.norm(p_near - p_curr) * 100)
-        trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
-        acos = np.arccos((trace_ - 1) / 2)
-        # checks if acos is nan
-        if np.isnan(acos):
-            acos = 0
-        ori_err_hist.append(acos * 180 / np.pi)
-    # Get index where average of last 30 samples is below 0.7
-    dist_hist = np.array(dist_hist)
-    pos_err_hist = np.array(pos_err_hist)
-    ori_err_hist = np.array(ori_err_hist)
-    converge_idx = -1
-    for i in range(len(dist_hist) - n_stable):
-        if np.mean(dist_hist[i : i + n_stable]) < threshold:
-            converge_idx = i
-            break
-    if converge_idx == -1:
-        print("Did not converge in ")
-    else:
-        print(converge_idx)
-        average_dist = np.mean(dist_hist[converge_idx:])
-        average_pos_err = np.mean(pos_err_hist[converge_idx:])
-        average_ori_err = np.mean(ori_err_hist[converge_idx:])
-
-    return (
-        average_dist,
-        average_pos_err,
-        average_ori_err,
-        dist_hist,
-        pos_err_hist,
-        ori_err_hist,
-    )
-
-
-mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = (
-    get_average_stable_errors2(p_hist, R_hist, curve)
-)
-
-
-def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        subplot_titles=(
-            "Distance to curve",
-            "Position error (cm)",
-            "Orientation error (deg)",
-        ),
-    )
-    xvec = np.arange(len(dist_hist)) * 10e-3
-    fig.add_trace(
-        go.Scatter(
-            y=dist_hist,
-            mode="lines",
-            name="Distance to curve",
-            line=dict(color="blue"),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            y=pos_err_hist,
-            mode="lines",
-            name="Position error (cm)",
-            line=dict(color="orange"),
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            y=ori_err_hist,
-            mode="lines",
-            name="Orientation error (deg)",
-            line=dict(color="green"),
-        ),
-        row=3,
-        col=1,
-    )
-
-    return fig
-
-
-fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
-fig.show()
-
-
-# print(log[100].xi_d, log[100].v, log[100].omega)
+# # print("AAAA")
+# # print(A @ np.linalg.pinv(A))
+# # print(A @ np.array([-0.00000,  2.32703,  3.21962,  0.00000,  0.00000,  3.80230,  3.28829,  0.00000]).reshape(-1,1))
+# # print(A)
+# #
+# # print(u_max)
+#
+#
+# def nvim_plot():
+#     final_index = int(len(nearest_indexes)) - 1
+#     fig = vector_field_plot(
+#         p_hist,
+#         v_hist,
+#         R_hist,
+#         curve[:, :3, 3],
+#         num_arrows=20,
+#         init_ball=0,
+#         final_ball=final_index,
+#         num_balls=20,
+#         add_lineplot=False,
+#         colorscale=None,
+#         show_curve=True,
+#         ball_size=3,
+#         curve_width=2,
+#         path_width=5,
+#         frame_scale=0.05,
+#         frame_width=2,
+#         curr_path_style="solid",
+#         prev_path_style="dash",
+#         sizemode="absolute",
+#         sizeref=3e-2,
+#         anchor="tail",
+#     )
+#     fig.update_layout(showlegend=False)
+#     fig.show()
+#
+#     # Plot every component of the control input u
+#     fig = go.Figure()
+#     time_vec = np.arange(0, len(u_hist) * dt, dt)
+#     for i in range(n):
+#         fig.add_trace(
+#             go.Scatter(
+#                 x=time_vec,
+#                 y=[u_hist[j][i, 0] for j in range(len(u_hist))],
+#                 name=f"u_{i+1}",
+#                 line=dict(width=3),
+#             )
+#         )
+#     fig.update_xaxes(title_text="Time (s)", gridcolor="gray", zerolinecolor="gray")
+#     fig.update_yaxes(
+#         title_text="Control inputs (RPM^2)", gridcolor="gray", zerolinecolor="gray"
+#     )
+#     fig.show()
+#     # Plot Distance + position/angle error
+#     ori_errs = []
+#     pos_errs = []
+#     states = [pose2htm(p_hist[i, :], R_hist[i, :, :]) for i in range(final_index)]
+#     # Compute the distance, position error, and orientation error
+#     for closest_point, state in zip(nearest_htms, states):
+#         p_near = closest_point[:3, 3].ravel()
+#         ori_near = closest_point[:3, :3]
+#         p_curr = state[:3, 3].ravel()
+#         ori_curr = state[:3, :3]
+#         pos_errs.append(np.linalg.norm(p_near - p_curr) * 100)
+#         trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
+#         acos = np.arccos((trace_ - 1) / 2)
+#         # checks if acos is nan
+#         if np.isnan(acos):
+#             acos = 0
+#         ori_errs.append(acos * 180 / np.pi)
+#
+#     # Create a figure with three plots, one above another. First the distance,
+#     # then position error, and the orientation error
+#     time_vec = np.arange(0, len(pos_errs) * dt, dt)
+#     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.02)
+#     fig.add_trace(
+#         go.Scatter(x=time_vec, y=dist_hist[:, 0], showlegend=False, line=dict(width=3)),
+#         row=1,
+#         col=1,
+#     )
+#     fig.add_trace(
+#         go.Scatter(x=time_vec, y=pos_errs, showlegend=False, line=dict(width=3)),
+#         row=2,
+#         col=1,
+#     )
+#     fig.add_trace(
+#         go.Scatter(x=time_vec, y=ori_errs, showlegend=False, line=dict(width=3)),
+#         row=3,
+#         col=1,
+#     )
+#     fig.update_xaxes(
+#         title_text="Time (s)", gridcolor="gray", zerolinecolor="gray", row=3, col=1
+#     )
+#     fig.update_xaxes(
+#         title_text="", gridcolor="gray", zerolinecolor="gray", row=1, col=1
+#     )
+#     fig.update_xaxes(
+#         title_text="", gridcolor="gray", zerolinecolor="gray", row=2, col=1
+#     )
+#     fig.update_yaxes(
+#         title_text="Distance D",
+#         gridcolor="gray",
+#         zerolinecolor="gray",
+#         row=1,
+#         col=1,
+#         title_standoff=30,
+#     )
+#     fig.update_yaxes(
+#         title_text="Pos. error (cm)",
+#         gridcolor="gray",
+#         zerolinecolor="gray",
+#         row=2,
+#         col=1,
+#         title_standoff=30,
+#     )
+#     fig.update_yaxes(
+#         title_text="Ori. error (deg)",
+#         gridcolor="gray",
+#         zerolinecolor="gray",
+#         row=3,
+#         col=1,
+#         title_standoff=30,
+#     )
+#     fig.update_layout(width=718.110, height=605.9155)
+#     fig.show()
+#
+#
+# nvim_plot()
+#
+# true_pos_err = log_dict["true_pos_error"]
+# go.Figure(go.Scatter(y=log_dict["true_distance"], mode="lines")).show()
+# go.Figure(go.Scatter(y=100*true_pos_err, mode="lines")).show()
+# go.Figure(go.Scatter(y=np.rad2deg(log_dict["true_ori_error"]), mode="lines")).show()
+# print(log_dict.keys())
+#
+# # %%
+# def progress_bar(i, imax):
+#     """Prints a progress bar in the terminal."""
+#     bar_len = 60
+#     filled_len = int(round(bar_len * i / float(imax)))
+#
+#     percents = round(100.0 * i / float(imax), 1)
+#     bar = "=" * filled_len + "-" * (bar_len - filled_len)
+#
+#     print(f"[{bar}] {percents}%\r", end="")
+#     if i == imax:
+#         print()
+#
+#
+# def get_average_stable_errors2(p_hist, R_hist, curve, threshold=0.7, n_stable=30):
+#     average_dist, average_pos_err, average_ori_err = -1, -1, -1
+#     dist_hist, pos_err_hist, ori_err_hist = [], [], []
+#     imax = len(p_hist)
+#     for i in range(imax):
+#         progress_bar(i, imax)
+#         p = p_hist[i, :].ravel()
+#         R = R_hist[i, :, :]
+#         # p = np.array(p_hist[i]).reshape(3, 1)
+#         # R = np.array(R_hist[i]).reshape(3, 3)
+#         htm = pose2htm(p, R)
+#
+#         dist, idx = ECdistance(htm, curve)
+#         dist_hist.append(dist)
+#         closest_point = curve[idx]
+#         p_near = closest_point[:3, 3].ravel()
+#         ori_near = closest_point[:3, :3]
+#         p_curr = p.copy()
+#         ori_curr = R.copy()
+#         pos_err_hist.append(np.linalg.norm(p_near - p_curr) * 100)
+#         trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
+#         acos = np.arccos((trace_ - 1) / 2)
+#         # checks if acos is nan
+#         if np.isnan(acos):
+#             acos = 0
+#         ori_err_hist.append(acos * 180 / np.pi)
+#     # Get index where average of last 30 samples is below 0.7
+#     dist_hist = np.array(dist_hist)
+#     pos_err_hist = np.array(pos_err_hist)
+#     ori_err_hist = np.array(ori_err_hist)
+#     converge_idx = -1
+#     for i in range(len(dist_hist) - n_stable):
+#         if np.mean(dist_hist[i : i + n_stable]) < threshold:
+#             converge_idx = i
+#             break
+#     if converge_idx == -1:
+#         print("Did not converge in ")
+#     else:
+#         print(converge_idx)
+#         average_dist = np.mean(dist_hist[converge_idx:])
+#         average_pos_err = np.mean(pos_err_hist[converge_idx:])
+#         average_ori_err = np.mean(ori_err_hist[converge_idx:])
+#
+#     return (
+#         average_dist,
+#         average_pos_err,
+#         average_ori_err,
+#         dist_hist,
+#         pos_err_hist,
+#         ori_err_hist,
+#     )
+#
+#
+# mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = (
+#     get_average_stable_errors2(p_hist, R_hist, curve)
+# )
+#
+#
+# def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
+#     fig = make_subplots(
+#         rows=3,
+#         cols=1,
+#         shared_xaxes=True,
+#         subplot_titles=(
+#             "Distance to curve",
+#             "Position error (cm)",
+#             "Orientation error (deg)",
+#         ),
+#     )
+#     xvec = np.arange(len(dist_hist)) * 10e-3
+#     fig.add_trace(
+#         go.Scatter(
+#             y=dist_hist,
+#             mode="lines",
+#             name="Distance to curve",
+#             line=dict(color="blue"),
+#         ),
+#         row=1,
+#         col=1,
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             y=pos_err_hist,
+#             mode="lines",
+#             name="Position error (cm)",
+#             line=dict(color="orange"),
+#         ),
+#         row=2,
+#         col=1,
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             y=ori_err_hist,
+#             mode="lines",
+#             name="Orientation error (deg)",
+#             line=dict(color="green"),
+#         ),
+#         row=3,
+#         col=1,
+#     )
+#
+#     return fig
+#
+#
+# fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
+# fig.show()
+#
+#
+# # print(log[100].xi_d, log[100].v, log[100].omega)
