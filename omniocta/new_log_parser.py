@@ -285,10 +285,12 @@ ori_std_opts = sorted(list(set(re.findall(r"ori_(\d+\.\d+)_", "\n".join(files)))
 all_combinations = [(p, ori_std_opts[i]) for i, p in enumerate(pos_std_opts)]
 
 stats_by_pair = {}
-for pos_std, ori_std in all_combinations:
+for i, (pos_std, ori_std) in enumerate(all_combinations):
+    progress_bar(i, len(all_combinations))
     pair_files = [f for f in files if f.startswith(f"pos_{pos_std}_ori_{ori_std}")]
     pos_means, pos_stds, pos_mins, pos_maxs = [], [], [], []
     ori_means, ori_stds, ori_mins, ori_maxs = [], [], [], []
+    dist_means, dist_stds, dist_mins, dist_maxs = [], [], [], []
     time_traversal = []
     fails_convergence, fails_traversal = 0, 0
     for file in pair_files:
@@ -310,6 +312,10 @@ for pos_std, ori_std in all_combinations:
             ori_stds.append(np.std(ori_err[stable_index:]))
             ori_mins.append(np.min(ori_err[stable_index:]))
             ori_maxs.append(np.max(ori_err[stable_index:]))
+            dist_means.append(np.mean(true_distance[stable_index:]))
+            dist_stds.append(np.std(true_distance[stable_index:]))
+            dist_mins.append(np.min(true_distance[stable_index:]))
+            dist_maxs.append(np.max(true_distance[stable_index:]))
             nearest_indexes = data["true_nearest_indexes"][stable_index:]
             success_flag, time_spent = check_traversal(nearest_indexes, 500)
             success = data["traversed"][-1]
@@ -337,19 +343,27 @@ for pos_std, ori_std in all_combinations:
         "std_std_ori_err": np.std(ori_stds),
         "std_min_ori_err": np.std(ori_mins),
         "std_max_ori_err": np.std(ori_maxs),
+        "mean_avg_dist": np.mean(dist_means),
+        "mean_std_dist": np.mean(dist_stds),
+        "mean_min_dist": np.mean(dist_mins),
+        "mean_max_dist": np.mean(dist_maxs),
         "mean_time_traversal": np.mean(time_traversal),
         "std_time_traversal": np.std(time_traversal),
         "min_time_traversal": np.min(time_traversal) if time_traversal else None,
         "max_time_traversal": np.max(time_traversal) if time_traversal else None,
         "all_avg_pos_errs": pos_means,
         "all_avg_ori_errs": ori_means,
+        "all_avg_dist": dist_means,
         "fails_convergence": fails_convergence,
         "fails_traversal": fails_traversal,
         }
 
-# with open(os.path.join(path, 'summary_stats.pkl'), 'wb') as file:
-#     pickle.dump(stats_by_pair, file)
+with open(os.path.join(path, 'summary_stats2.pkl'), 'wb') as file:
+    pickle.dump(stats_by_pair, file)
 
+print("Done processing all files.")
+
+# %%
 df = pd.DataFrame.from_dict(stats_by_pair)
 
 ix = 8
