@@ -232,18 +232,18 @@ def vector_field_plot(
     return fig
 
 
-
 def progress_bar(i, imax):
     """Prints a progress bar in the terminal."""
     bar_len = 60
     filled_len = int(round(bar_len * i / float(imax)))
 
     percents = round(100.0 * i / float(imax), 1)
-    bar = '=' * filled_len + '-' * (bar_len - filled_len)
+    bar = "=" * filled_len + "-" * (bar_len - filled_len)
 
-    print(f'[{bar}] {percents}%\r', end='')
+    print(f"[{bar}] {percents}%\r", end="")
     if i == imax:
         print()
+
 
 def pose2htm(p, R):
     """Homogeneous transformation matrix from position and rotation."""
@@ -253,14 +253,16 @@ def pose2htm(p, R):
     htm[0:3, 3] = p.ravel()
     return htm
 
+
 def get_stable_index(distances, threshold=0.7, window_size=30):
     """Get the index where the distance to the curve is stable, i.e. the
     average of the last 30 samples is below the threshold.
     """
     for i in range(len(distances) - window_size):
-        if np.mean(distances[i:i+window_size]) < threshold:
+        if np.mean(distances[i : i + window_size]) < threshold:
             return i
     return -1
+
 
 def check_traversal(indexes, n_points):
     """Check if the system traversed the whole curve. Returns True if the
@@ -278,9 +280,10 @@ def check_traversal(indexes, n_points):
 
 #%%
 
+# %%
 path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
 # Get all pickle files in the path
-files = [f for f in os.listdir(path) if f.endswith('.pkl')]
+files = [f for f in os.listdir(path) if f.endswith(".pkl")]
 pos_std_opts = sorted(list(set(re.findall(r"pos_(\d+\.\d+)_", "\n".join(files)))))
 ori_std_opts = sorted(list(set(re.findall(r"ori_(\d+\.\d+)_", "\n".join(files)))))
 all_combinations = [(p, ori_std_opts[i]) for i, p in enumerate(pos_std_opts)]
@@ -295,7 +298,7 @@ for i, (pos_std, ori_std) in enumerate(all_combinations):
     time_traversal = []
     fails_convergence, fails_traversal = 0, 0
     for file in pair_files:
-        with open(os.path.join(path, file), 'rb') as file_:
+        with open(os.path.join(path, file), "rb") as file_:
             data = pickle.load(file_)
         pos_err = np.array(data["true_pos_error"]) * 100
         ori_err = np.rad2deg(np.array(data["true_ori_error"]))
@@ -357,18 +360,15 @@ for i, (pos_std, ori_std) in enumerate(all_combinations):
         "all_avg_dist": dist_means,
         "fails_convergence": fails_convergence,
         "fails_traversal": fails_traversal,
-        }
+    }
 
-with open(os.path.join(path, 'summary_stats2.pkl'), 'wb') as file:
-    pickle.dump(stats_by_pair, file)
-
-print("Done processing all files.")
-
-# %%
+# with open(os.path.join(path, 'summary_stats.pkl'), 'wb') as file:
+#     pickle.dump(stats_by_pair, file)
+#
 df = pd.DataFrame.from_dict(stats_by_pair)
 
 ix = 8
-df[[pos_std_opts[ix] + '_' + ori_std_opts[ix]]]
+df[[pos_std_opts[ix] + "_" + ori_std_opts[ix]]]
 
 # df[["pos_std", "ori_std", "mean_avg_pos_err", "std_avg_pos_err"]]
 
@@ -386,28 +386,257 @@ for val in ("pos", "ori"):
     for pos_std in pos_std_opts:
         for ori_std in ori_std_opts:
             col_name = f"{pos_std}_{ori_std}"
-            value = df[col_name].loc[f'mean_avg_{val}_err']
+            value = df[col_name].loc[f"mean_avg_{val}_err"]
             result_table.loc[ori_std, pos_std] = np.round(value, 2)
 
     result_table.index = result_table.index.astype(float).round(2)
     result_table.columns = result_table.columns.astype(float).round(2)
     print(result_table)
 
-#%%
+# %%
+"""LOCAL COMPUTER GRAPHICS """
 # Get subdf with all columns and only "all_avg_pos_errs" and "all_avg_ori_errs"
+path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/"
+
+with open(os.path.join(path, "summary_stats2.pkl"), "rb") as file:
+    data = pickle.load(file)
+
+df = pd.DataFrame.from_dict(data)
+# Drop columns where fails_traversal > 1
+df = df.T[df.T["fails_traversal"] <= 1]
+df = df.T
+# Convert all_avg_dist to numpy array
+# df.T["all_avg_dist"] = df.T["all_avg_dist"].apply(lambda x: np.array(x))
+# print(df.T["all_avg_dist"][0])
+# Add column std_avg_dist: standard deviation of all_avg_dist
+# df.T["std_avg_dist"] = df.T["all_avg_dist"].apply(lambda x: np.std(x))
+df.loc["std_avg_dist"] = pd.Series(
+    {col: np.std(df.loc["all_avg_dist", col]) for col in df.columns}
+)
+df.loc["max_avg_pos_err"] = pd.Series(
+    {col: np.max(df.loc["all_avg_pos_errs", col]) for col in df.columns}
+)
+df.loc["min_avg_pos_err"] = pd.Series(
+    {col: np.min(df.loc["all_avg_pos_errs", col]) for col in df.columns}
+)
+df.loc["max_avg_ori_err"] = pd.Series(
+    {col: np.max(df.loc["all_avg_ori_errs", col]) for col in df.columns}
+)
+df.loc["min_avg_ori_err"] = pd.Series(
+    {col: np.min(df.loc["all_avg_ori_errs", col]) for col in df.columns}
+)
+df.loc["max_avg_dist"] = pd.Series(
+    {col: np.max(df.loc["all_avg_dist", col]) for col in df.columns}
+)
+df.loc["min_avg_dist"] = pd.Series(
+    {col: np.min(df.loc["all_avg_dist", col]) for col in df.columns}
+)
+# print(df.T["all_avg_dist"][0])
+print(df.T["min_avg_pos_err"])
+print(df.T["max_avg_pos_err"])
+# Add column mean_avg_dist: mean of all_avg_dist
+
+print(df.T.columns)
+print(df.columns)
+print(df.T[["fails_traversal"]])
+print(df.T["mean_avg_pos_err"])
+print(df.T["std_avg_pos_err"])
+print(df.T["mean_avg_pos_err"] - df.T["std_avg_pos_err"])
+
 pos_df = df.T[["all_avg_pos_errs"]]
+print(np.std(pos_df.iloc[0]["all_avg_pos_errs"]))
 ori_df = df.T[["all_avg_ori_errs"]]
+dist_df = df.T[["all_avg_dist"]]
+
+
+def confidence_bands_plot(df, width=1200, height=600):
+    colorscale = pc.qualitative.Plotly
+    opaque_colors = [f"rgba{pc.hex_to_rgb(c) + (0.4,)}" for c in colorscale]
+    row_names = [
+        f"({np.round(0.025 * k, 3)}, {np.round(np.rad2deg(float(i.split('_')[1])), 1)})"
+        for k, i in enumerate(df.index)
+    ]
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.02)
+
+    for i, type_ in enumerate(("dist", "pos", "ori")):
+        mean_name = f"mean_avg_{type_}{'_err' if type_ != 'dist' else ''}"
+        # std_name = f"std_avg_{type_}{'_err' if type_ != 'dist' else ''}"
+        upper_name = f"max_avg_{type_}{'_err' if type_ != 'dist' else ''}"
+        lower_name = f"min_avg_{type_}{'_err' if type_ != 'dist' else ''}"
+        fig.add_trace(
+            go.Scatter(
+                x=row_names,
+                y=df[mean_name],
+                mode="lines+markers",
+                showlegend=False,
+                line=dict(color=colorscale[i], width=3),
+                marker=dict(size=8),
+            ),
+            row=i + 1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=row_names,
+                # y=df[mean_name] + df[upper_name],
+                y=df[upper_name],
+                mode="lines",
+                # fill='tonexty',
+                fillcolor=opaque_colors[i],
+                line=dict(color="rgba(255,255,255,0)", width=0),
+                showlegend=False,
+            ),
+            row=i + 1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=row_names,
+                # y=df[mean_name] - df[lower_name],
+                y=df[lower_name],
+                mode="lines",
+                fill="tonexty",
+                fillcolor=opaque_colors[i],
+                line=dict(color="rgba(255,255,255,0)", width=0),
+                showlegend=False,
+            ),
+            row=i + 1,
+            col=1,
+        )
+        fig.update_xaxes(
+            title_text=r"Measurement Noise (m, £^\circ£)",
+            gridcolor="gray",
+            zerolinecolor="gray",
+            row=3,
+            col=1,
+            tickprefix="£",
+            ticksuffix="£",
+            tickangle=70,
+            title_standoff=50,
+        )
+        fig.update_xaxes(
+            title_text="", gridcolor="gray", zerolinecolor="gray", row=1, col=1
+        )
+        fig.update_xaxes(
+            title_text="", gridcolor="gray", zerolinecolor="gray", row=2, col=1
+        )
+        fig.update_yaxes(
+            title_text="Distance £D£",
+            tickprefix="£",
+            ticksuffix="£",
+            gridcolor="gray",
+            zerolinecolor="gray",
+            row=1,
+            col=1,
+            title_standoff=30,
+            tick0=0.16,
+            dtick=0.02,
+        )
+        fig.update_yaxes(
+            title_text="Pos. error (cm)",
+            tickprefix="£",
+            ticksuffix="£",
+            gridcolor="gray",
+            zerolinecolor="gray",
+            row=2,
+            col=1,
+            title_standoff=40,
+        )
+        fig.update_yaxes(
+            title_text=r"Ori. error (£^\circ£)",
+            tickprefix="£",
+            ticksuffix="£",
+            gridcolor="gray",
+            zerolinecolor="gray",
+            row=3,
+            col=1,
+            title_standoff=50,
+        )
+        # fig.update_layout(margin=dict(l=0, r=0, b=80, t=0))
+
+        fig.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            width=width,
+            height=height,
+            margin=dict(l=10, r=0, t=0, b=10, pad=0),
+        )
+        # fig.update_layout(plot_bgcolor='white', paper_bgcolor='white',
+        # width=800, height=600)
+
+    return fig
+
+
+def nvpl(pos_df, ori_df, dist_df=None):
+    fig = go.Figure()
+    for i, row in pos_df.iterrows():
+        row_name = i.split("_")
+        small_name = (
+            f"({np.round(float(row_name[0]), 3)}, {np.round(float(row_name[1]), 3)})"
+        )
+        fig.add_trace(
+            go.Box(
+                y=row["all_avg_pos_errs"],
+                boxpoints="all",
+                name=small_name,
+                boxmean=True,
+            )
+        )
+    fig2 = go.Figure()
+    for i, row in ori_df.iterrows():
+        row_name = i.split("_")
+        small_name = (
+            f"({np.round(float(row_name[0]), 3)}, {np.round(float(row_name[1]), 3)})"
+        )
+        fig2.add_trace(
+            go.Box(
+                y=row["all_avg_ori_errs"],
+                boxpoints="all",
+                name=small_name,
+                boxmean=True,
+            )
+        )
+    if dist_df is not None:
+        fig3 = go.Figure()
+        for i, row in dist_df.iterrows():
+            row_name = i.split("_")
+            small_name = f"({np.round(float(row_name[0]), 3)}, {np.round(float(row_name[1]), 3)})"
+            fig3.add_trace(
+                go.Box(
+                    y=row["all_avg_dist"],
+                    boxpoints="all",
+                    name=small_name,
+                    boxmean=True,
+                )
+            )
+    else:
+        fig3 = None
+    return fig, fig2, fig3
+
+
+width, height = 740, 600
+fig = confidence_bands_plot(df.T, width=width, height=height)
+fig.show()
+fig.write_image("robustness_analysis.svg", width=width, height=height)
+
+# fig, fig2, fig3 = nvpl(pos_df, ori_df, dist_df)
+# fig.show()
+# fig2.show()
+# fig3.show()
+#
+# %%
 # Create boxplot using plotly
-fig = px.box(pos_df, points="all", y="all_avg_pos_errs", title="Position error distribution for all parameter combinations", labels={"index": "Parameter combination (pos_std, ori_std)", "all_avg_pos_errs": "Position error (cm)"})
+# fig = px.box(pos_df, points="all", x=, title="Position error distribution for all parameter combinations", labels={"index": "Parameter combination (pos_std, ori_std)", "all_avg_pos_errs": "Position error (cm)"})
 fig.show()
 
-#%%
+# %%
 import plotly.express as px
 import plotly.io as pio
 import pandas as pd
 import webbrowser
 import tempfile
 import os
+
 
 def plot_heatmap_in_browser(dataframe, title="Mean Avg Pos Error"):
     """
@@ -419,8 +648,10 @@ def plot_heatmap_in_browser(dataframe, title="Mean Avg Pos Error"):
     """
     # Reset index to get ori_std as a column for plotly
     df_plot = dataframe.copy()
-    df_plot['ori_std'] = df_plot.index
-    df_melted = df_plot.melt(id_vars='ori_std', var_name='pos_std', value_name='mean_avg_pos_err')
+    df_plot["ori_std"] = df_plot.index
+    df_melted = df_plot.melt(
+        id_vars="ori_std", var_name="pos_std", value_name="mean_avg_pos_err"
+    )
 
     # Create heatmap
     fig = px.density_heatmap(
@@ -430,7 +661,7 @@ def plot_heatmap_in_browser(dataframe, title="Mean Avg Pos Error"):
         z="mean_avg_pos_err",
         color_continuous_scale="Viridis",
         text_auto=True,
-        title=title
+        title=title,
     )
 
     # Improve layout
@@ -448,8 +679,9 @@ def plot_heatmap_in_browser(dataframe, title="Mean Avg Pos Error"):
         pio.write_html(fig, file=tmp_path, auto_open=False)
         webbrowser.open("file://" + os.path.realpath(tmp_path))
 
+
 plot_heatmap_in_browser(result_table, title="Mean Avg Pos Error")
-#%%
+# %%
 # Get files per combination (pos_std, ori_std)
 
 # for f in files:
@@ -468,7 +700,7 @@ plot_heatmap_in_browser(result_table, title="Mean Avg Pos Error")
 #             'avg_ori_err': avg_ori_err,
 #         }
 # Create df and order by index
-df = pd.DataFrame.from_dict(stats, orient='index')
+df = pd.DataFrame.from_dict(stats, orient="index")
 df
 # Plot distances of each file
 # fig = go.Figure()
@@ -478,76 +710,118 @@ df
 # print(average_dists)
 
 path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/gibberish.pkl"
-with open(path, 'rb') as file:
+with open(path, "rb") as file:
     results = pickle.load(file)
 
 df = pd.DataFrame.from_dict(results)
 print(df.columns)
-sub_df = df[["pos_std", "ori_std", "mean_avg_pos_err",  "std_avg_pos_err", "mean_avg_ori_err", "std_avg_ori_err"]]
+sub_df = df[
+    [
+        "pos_std",
+        "ori_std",
+        "mean_avg_pos_err",
+        "std_avg_pos_err",
+        "mean_avg_ori_err",
+        "std_avg_ori_err",
+    ]
+]
 # sub_df.sort_values(by=["mean_avg_pos_err", "std_avg_pos_err"], )
-sub_df.sort_values(by=["pos_std", "ori_std"], )
+sub_df.sort_values(
+    by=["pos_std", "ori_std"],
+)
 
 np.array(df[["all_avg_pos_errs"]].iloc[-1].values[0]).max()
-#%%
+# %%
 path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/pos_0.2222222222222222_ori_0.011111111111111112_seed_0.pkl"
 
-with open(path, 'rb') as file:
+with open(path, "rb") as file:
     data = pickle.load(file)
 
-p_hist = data['p_hist']
-R_hist = data['R_hist']
-v_hist = data['v_hist']
+p_hist = data["p_hist"]
+R_hist = data["R_hist"]
+v_hist = data["v_hist"]
 n_points = 5000
 r, b, d = 2.5, 1, 0.2
 curve = precomputed_hd(hd, n_points, r, b, d)
 curve_pos = np.array([c[:3, 3] for c in curve])
 print(data.keys())
 pos_err = data["true_pos_error"]
-np.mean(pos_err[int(len(pos_err) * 0.4):]*100)
-np.std(pos_err[int(len(pos_err) * 0.4):]*100)
-np.max(pos_err[int(len(pos_err) * 0.4):]*100)
-np.min(pos_err[int(len(pos_err) * 0.4):]*100)
-np.median(pos_err[int(len(pos_err) * 0.4):]*100)
-sp.stats.kurtosis(pos_err[int(len(pos_err) * 0.4):]*100)
+np.mean(pos_err[int(len(pos_err) * 0.4) :] * 100)
+np.std(pos_err[int(len(pos_err) * 0.4) :] * 100)
+np.max(pos_err[int(len(pos_err) * 0.4) :] * 100)
+np.min(pos_err[int(len(pos_err) * 0.4) :] * 100)
+np.median(pos_err[int(len(pos_err) * 0.4) :] * 100)
+sp.stats.kurtosis(pos_err[int(len(pos_err) * 0.4) :] * 100)
 # np.mean(df.iloc[0]['all_avg_pos_errs'])
-fig = vector_field_plot(p_hist, v_hist, R_hist, curve_pos, num_arrows=0, init_ball=0, final_ball=len(p_hist)-1, num_balls=20, add_lineplot=False, show_curve=True, ball_size=3, frame_scale=0.1)
+fig = vector_field_plot(
+    p_hist,
+    v_hist,
+    R_hist,
+    curve_pos,
+    num_arrows=0,
+    init_ball=0,
+    final_ball=len(p_hist) - 1,
+    num_balls=20,
+    add_lineplot=False,
+    show_curve=True,
+    ball_size=3,
+    frame_scale=0.1,
+)
 fig.show()
 # go.Figure(go.Scatter(y=data['dist_hist'].ravel(), mode='lines')).show()
 
 
+# %%
+mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = (
+    get_average_stable_errors(p_hist, R_hist, curve)
+)
 
-#%%
-mean_dist, mean_pos, mean_ori, dist_hist, pos_err_hist, ori_err_hist = get_average_stable_errors(p_hist, R_hist, curve)
 
 def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, subplot_titles=("Distance to curve", "Position error (cm)", "Orientation error (deg)"))
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=(
+            "Distance to curve",
+            "Position error (cm)",
+            "Orientation error (deg)",
+        ),
+    )
     xvec = np.arange(len(dist_hist)) * 10e-3
     fig.add_trace(
         go.Scatter(
             y=dist_hist,
-            mode='lines',
-            name='Distance to curve',
-            line=dict(color='blue'),
-        )
-    , row=1, col=1)
+            mode="lines",
+            name="Distance to curve",
+            line=dict(color="blue"),
+        ),
+        row=1,
+        col=1,
+    )
     fig.add_trace(
         go.Scatter(
             y=pos_err_hist,
-            mode='lines',
-            name='Position error (cm)',
-            line=dict(color='orange'),
-        )
-    , row=2, col=1)
+            mode="lines",
+            name="Position error (cm)",
+            line=dict(color="orange"),
+        ),
+        row=2,
+        col=1,
+    )
     fig.add_trace(
         go.Scatter(
             y=ori_err_hist,
-            mode='lines',
-            name='Orientation error (deg)',
-            line=dict(color='green'),
-        )
-    , row=3, col=1)
+            mode="lines",
+            name="Orientation error (deg)",
+            line=dict(color="green"),
+        ),
+        row=3,
+        col=1,
+    )
 
     return fig
+
 
 fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
 fig.show()
