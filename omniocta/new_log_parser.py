@@ -276,6 +276,7 @@ def check_traversal(indexes, n_points):
     time_spent = len(indexes) * dt
     return success, time_spent
 
+#%%
 
 path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
 # Get all pickle files in the path
@@ -551,4 +552,29 @@ def nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist):
 fig = nvim_err_plot(dist_hist, pos_err_hist, ori_err_hist)
 fig.show()
 
+
+# %%
+path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data/"
+# Get all pickle files in the path
+files = [f for f in os.listdir(path) if f.endswith('.pkl')]
+pos_std_opts = sorted(list(set(re.findall(r"pos_(\d+\.\d+)_", "\n".join(files)))))
+ori_std_opts = sorted(list(set(re.findall(r"ori_(\d+\.\d+)_", "\n".join(files)))))
+all_combinations = [(p, ori_std_opts[i]) for i, p in enumerate(pos_std_opts)]
+all_combinations = sorted(all_combinations, key=lambda x: (float(x[0]), float(x[1])))
+print(all_combinations)
+
+combination_num = 8
+pos_std, ori_std = all_combinations[combination_num]
+pair_files = [f for f in files if f.startswith(f"pos_{pos_std}_ori_{ori_std}")]
+print(pair_files)
+
+for file in pair_files:
+    with open(os.path.join(path, file), 'rb') as file_:
+        data = pickle.load(file_)
+        if any(data['traversed']):
+            print(f"File {file} traversed the curve.")
+
+
+print("finish")
+print(data.keys())
 
