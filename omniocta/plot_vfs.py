@@ -1,3 +1,4 @@
+#%%
 import re
 import pickle
 import numpy as np
@@ -396,7 +397,7 @@ def vector_field_plot(
         elif i == len(coord_balls) - 1:
             color = colorscale[4]
         else:
-            solid_color = colorscale[5]
+            solid_color = colorscale[6]
             rgba_color = pc.hex_to_rgb(solid_color) + (0.6,)
             # color = "rgba(172, 99, 250, 0.6)"
             color = f"rgba{rgba_color}"
@@ -495,6 +496,7 @@ with open(os.path.join(path, files[2]), "rb") as f:
 
 print(data.keys())
 
+#%%
 p_hist = data["p_hist"]
 N = p_hist.shape[0]
 final = int(N * 0.75)
@@ -509,27 +511,43 @@ def nvimplot():
     colorscale = px.colors.qualitative.Plotly
     colorscale[3] = "black"  # start ball
     colorscale[4] = "rgba(255, 200, 0, 1.0)"  # end ball
-    colorscale[5] = "#4d4c4c"  # intermediate balls
-    eye = np.array([0.1, -2.4, 0.9])
-    eye = 2.6*eye / np.linalg.norm(eye)
-    camera = dict(eye=dict(x=eye[0], y=eye[1], z=eye[2]))
+    colorscale[5] = "cyan"
+    colorscale[6] = "#4d4c4c"  # intermediate balls
+    # eye = {'x': -0.12256678707924387, 'y': -1.9433578647375376, 'z': 0.36193708924324386}
+    # eye = {'x': -1.2296970402513263 * 1.2,
+    #        'y': 1.2869397509241487 * 1.2, 
+    #        'z': 0.18525174039831366 * 1.2
+    #        }
+    eye = {'x': -1.1593384413157246, 'y': -0.06194502710745191, 'z': 1.6230421457524087}
+    camera = dict(
+        eye=eye,
+        # eye=dict(x=eye[0], y=eye[1], z=eye[2]),
+        # center=dict(x=center[0], y=center[1], z=center[2]),
+    )
     scal = 0.05
-    final_ball = int(N * 0.1)
+    # init_ball = 0
+    # final_ball = int(N * 0.07)
+    # init_ball = int(N * 0.07)
+    # final_ball = int(N * 0.15)
+    init_ball = int(N * 0.15)
+    final_ball = int(N * 0.22)
     fig = vector_field_plot(
         p_hist,
         p_hist,
         R_hist,
         curve,
-        0,
-        0,
+        num_arrows=0,
+        init_ball=init_ball,
         final_ball=final_ball,
         num_balls=10,
         show_curve=True,
         ball_size=5,
         curve_width=5,
-        path_width=1,
+        path_width=2,
         frame_scale=[scal * 10, scal * 7, scal * 4],
         frame_width=4,
+        prev_path_style="dot",
+        colorscale=colorscale,
     )
     fig.update_layout(
         scene=dict(
@@ -547,6 +565,7 @@ def nvimplot():
             # ticktext=yticks,
             gridcolor="rgba(148, 150, 153, 1)",
             # showticklabels=False,
+            tickangle=0,
             title="y",
         ),
         scene_zaxis=dict(
@@ -569,8 +588,20 @@ def nvimplot():
         ),
         width=1080,
         height=1080,
+        autosize=False,
         showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",  # transparent
+        plot_bgcolor="rgba(0,0,0,0)",
     )
     return fig
 fig = nvimplot()
 fig.show()
+
+#eye {'x': -0.29883993714371976, 'y': -2.2237394500062773, 'z': 0.4590366243128926}
+# {'x': -1.5514405060163505, 'y': 1.700083478236783, 'z': 0.044324498514860936}
+# {'x': -1.139440140723252, 'y': -0.011558745231574939, 'z': 2.0808502028079072}
+# fig.write_image("figures/vf_traj_03.svg", width=1080, height=1080, scale=2)
+# f = go.FigureWidget(fig)
+# f
+# f.layout['scene']['camera']['eye']._props
+# %%
