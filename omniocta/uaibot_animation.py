@@ -156,27 +156,52 @@ def precomputed_hd(curve_fun, n_points, *args, **kwargs):
 
 # %%
 # Load data
+# LOCAL PC
 path = "/home/fbartelt/Documents/Projetos/robotics-experiments/omniocta/data"
+# SERVER
+path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data"
 
 # Get all pickle files in the path
 # files = [f for f in os.listdir(path) if f.endswith(".pkl")]
+files_to_anim = [
+    "pos_0.15789473684210525_ori_0.031578947368421054_seed",
+    "pos_0.0_ori_0.0_seed",
+    "pos_0.4473684210526315_ori_0.08947368421052632_seed"
+]
+get_now = 0
 files = [
     f
     for f in os.listdir(path)
-    if f.startswith("pos_0.15789473684210525_ori_0.031578947368421054_seed")
+    # if f.startswith()
+    if f.startswith(files_to_anim[get_now])
 ]
 print(files)
 # File 0 = highest noise full traversal
 # File 1 = highest noise failed traversal
 # File 2 = medium noise full traversal
 
-with open(os.path.join(path, files[2]), "rb") as f:
-    data = pickle.load(f)
+seeds_data = {}
+decimation = 5  # Decimate data
+sim_dt = 1e-2
+final_time = 20 * 60  # seconds (5 minutes)
+cutoff = int(final_time / sim_dt)
+seed_values = []
+
+for file in files[:10]:
+# for file in files:
+    seed = re.findall(r"seed_(\d+)", file)[0]
+    seed_values.append(int(seed))
+    with open(os.path.join(path, file), "rb") as f:
+        data = pickle.load(f)
+    seeds_data[seed] = {
+        "p_hist": data["p_hist"][:cutoff][::decimation],
+        "R_hist": data["R_hist"][:cutoff][::decimation],
+    }
 
 print(data.keys())
 
-p_hist = data["p_hist"]
-R_hist = data["R_hist"]
+# p_hist = data["p_hist"]
+# R_hist = data["R_hist"]
 
 n_points = 5000
 r, b, d = 2.5, 1, 0.2
@@ -185,7 +210,7 @@ curve = np.array(curve)
 
 
 # %%
-VISUAL_DISPLACEMENT = np.array([0, 0, 0.5])
+VISUAL_DISPLACEMENT = np.array([0, 0, 1.5])
 
 
 def create_uav(
@@ -227,20 +252,20 @@ def create_uav(
         clearcoat_roughness=0.3,  # slightly diffused highlights
         reflectivity=0.5,  # standard reflectivity for matte composites
         emissive="#000000",  # no self-lighting
-        opacity=1.0,  # fully opaque
+        opacity=opacity,  # fully opaque
         side="FrontSide",  # default shading
         flat_shading=False,  # smooth curved surfaces
         ior=1.4,  # typical for carbon/plastic composites
     )
     mesh2 = ub.MeshMaterial(
         color="#c0c0c0",  # bright silver-gray base
-        metalness=0.9,  # semi-metallic look (not pure metal, avoids blackening)
+        metalness=0.7,  # semi-metallic look (not pure metal, avoids blackening)
         roughness=0.35,  # moderate sheen, soft reflections
         clearcoat=0.25,  # adds realistic highlight coating
         clearcoat_roughness=0.5,  # diffuses reflections for "brushed" feel
         reflectivity=0.7,  # brightens material under limited lighting
         emissive="#1a1a1a",  # subtle base emission to prevent over-darkening
-        opacity=1.0,
+        opacity=opacity,
         side="FrontSide",
         flat_shading=False,
         ior=1.35,  # typical for metal–oxide finish
@@ -331,52 +356,66 @@ def create_SE3_curve(
         return curve_trace, None
 
 
-# Decimate data
-decimation = 3
-p_hist_dec = p_hist[::decimation]
-R_hist_dec = R_hist[::decimation]
-N = p_hist_dec.shape[0]
+# N = p_hist_dec.shape[0]
 
 # Sum visual displace to p_hist (in world frame)
 htm_displace = np.array(ub.Utils.trn(VISUAL_DISPLACEMENT))
-new_p_hist, new_R_hist = p_hist_dec.copy(), R_hist_dec.copy()
-for i in range(new_p_hist.shape[0]):
-    htm = pose2htm(new_p_hist[i], R_hist_dec[i])
-    htm = htm_displace @ htm
-    new_p_hist[i] = htm[:3, 3]
-    new_R_hist[i] = htm[:3, :3]
+uav_seeds = []
 
-htm0 = pose2htm(new_p_hist[0, :].flatten(), new_R_hist[0, :, :])
-# htm0 = np.eye(4)
-octarotor = create_uav(
-    n_rotors=8,
-    body_radius=0.1,
-    rotor_radius=0.05,
-    arm_length=0.3,
-    body_color="gray",
-    rotor_color="gray",
-    arm_color="gray",
-    opacity=0.9,
-)
-print(octarotor.htm)
+for seed, data in seeds_data.items():
+    print(f"Processing seed {seed}...")
+    # Add displacement to each pose
+    p_hist_dec, R_hist_dec = data["p_hist"], data["R_hist"]
+
+    for i in range(p_hist_dec.shape[0]):
+        htm_ = pose2htm(p_hist_dec[i], R_hist_dec[i])
+        htm = htm_displace @ htm_
+        p_hist_dec[i] = htm[:3, 3]
+        R_hist_dec[i] = htm[:3, :3]
+
+    data["p_hist"] = p_hist_dec
+    data["R_hist"] = R_hist_dec
+    htm0 = pose2htm(p_hist_dec[0, :].flatten(), R_hist_dec[0, :, :])
+    octarotor = create_uav(
+        # htm=htm0,
+        n_rotors=8,
+        body_radius=0.1,
+        rotor_radius=0.05,
+        arm_length=0.3,
+        body_color="gray",
+        rotor_color="gray",
+        arm_color="gray",
+        opacity=0.9,
+    )
+    uav_seeds.append(octarotor)
 
 curve_pc, curve_frames = create_SE3_curve(
     curve, curve_color="red", curve_width=0.03, show_frame=True, n_frames=20
 )
-sim = ub.Simulation.create_sim_grid([octarotor, curve_pc, curve_frames])
-final = int(new_p_hist.shape[0] * 0.3)
+sim = ub.Simulation.create_sim_lesson(uav_seeds + [curve_pc, curve_frames], light_intensity=2.0)
+final = int(seeds_data[str(seed_values[0])]["p_hist"].shape[0] * 0.3)
 dt = 1e-2
-speedup = 8.0
+speedup = 5.0
 
-for i, (p, R) in enumerate(zip(new_p_hist[:final], new_R_hist[:final])):
-    progress_bar(i, final)
-    htm = pose2htm(p, R)
-    octarotor.add_ani_frame(time=i * dt / speedup, htm=htm)
+for i, (seed, data_i) in enumerate(seeds_data.items()):
+    new_p_hist, new_R_hist = data_i["p_hist"], data_i["R_hist"]
+    new_p_hist, new_R_hist = new_p_hist[:final], new_R_hist[:final]
+    octarotor = uav_seeds[i]
+    print(f"Animating seed {seed}...")
+    for j in range(new_p_hist.shape[0]):
+        p, R = new_p_hist[j], new_R_hist[j]
+        progress_bar(j, final)
+        htm = pose2htm(p, R)
+        octarotor.add_ani_frame(time=j * dt / speedup, htm=htm)
 
-sim.set_parameters(width=1200, height=800)
-sim.save("./", "octasim")
+# Set camera (x, y, z) looking at (xo, yo ,zo) with zoom f
+cam0 = [-17, 0, 2.6, 0, 0, 0, 1]
+sim.set_parameters(width=800, height=600, pixel_ratio=0.7,
+                   camera_start_pose=cam0)
+sim.save("./", f"octasim_{get_now}")
+print("Saved")
 
-
+# %%
 # open browser with html file (neovim workaround)
 def open_in_browser(filename: str):
     """
