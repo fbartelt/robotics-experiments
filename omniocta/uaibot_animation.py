@@ -166,29 +166,41 @@ path = "/home/fbartelt/Projects/robotics-experiments/omniocta/data"
 files_to_anim = [
     "pos_0.15789473684210525_ori_0.031578947368421054_seed",
     "pos_0.0_ori_0.0_seed",
-    "pos_0.4473684210526315_ori_0.08947368421052632_seed"
+    "pos_0.4473684210526315_ori_0.08947368421052632_seed",
+    "pos_0.42105263157894735_ori_0.08421052631578947_seed",
 ]
-get_now = 0
+get_now = 3
 files = [
     f
-    for f in os.listdir(path)
+    for f in sorted(os.listdir(path))
     # if f.startswith()
     if f.startswith(files_to_anim[get_now])
 ]
+files = sorted(files, key=lambda x: int(re.findall(r"seed_(\d+)", x)[0]))
 print(files)
+
 # File 0 = highest noise full traversal
 # File 1 = highest noise failed traversal
 # File 2 = medium noise full traversal
-
 seeds_data = {}
-decimation = 5  # Decimate data
-sim_dt = 1e-2
-final_time = 20 * 60  # seconds (5 minutes)
-cutoff = int(final_time / sim_dt)
-seed_values = []
+if get_now > 1:
+    decimation = 8  # Decimate data above 0.42m noise
+    final_time = 20 * 60  # seconds (20 minutes)
+else:
+    decimation = 5  # Decimate data
+    final_time = 5 * 60  # seconds (5 minutes)
 
-for file in files[:10]:
-# for file in files:
+sim_dt = 1e-2
+cutoff = int(final_time / sim_dt)
+# cutoff = None
+seeds_to_parse = 10
+seed_values = []
+print(
+    f"Animating {seeds_to_parse} seeds with final time {final_time}s and decimation {decimation}..."
+)
+
+for file in files[1 : seeds_to_parse + 1]:
+    # for file in files:
     seed = re.findall(r"seed_(\d+)", file)[0]
     seed_values.append(int(seed))
     with open(os.path.join(path, file), "rb") as f:
@@ -258,7 +270,7 @@ def create_uav(
         ior=1.4,  # typical for carbon/plastic composites
     )
     mesh2 = ub.MeshMaterial(
-        color="#c0c0c0",  # bright silver-gray base
+        color=body_color,  # bright silver-gray base
         metalness=0.7,  # semi-metallic look (not pure metal, avoids blackening)
         roughness=0.35,  # moderate sheen, soft reflections
         clearcoat=0.25,  # adds realistic highlight coating
@@ -361,8 +373,9 @@ def create_SE3_curve(
 # Sum visual displace to p_hist (in world frame)
 htm_displace = np.array(ub.Utils.trn(VISUAL_DISPLACEMENT))
 uav_seeds = []
+colorscale = px.colors.qualitative.Dark24
 
-for seed, data in seeds_data.items():
+for idx, (seed, data) in enumerate(seeds_data.items()):
     print(f"Processing seed {seed}...")
     # Add displacement to each pose
     p_hist_dec, R_hist_dec = data["p_hist"], data["R_hist"]
@@ -382,7 +395,7 @@ for seed, data in seeds_data.items():
         body_radius=0.1,
         rotor_radius=0.05,
         arm_length=0.3,
-        body_color="gray",
+        body_color=colorscale[idx % len(colorscale)],
         rotor_color="gray",
         arm_color="gray",
         opacity=0.9,
@@ -392,10 +405,23 @@ for seed, data in seeds_data.items():
 curve_pc, curve_frames = create_SE3_curve(
     curve, curve_color="red", curve_width=0.03, show_frame=True, n_frames=20
 )
-sim = ub.Simulation.create_sim_lesson(uav_seeds + [curve_pc, curve_frames], light_intensity=2.0)
-final = int(seeds_data[str(seed_values[0])]["p_hist"].shape[0] * 0.3)
+sim = ub.Simulation.create_sim_lesson(
+    uav_seeds + [curve_pc, curve_frames], light_intensity=2.0
+)
+num_file_samples = seeds_data[str(seed_values[0])]["p_hist"].shape[0]
+# final = int(seeds_data[str(seed_values[0])]["p_hist"].shape[0] * 0.3)
+final = int(num_file_samples)
+print(f"Total samples in file: {num_file_samples}, animating {final} samples...")
 dt = 1e-2
-speedup = 5.0
+if get_now > 1:
+    speedup = 5.0
+else:
+    speedup = 2
+print(f"Animation speedup: {speedup}x")
+final_anim_time = dt * (final_time / sim_dt) / decimation / speedup
+log_msg = f"""Final time: {final_time}s, decimation: {decimation}, sim_dt: {sim_dt}s, anim_dt: {dt}s, speedup: {speedup}x
+    Total animation time: {final_anim_time:.2f}s
+    Total animation speedup: {final_time / final_anim_time:.1f}x"""
 
 for i, (seed, data_i) in enumerate(seeds_data.items()):
     new_p_hist, new_R_hist = data_i["p_hist"], data_i["R_hist"]
@@ -410,10 +436,13 @@ for i, (seed, data_i) in enumerate(seeds_data.items()):
 
 # Set camera (x, y, z) looking at (xo, yo ,zo) with zoom f
 cam0 = [-17, 0, 2.6, 0, 0, 0, 1]
-sim.set_parameters(width=800, height=600, pixel_ratio=0.7,
-                   camera_start_pose=cam0)
+sim.set_parameters(width=800, height=600, pixel_ratio=0.7, camera_start_pose=cam0)
 sim.save("./", f"octasim_{get_now}")
 print("Saved")
+print(log_msg)
+
+# print(dt * (final_time / sim_dt) / decimation / speedup)
+
 
 # %%
 # open browser with html file (neovim workaround)
