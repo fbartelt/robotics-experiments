@@ -4,11 +4,12 @@ from scipy.optimize import linprog
 from scipy.spatial import HalfspaceIntersection, ConvexHull
 from scipy.special import factorial
 
+
 def get_polytope_constraints(vertices):
     """
     Given a set of vertices (points) of a convex polytope,
     return the matrix A and vector b such that Ax <= b describes the polytope.
-    
+
     Parameters:
         vertices (ndarray): An (N, d) array of N points in d dimensions.
 
@@ -21,6 +22,7 @@ def get_polytope_constraints(vertices):
     A = hull.equations[:, :-1]
     b = -hull.equations[:, -1]
     return A, b
+
 
 def find_strictly_feasible_point(A, b):
     """
@@ -36,7 +38,7 @@ def find_strictly_feasible_point(A, b):
     A_lp = np.hstack((A, norms[:, None]))
     bounds = [(None, None)] * n + [(0, None)]  # δ ≥ 0
 
-    res = linprog(c, A_ub=A_lp, b_ub=b, bounds=bounds, method='highs')
+    res = linprog(c, A_ub=A_lp, b_ub=b, bounds=bounds, method="highs")
     if res.success:
         return res.x[:-1]  # Return x (ignore δ)
     else:
@@ -56,11 +58,15 @@ def add_polygon(fig, A, b, aux=0, add_reference=True):
     x = np.append(ordered_vertices[:, 0], ordered_vertices[0, 0])
     y = np.append(ordered_vertices[:, 1], ordered_vertices[0, 1])
 
-    fig.add_trace(go.Scatter(
-        x=x, y=y, fill="toself",
-        fillcolor="rgba(163, 159, 158, 0.2)",
-        line=dict(color="rgba(163, 159, 158, 1)"),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            fill="toself",
+            fillcolor="rgba(163, 159, 158, 0.2)",
+            line=dict(color="rgba(163, 159, 158, 1)"),
+        )
+    )
     # Draw each polygon edge with its own color
     COLOR_CYCLE = [
         "rgba(255, 0, 0, 0.8)",  # Red
@@ -74,8 +80,14 @@ def add_polygon(fig, A, b, aux=0, add_reference=True):
         "rgba(255, 105, 180, 0.8)",  # Hot Pink
     ]
     MARKER_CYCLE = [
-        "circle", "square", "circle-open", "square-open", "triangle-up",
-        "triangle-down", "triangle-left", "triangle-right"
+        "circle",
+        "square",
+        "circle-open",
+        "square-open",
+        "triangle-up",
+        "triangle-down",
+        "triangle-left",
+        "triangle-right",
     ]
     if add_reference:
         x_range = fig.layout.xaxis.range or [x.min() - 1, x.max() + 1]
@@ -97,13 +109,17 @@ def add_polygon(fig, A, b, aux=0, add_reference=True):
             else:
                 continue  # skip invalid constraints
 
-            fig.add_trace(go.Scatter(
-                x=x_vals, y=y_vals,
-                mode="markers",
-                line=dict(color=color, width=2),
-                marker=dict(symbol=MARKER_CYCLE[i % len(MARKER_CYCLE)], size=8),
-                name=f"Constraint {i}",
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="markers",
+                    line=dict(color=color, width=2),
+                    marker=dict(symbol=MARKER_CYCLE[i % len(MARKER_CYCLE)], size=8),
+                    name=f"Constraint {i}",
+                )
+            )
+
 
 class Polytope:
     def __init__(self, A, b):
@@ -163,6 +179,30 @@ class Polytope:
 
         return centroid / total_volume
 
+    @staticmethod
+    def random(
+        max_vertices=20,
+        radius_lim=(1e-1, 1.0),
+        bbox=(-5, -5, 5, 5),
+        seed=None,
+        min_area=None,
+        max_attempts=100,
+        radius=None,
+        num_vertices=None,
+    ):
+        A, b, vertices, area = generate_random_polygon(
+            max_vertices=max_vertices,
+            radius_lim=radius_lim,
+            bbox=bbox,
+            seed=seed,
+            min_area=min_area,
+            max_attempts=max_attempts,
+            radius=radius,
+            num_vertices=num_vertices,
+        )
+
+        return Polytope(A, b)
+
     def get_vertices(self):
         return self.get_polytope_vertices(self.A, self.b)
 
@@ -174,8 +214,52 @@ class NonConvexPolygon:
     """A class to represent a non-convex polygon defined by the union of
     multiple convex polytopes, whose intersection is one-dimensional.
     """
+
     def __init__(self, A_list, b_list, shared_boundaries):
         if len(A_list) != len(b_list):
             raise ValueError("As and bs must have the same length")
         self.polytopes = [Polytope(A, b) for A, b in zip(A_list, b_list)]
         self.shared_boundaries = shared_boundaries
+
+
+def generate_random_polygon(
+    max_vertices=20,
+    radius_lim=(1e-1, 1.0),
+    bbox=(-5, -5, 5, 5),
+    seed=None,
+    min_area=None,
+    max_attempts=100,
+    radius=None,
+    num_vertices=None,
+):
+    def gen1(seed, num_vertices=num_vertices, radius=radius):
+        rng = np.random.default_rng(seed)
+        if num_vertices is None:
+            num_vertices = rng.integers(3, max_vertices + 1).item()
+        if radius is None:
+            radius = rng.uniform(radius_lim[0], radius_lim[1])
+        angles = np.sort(rng.uniform(0, 2 * np.pi, num_vertices))
+        vertices = np.array([radius * np.cos(angles), radius * np.sin(angles)]).T
+        # Calculate safe translation boundaries
+        xmin, ymin, xmax, ymax = bbox
+        offset = rng.uniform(
+            low=[xmin + radius, ymin + radius], high=[xmax - radius, ymax - radius]
+        )
+        vertices += offset
+        hull = ConvexHull(vertices)
+        A = hull.equations[:, :-1]
+        b = -hull.equations[:, -1]
+        area = hull.volume
+        return A, b, vertices, area
+
+    if min_area is None:
+        return gen1(seed)
+    else:
+        attempts = 0
+        area = 0.0
+        while area < min_area and attempts < max_attempts:
+            A, b, vertices, area = gen1(
+                seed + attempts if seed is not None else attempts
+            )
+            attempts += 1
+        return A, b, vertices, area
