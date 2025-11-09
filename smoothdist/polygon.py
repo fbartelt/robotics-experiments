@@ -220,6 +220,8 @@ class NonConvexPolygon:
             raise ValueError("As and bs must have the same length")
         self.polytopes = [Polytope(A, b) for A, b in zip(A_list, b_list)]
         self.shared_boundaries = shared_boundaries
+        self.A_list = A_list.copy()
+        self.b_list = b_list.copy()
 
 
 def generate_random_polygon(

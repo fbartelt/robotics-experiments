@@ -234,6 +234,50 @@ def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None):
         dist = -smooth_min(raw_inner_distances, r=r) + smooth_max(raw_outer_distances, r=r)
     return dist
 
+def signed_dist2nonconvex(f, p, A_list, b_list, inter_indices, r=0.1, h=0.5, test=None):
+    n_polytopes = len(A_list)
+    ith_distances = []
+    for i, (A, b, I) in enumerate(zip(A_list, b_list, inter_indices)):
+        N, m = A.shape
+        d_P_i = signed_dist2convex(f, p, A, b, r=r, h=h, test="in")
+        R_i = []
+        for j, Iij in enumerate(I):
+            if Iij is not None and j != i:
+                # Get A_tilde, b_tilde by ignoring the indices in Iij
+                select = np.array([k for k in range(N) if k not in Iij])
+                A_tilde = A[select, :]
+                b_tilde = b[select]
+                d_Ptilde_ij = signed_dist2convex(f, p, A_tilde, b_tilde, r=r, h=h, test="in")
+                # j-th polytope
+                Aj = A_list[j]
+                bj = b_list[j]
+                Iji = inter_indices[j][i]
+                select_j = np.array([k for k in range(Aj.shape[0]) if k not in Iji])
+                A_tilde_j = Aj[select_j, :]
+                b_tilde_j = bj[select_j]
+                d_Ptilde_ji = signed_dist2convex(f, p, A_tilde_j, b_tilde_j, r=r, h=h, test="in")
+                R_i.append(smooth_max(d_Ptilde_ij, d_Ptilde_ji, r=r))
+
+        if len(R_i) > 0:
+            d_hat_P_i = smooth_min(smooth_min(R_i, r=r), d_P_i, r=r)
+        else:
+            d_hat_P_i = d_P_i
+
+        inner_dist = d_hat_P_i
+        outer_dist = signed_dist2convex(f, p, A, b, r=r, h=h, test="out")
+        if test == "in":
+            ith_distances.append(inner_dist)
+        elif test == "out":
+            ith_distances.append(outer_dist)
+        else:
+            ith_distances.append(inner_dist + outer_dist)
+
+    dist = smooth_min(ith_distances, r=r)
+    return dist
+
+
+
+
 
 @njit
 def outter_distance(f, p, A, b, r=0.1, h=0.5):
