@@ -8,18 +8,20 @@ from polygon import Polytope, NonConvexPolygon, add_polygon, get_polytope_constr
 from distances import signed_dist2convex, id_phi, phi, smooth_min, signed_dist2nonconvex
 from polyhedron import add_polyhedron
 
+
 def create_level_sets_convex(
-        polygons,
-        eps=1e-3,
-        r=1e-1,
-        h=1e-1,
-        eta=1.0,
-        kind='both',
-        bbox=(-5, -5, 5, 5),
-        n_points=100,
-        n_countours=50,
-        ignore=[],
-        test_=False):
+    polygons,
+    eps=1e-3,
+    r=1e-1,
+    h=1e-1,
+    eta=1.0,
+    kind="both",
+    bbox=(-5, -5, 5, 5),
+    n_points=100,
+    n_countours=50,
+    ignore=[],
+    test_=False,
+):
     fig = go.Figure()
 
     if not isinstance(polygons, (list, tuple)):
@@ -39,15 +41,16 @@ def create_level_sets_convex(
             dists = []
             for polygon in polygons:
                 dist_i = signed_dist2convex(
-                        id_phi,
-                        # phi,
-                        p,
-                        polygon.A,
-                        polygon.b,
-                        r=0.01, h=0.5,
-                        # test="out"
-                        # test="in"
-                        test=None
+                    id_phi,
+                    # phi,
+                    p,
+                    polygon.A,
+                    polygon.b,
+                    r=0.01,
+                    h=0.5,
+                    # test="out"
+                    # test="in"
+                    test=None,
                 )
                 dists.append(dist_i)
             distances.append(smooth_min(dists, r=r))
@@ -65,26 +68,32 @@ def create_level_sets_convex(
     fig.add_trace(contour)
     # Update layout
     fig.update_layout(
-        xaxis_title="x", yaxis_title="y", showlegend=False, width=800, height=800,
-        xaxis_range=[bbox[0], bbox[2]], yaxis_range=[bbox[1], bbox[3]],
-        margin=dict(t=0, l=10, r=10, b=10)
+        xaxis_title="x",
+        yaxis_title="y",
+        showlegend=False,
+        width=800,
+        height=800,
+        xaxis_range=[bbox[0], bbox[2]],
+        yaxis_range=[bbox[1], bbox[3]],
+        margin=dict(t=0, l=10, r=10, b=10),
     )
 
     return fig
 
 
 def create_level_sets_nonconvex(
-        polygons,
-        eps=1e-3,
-        r=1e-1,
-        h=1e-1,
-        eta=1.0,
-        kind='both',
-        bbox=(-5, -5, 5, 5),
-        n_points=100,
-        n_countours=50,
-        ignore=[],
-        test=False):
+    polygons,
+    eps=1e-3,
+    r=1e-1,
+    h=1e-1,
+    eta=1.0,
+    kind="both",
+    bbox=(-5, -5, 5, 5),
+    n_points=100,
+    n_countours=50,
+    ignore=[],
+    test=False,
+):
     fig = go.Figure()
 
     if not isinstance(polygons, (list, tuple)):
@@ -107,16 +116,17 @@ def create_level_sets_nonconvex(
             dists = []
             for polygon in polygons:
                 dist_i = signed_dist2nonconvex(
-                        id_phi,
-                        # phi,
-                        p,
-                        polygon.A_list,
-                        polygon.b_list,
-                        polygon.shared_boundaries,
-                        r=0.01, h=0.5,
-                        # test="out"
-                        test=test
-                        # test=None
+                    id_phi,
+                    # phi,
+                    p,
+                    polygon.A_list,
+                    polygon.b_list,
+                    polygon.shared_boundaries,
+                    r=0.01,
+                    h=0.5,
+                    # test="out"
+                    test=test,
+                    # test=None
                 )
                 dists.append(dist_i)
             distances.append(smooth_min(dists, r=r))
@@ -134,25 +144,32 @@ def create_level_sets_nonconvex(
     fig.add_trace(contour)
     # Update layout
     fig.update_layout(
-        xaxis_title="x", yaxis_title="y", showlegend=False, width=800, height=800,
-        xaxis_range=[bbox[0], bbox[2]], yaxis_range=[bbox[1], bbox[3]],
-        margin=dict(t=0, l=10, r=10, b=10)
+        xaxis_title="x",
+        yaxis_title="y",
+        showlegend=False,
+        width=800,
+        height=800,
+        xaxis_range=[bbox[0], bbox[2]],
+        yaxis_range=[bbox[1], bbox[3]],
+        margin=dict(t=0, l=10, r=10, b=10),
     )
 
     return fig
 
 
 def create_isosurfaces_convex(
-        polyhedra,
-        r=1e-1,
-        h=1e-1,
-        eta=1.0,
-        kind='both',
-        bbox=(-5, -5, -5, 5, 5, 5),
-        n_points=100,
-        n_countours=50,
-        ignore=[],
-        test=False
+    polyhedra,
+    r=1e-1,
+    h=1e-1,
+    eta=1.0,
+    kind="both",
+    bbox=(-5, -5, -5, 5, 5, 5),
+    n_points=100,
+    n_countours=50,
+    ignore=[],
+    test=False,
+    *args,
+    **kwargs
 ):
     fig = go.Figure()
 
@@ -163,12 +180,11 @@ def create_isosurfaces_convex(
         pass
         # add_polyhedron(fig, polyhedron.A, polyhedron.b, add_reference=False)
 
-    # p1 = np.linspace(bbox[0], bbox[3], n_points)
-    # p2 = np.linspace(bbox[1], bbox[4], n_points)
-    # p3 = np.linspace(bbox[2], bbox[5], n_points)
-    p1, p2, p3 = np.mgrid[bbox[0]:bbox[3]:n_points*1j,
-                          bbox[1]:bbox[4]:n_points*1j,
-                          bbox[2]:bbox[5]:n_points*1j]
+    p1, p2, p3 = np.mgrid[
+        bbox[0] : bbox[3] : n_points * 1j,
+        bbox[1] : bbox[4] : n_points * 1j,
+        bbox[2] : bbox[5] : n_points * 1j,
+    ]
     # Compute distances to single polygon:
     distances = np.zeros(p1.shape)
     for i in range(n_points):
@@ -178,14 +194,14 @@ def create_isosurfaces_convex(
                 dists = []
                 for polyhedron in polyhedra:
                     dist_i = signed_dist2convex(
-                            id_phi,
-                            # phi,
-                            p,
-                            polyhedron.A,
-                            polyhedron.b,
-                            r=0.01,
-                            h=0.5,
-                            test=test
+                        id_phi,
+                        # phi,
+                        p,
+                        polyhedron.A,
+                        polyhedron.b,
+                        r=0.01,
+                        h=0.5,
+                        test=test,
                     )
                     dists.append(dist_i)
                 distances[i, j, k] = smooth_min(dists, r=r)
@@ -196,15 +212,12 @@ def create_isosurfaces_convex(
         y=p2.flatten(),
         z=p3.flatten(),
         value=distances.flatten(),
+        isomin=np.min(distances),
+        isomax=np.max(distances),
         # isomin=-0.1,
         # isomax=0.1,
-        caps=dict(x_show=False, y_show=False),
-        opacity=0.8,
-        surface=dict(count=n_countours, fill=0.4, pattern='odd'),
-        # surface_fill=0.7,
-        # surface_count=n_countours,
-        colorscale="Viridis",
-        name="Isosurfaces",
+        *args,
+        **kwargs,
     )
     fig.add_trace(isosurface)
     # Update layout
@@ -261,17 +274,23 @@ eps = 5e-2
 bulge = True
 min_path = True
 k = 5e-1
-eta=10.0
+eta = 10.0
 n_contours = 70
 max_iters = 200
 # bounding_box = (-6, -6, 6, 6)
 bounding_box = (-1, -1, 5, 5)
 
-seed = 42 # 100 is cool
+seed = 42  # 100 is cool
 
-polygon = Polytope.random(num_vertices=7, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed)
-polygon2 = Polytope.random(num_vertices=5, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed+1)
-polygon3 = Polytope.random(num_vertices=6, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed+2)
+polygon = Polytope.random(
+    num_vertices=7, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed
+)
+polygon2 = Polytope.random(
+    num_vertices=5, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed + 1
+)
+polygon3 = Polytope.random(
+    num_vertices=6, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed + 2
+)
 
 polygons = [polygon, polygon2, polygon3]
 # bounding_box = (-0.5, 0.8, 2, 3)
@@ -281,12 +300,12 @@ fig = create_level_sets_convex(
     r=r,
     h=h,
     eta=eta,
-    kind='both',
+    kind="both",
     bbox=bounding_box,
     n_points=n_points,
     n_countours=n_contours,
     ignore=[],
-    test_=False
+    test_=False,
 )
 fig.show()
 
@@ -301,38 +320,44 @@ eps = 5e-2
 bulge = True
 min_path = True
 k = 5e-1
-eta=10.0
+eta = 10.0
 n_contours = 70
 max_iters = 200
 # bounding_box = (-6, -6, 6, 6)
 bounding_box = (-1, -1, 5, 5)
 
-seed = 42 # 100 is cool
+seed = 42  # 100 is cool
 
 
-A1 = np.array([
-    [1.0, 0], # x <= 2
-    [-1, 0],  # x >= 0
-    [0, -1],  # y >= 0
-    [0, 1],   # y <= 1
-])
+A1 = np.array(
+    [
+        [1.0, 0],  # x <= 2
+        [-1, 0],  # x >= 0
+        [0, -1],  # y >= 0
+        [0, 1],  # y <= 1
+    ]
+)
 b1 = np.array([2.0, 0, 0, 1])
 # b1 = np.array([2.0, 2.0, 0, 1])
 # Vertical
-A2 = np.array([
-    [1.0, 0],  # x <= 1
-    [-1, 0],   # x >= 0
-    [0, 1],    # y <= 3
-    [0, -1],   # y >= 1
-])
+A2 = np.array(
+    [
+        [1.0, 0],  # x <= 1
+        [-1, 0],  # x >= 0
+        [0, 1],  # y <= 3
+        [0, -1],  # y >= 1
+    ]
+)
 b2 = np.array([1.0, 0, 3, -1])
 # Top horizontal
-A3 = np.array([
-    [1.0, 0], # x <= 2
-    [-1, 0],  # x >= 0
-    [0, -1],  # y >= 3
-    [0, 1],   # y <= 4
-])
+A3 = np.array(
+    [
+        [1.0, 0],  # x <= 2
+        [-1, 0],  # x >= 0
+        [0, -1],  # y >= 3
+        [0, 1],  # y <= 4
+    ]
+)
 b3 = np.array([2.0, 0, -3, 4])
 
 A_list = [
@@ -365,12 +390,12 @@ fig = create_level_sets_nonconvex(
     r=r,
     h=h,
     eta=eta,
-    kind='both',
+    kind="both",
     bbox=bounding_box,
     n_points=n_points,
     n_countours=n_contours,
     ignore=[],
-    test=None
+    test=None,
 )
 fig.show()
 
@@ -385,35 +410,46 @@ eps = 5e-2
 bulge = True
 min_path = True
 k = 5e-1
-eta=10.0
-n_contours = 30
+eta = 10.0
+n_contours = 25
 
-bounding_box = (-2, -2, -2, 2, 0, 2)
-seed = 42 # 100 is cool
+bounding_box = (-4, -2, -4, 4, 0, 4)
+seed = 42  # 100 is cool
 
 # Define a simple cube polyhedron
-A = np.array([
-    [1, 0, 0],   # x <= 1
-    [-1, 0, 0],  # x >= -1
-    [0, 1, 0],   # y <= 1
-    [0, -1, 0],  # y >= -1
-    [0, 0, 1],   # z <= 1
-    [0, 0, -1],  # z >= -1
-])
-b = np.array([1, 1, 1, 1, 1, 1])
+A = np.array(
+    [
+        [1, 0, 0],  # x <= 1
+        [-1, 0, 0],  # x >= -1
+        [0, 1, 0],  # y <= 1
+        [0, -1, 0],  # y >= -1
+        [0, 0, 1],  # z <= 1
+        [0, 0, -1],  # z >= -1
+    ]
+)
+b = np.array([1, 1, 1, 1, 1, 1]) / 2 - (A @ np.array([2, 0, 2]).reshape(-1, 1)).flatten()
+b2 = np.array([1, 1, 1, 1, 1, 1]) / 2 + (A @ np.array([0.5, 0, 0.5]).reshape(-1, 1)).flatten()
 polyhedron = Polytope(A, b)
-polyhedra = [polyhedron]
+poly2hedron = Polytope(A, b2)
+polyhedra = [polyhedron, poly2hedron]
 fig = create_isosurfaces_convex(
     polyhedra,
     r=r,
     h=h,
     eta=eta,
-    kind='both',
+    kind="both",
     bbox=bounding_box,
     n_points=n_points,
     n_countours=n_contours,
     ignore=[],
-    test="in"
+    # test=None,
+    test='out',
+    caps=dict(x_show=False, y_show=False, z_show=True),
+    opacity=1.0,
+    surface_count=n_contours,
+    # surface=dict(count=n_contours, fill=0.2, pattern="odd"),
+    colorscale="Portland",
+    name="Isosurfaces",
 )
 fig.show()
 
@@ -424,15 +460,19 @@ X, Y, Z = np.mgrid[-5:5:40j, -5:5:40j, -5:5:40j]
 
 # ellipsoid
 values = X * X * 0.5 + Y * Y + Z * Z * 2
+print(X.shape, values.shape)
+print(X.flatten().shape, values.flatten().shape)
 
-fig = go.Figure(data=go.Isosurface(
-    x=X.flatten(),
-    y=Y.flatten(),
-    z=Z.flatten(),
-    value=values.flatten(),
-    # isomin=10,
-    # isomax=40,
-    surface_count=10,
-    caps=dict(x_show=False, y_show=False)
-    ))
+fig = go.Figure(
+    data=go.Isosurface(
+        x=X.flatten(),
+        y=Y.flatten(),
+        z=Z.flatten(),
+        value=values.flatten(),
+        # isomin=10,
+        # isomax=40,
+        surface_count=10,
+        caps=dict(x_show=False, y_show=False),
+    )
+)
 fig.show()
