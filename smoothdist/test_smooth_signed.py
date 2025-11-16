@@ -41,13 +41,13 @@ def create_level_sets_convex(
             dists = []
             for polygon in polygons:
                 dist_i = signed_dist2convex(
-                    id_phi,
-                    # phi,
+                    # id_phi,
+                    phi,
                     p,
                     polygon.A,
                     polygon.b,
                     r=0.01,
-                    h=0.5,
+                    h=0.1,
                     # test="out"
                     # test="in"
                     test=None,
@@ -93,6 +93,7 @@ def create_level_sets_nonconvex(
     n_countours=50,
     ignore=[],
     test=False,
+    add_reference=False,
 ):
     fig = go.Figure()
 
@@ -100,10 +101,15 @@ def create_level_sets_nonconvex(
         polygons = [polygons]
 
     for polygon in polygons:
-        for iii, poly in enumerate(polygon.polytopes):
-            A = poly.A.copy()
-            b = poly.b.copy()
-            add_polygon(fig, A, b, aux=iii, add_reference=False)
+        if isinstance(polygon, NonConvexPolygon):
+            for iii, poly in enumerate(polygon.polytopes):
+                A = poly.A.copy()
+                b = poly.b.copy()
+                add_polygon(fig, A, b, aux=iii, add_reference=add_reference)
+        elif isinstance(polygon, Polytope):
+            add_polygon(fig, polygon.A, polygon.b, add_reference=add_reference)
+        else:
+            raise ValueError("Unknown polygon type")
 
     p1 = np.linspace(bbox[0], bbox[2], n_points)
     p2 = np.linspace(bbox[1], bbox[3], n_points)
@@ -115,19 +121,35 @@ def create_level_sets_nonconvex(
             p = np.array([x, y]).reshape(-1, 1)
             dists = []
             for polygon in polygons:
-                dist_i = signed_dist2nonconvex(
-                    id_phi,
-                    # phi,
-                    p,
-                    polygon.A_list,
-                    polygon.b_list,
-                    polygon.shared_boundaries,
-                    r=0.01,
-                    h=0.5,
-                    # test="out"
-                    test=test,
-                    # test=None
-                )
+                if isinstance(polygon, NonConvexPolygon):
+                    dist_i = signed_dist2nonconvex(
+                        # id_phi,
+                        phi,
+                        p,
+                        polygon.A_list,
+                        polygon.b_list,
+                        polygon.shared_boundaries,
+                        r=r,
+                        h=h,
+                        # test="out"
+                        test=test,
+                        # test=None
+                    )
+                elif isinstance(polygon, Polytope):
+                    dist_i = signed_dist2convex(
+                        # id_phi,
+                        phi,
+                        p,
+                        polygon.A,
+                        polygon.b,
+                        r=r,
+                        h=h,
+                        # test="out"
+                        test=test,
+                        # test=None
+                    )
+                else:
+                    raise ValueError("Unknown polygon type")
                 dists.append(dist_i)
             distances.append(smooth_min(dists, r=r))
             # distances.append(dist)
@@ -168,6 +190,8 @@ def create_isosurfaces_convex(
     n_countours=50,
     ignore=[],
     test=False,
+    add_reference=False,
+    normalize_for_visualization=False,
     *args,
     **kwargs
 ):
@@ -177,8 +201,15 @@ def create_isosurfaces_convex(
         polyhedra = [polyhedra]
 
     for polyhedron in polyhedra:
-        pass
-        # add_polyhedron(fig, polyhedron.A, polyhedron.b, add_reference=False)
+        if isinstance(polyhedron, NonConvexPolygon):
+            for iii, poly in enumerate(polyhedron.polytopes):
+                A = poly.A.copy()
+                b = poly.b.copy()
+                add_polyhedron(fig, A, b, aux=iii, add_reference=add_reference)
+        elif isinstance(polyhedron, Polytope):
+            add_polyhedron(fig, polyhedron.A, polyhedron.b, add_reference=add_reference)
+        else:
+            raise ValueError("Unknown polyhedron type")
 
     p1, p2, p3 = np.mgrid[
         bbox[0] : bbox[3] : n_points * 1j,
@@ -193,19 +224,41 @@ def create_isosurfaces_convex(
                 p = np.array([p1[i, j, k], p2[i, j, k], p3[i, j, k]]).reshape(-1, 1)
                 dists = []
                 for polyhedron in polyhedra:
-                    dist_i = signed_dist2convex(
-                        id_phi,
-                        # phi,
-                        p,
-                        polyhedron.A,
-                        polyhedron.b,
-                        r=0.01,
-                        h=0.5,
-                        test=test,
-                    )
+                    if isinstance(polyhedron, NonConvexPolygon):
+                        dist_i = signed_dist2nonconvex(
+                            # id_phi,
+                            phi,
+                            p,
+                            polyhedron.A_list,
+                            polyhedron.b_list,
+                            polyhedron.shared_boundaries,
+                            r=r,
+                            h=h,
+                            test=test,
+                        )
+                    elif isinstance(polyhedron, Polytope):
+                        dist_i = signed_dist2convex(
+                            # id_phi,
+                            phi,
+                            p,
+                            polyhedron.A,
+                            polyhedron.b,
+                            r=r,
+                            h=h,
+                            test=test,
+                        )
+                    else:
+                        raise ValueError("Unknown polyhedron type")
                     dists.append(dist_i)
                 distances[i, j, k] = smooth_min(dists, r=r)
 
+    print(f"Min distance: {np.min(distances)}, Max distance: {np.max(distances)}")
+    if normalize_for_visualization:
+        # Center values aoround zero
+        # Multiply every negative value by a factor to enhance visualization
+        max_positive = np.max(distances[distances >= 0])
+        distances[distances < 0] *= max_positive
+        
     # Create isosurface
     isosurface = go.Isosurface(
         x=p1.flatten(),
@@ -268,7 +321,7 @@ def create_isosurfaces_convex(
 # %%
 n_points = 100
 max_iters = 100
-h = 0.1
+h = 0.01
 r = 0.1
 eps = 5e-2
 bulge = True
@@ -294,7 +347,7 @@ polygon3 = Polytope.random(
 
 polygons = [polygon, polygon2, polygon3]
 # bounding_box = (-0.5, 0.8, 2, 3)
-fig = create_level_sets_convex(
+fig = create_level_sets_nonconvex(
     polygons,
     eps=eps,
     r=r,
@@ -305,7 +358,7 @@ fig = create_level_sets_convex(
     n_points=n_points,
     n_countours=n_contours,
     ignore=[],
-    test_=False,
+    test=False,
 )
 fig.show()
 
@@ -314,7 +367,7 @@ fig.show()
 """ Nonconvex test"""
 n_points = 100
 max_iters = 100
-h = 0.1
+h = 0.01
 r = 0.1
 eps = 5e-2
 bulge = True
@@ -404,7 +457,7 @@ fig.show()
 """ 3D Convex test"""
 n_points = 30
 max_iters = 100
-h = 0.1
+h = 0.01
 r = 0.1
 eps = 5e-2
 bulge = True
@@ -442,8 +495,8 @@ fig = create_isosurfaces_convex(
     n_points=n_points,
     n_countours=n_contours,
     ignore=[],
-    # test=None,
-    test='out',
+    test=None,
+    # test='in',
     caps=dict(x_show=False, y_show=False, z_show=True),
     opacity=1.0,
     surface_count=n_contours,
@@ -452,6 +505,106 @@ fig = create_isosurfaces_convex(
     name="Isosurfaces",
 )
 fig.show()
+
+# %%
+""" 3D NonConvex test"""
+n_points = 30
+max_iters = 100
+h = 0.01
+r = 0.1
+eps = 5e-2
+bulge = True
+min_path = True
+k = 5e-1
+eta = 10.0
+n_contours = 25
+
+bounding_box = (-4, -2, -4, 4, 0, 4)
+seed = 42  # 100 is cool
+
+# Define an L-shaped polyhedron
+A1 = np.array(
+    [
+        [1, 0, 0],  # x <= 1
+        [-1, 0, 0],  # x >= -1
+        [0, 1, 0],  # y <= 1
+        [0, -1, 0],  # y >= -1
+        [0, 0, 1],  # z <= 0
+        [0, 0, -1],  # z >= -1
+    ]
+)
+b1 = np.array([
+    3 * 1.0,
+    3 * 1,
+    1.0,
+    1,
+    3 * 0,
+    3 * 1
+])
+A2 = np.array(
+    [
+        [1, 0, 0],  # x <= 1
+        [-1, 0, 0],  # x >= 0
+        [0, 1, 0],  # y <= 1
+        [0, -1, 0],  # y >= -1
+        [0, 0, 1],  # z <= 1
+        [0, 0, -1],  # z >= 0
+    ]
+)
+b2 = np.array([
+    3 * 1.0,
+    3 * 0,
+    1.0,
+    1,
+    3 * 1,
+    3 * 0
+])
+
+A_list = [
+    A1,
+    A2,
+]
+b_list = [
+    b1,
+    b2,
+]
+
+shared_boundaries = [[None for _ in range(len(b_list))] for _ in range(len(b_list))]
+# 3d array S[i, j, k] means that the k-th constraint of the i-th polytope
+# is a common boundary with the j-th polytope.
+# S[i, j] is a list that contains the indices of each constraint shared
+# S[j, i] can be different from S[i, j] given that they are
+# defined from each matrix A_i and A_j.
+### TODO: Should not deactivate x <= 1 constraint (same constraint for both polytopes)
+### Same for constraints on y
+shared_boundaries[0][1] = [4]
+shared_boundaries[1][0] = [5]
+polyhedron = NonConvexPolygon(A_list, b_list, shared_boundaries)
+
+polyhedra = [polyhedron]
+# polyhedra = [Polytope(A1, b1), Polytope(A2, b2)]
+fig = create_isosurfaces_convex(
+    polyhedra,
+    r=r,
+    h=h,
+    eta=eta,
+    kind="both",
+    bbox=bounding_box,
+    n_points=n_points,
+    n_countours=n_contours,
+    ignore=[],
+    test=None,
+    # test='in',
+    normalize_for_visualization=True,
+    caps=dict(x_show=False, y_show=False, z_show=True),
+    opacity=1.0,
+    surface_count=n_contours,
+    # surface=dict(count=n_contours, fill=0.2, pattern="odd"),
+    colorscale="Portland",
+    name="Isosurfaces",
+)
+fig.show()
+
 
 # %%
 """ Plotlyu example"""

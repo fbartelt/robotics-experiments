@@ -23,7 +23,8 @@ def add_polyhedron(fig, A, b, aux=0, add_reference=False):
             x=x,
             y=y,
             z=z,
-            color='lightblue',
+            alphahull=0,
+            color="rgba(163, 159, 158, 0.4)",
             opacity=0.5,
             name='Polyhedron'
         )
