@@ -4,7 +4,13 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
 
-from polygon import Polytope, NonConvexPolygon, add_polygon, get_polytope_constraints, create_level_sets
+from polygon import (
+    Polytope,
+    NonConvexPolygon,
+    add_polygon,
+    get_polytope_constraints,
+    create_level_sets,
+)
 from distances import signed_dist2convex, id_phi, phi, smooth_min, signed_dist2nonconvex
 from polyhedron import add_polyhedron, create_isosurfaces
 
@@ -51,7 +57,6 @@ fig = create_level_sets(
     test=False,
 )
 fig.show()
-
 
 # %%
 """ Nonconvex test"""
@@ -170,8 +175,14 @@ A = np.array(
         [0, 0, -1],  # z >= -1
     ]
 )
-b = np.array([1, 1, 1, 1, 1, 1]) / 2 - (A @ np.array([2, 0, 2]).reshape(-1, 1)).flatten()
-b2 = np.array([1, 1, 1, 1, 1, 1]) / 2 + (A @ np.array([0.5, 0, 0.5]).reshape(-1, 1)).flatten()
+b = (
+    np.array([1, 1, 1, 1, 1, 1]) / 2
+    - (A @ np.array([2, 0, 2]).reshape(-1, 1)).flatten()
+)
+b2 = (
+    np.array([1, 1, 1, 1, 1, 1]) / 2
+    + (A @ np.array([0.5, 0, 0.5]).reshape(-1, 1)).flatten()
+)
 polyhedron = Polytope(A, b)
 poly2hedron = Polytope(A, b2)
 polyhedra = [polyhedron, poly2hedron]
@@ -223,14 +234,7 @@ A1 = np.array(
         [0, 0, -1],  # z >= -1
     ]
 )
-b1 = np.array([
-    3 * 1.0,
-    3 * 1,
-    1.0,
-    1,
-    3 * 0,
-    3 * 1
-])
+b1 = np.array([3 * 1.0, 3 * 1, 1.0, 1, 3 * 0, 3 * 1])
 A2 = np.array(
     [
         [1, 0, 0],  # x <= 1
@@ -241,14 +245,7 @@ A2 = np.array(
         [0, 0, -1],  # z >= 0
     ]
 )
-b2 = np.array([
-    3 * 1.0,
-    3 * 0,
-    1.0,
-    1,
-    3 * 1,
-    3 * 0
-])
+b2 = np.array([3 * 1.0, 3 * 0, 1.0, 1, 3 * 1, 3 * 0])
 
 # Other case: little cube on top/center of big cube
 A3 = np.array(
@@ -261,14 +258,7 @@ A3 = np.array(
         [0, 0, -1],  # z >= -1
     ]
 )
-b3 = np.array([
-    1.0,
-    1,
-    1.0,
-    1,
-    1.0,
-    1.0
-])
+b3 = np.array([1.0, 1, 1.0, 1, 1.0, 1.0])
 A4 = np.array(
     [
         [1, 0, 0],  # x <= 0.5
@@ -279,14 +269,7 @@ A4 = np.array(
         [0, 0, -1],  # z >= 1
     ]
 )
-b4 = np.array([
-    0.5,
-    0.5,
-    0.5,
-    0.5,
-    2.0,
-    -1.0
-])
+b4 = np.array([0.5, 0.5, 0.5, 0.5, 2.0, -1.0])
 
 A_list = [
     # A1,

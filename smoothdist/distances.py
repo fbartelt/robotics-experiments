@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 
 
-def holder_mean(values, r=0.1):
+def holder_mean(values, r=0.1, compute_gradient=False):
     v = np.array(values) + 1e-10
     if np.any(v < 0):
         raise ValueError("All values must be non-negative")
@@ -12,7 +12,13 @@ def holder_mean(values, r=0.1):
 
     raised = list(map(lambda x: x ** (-1 / r), v))
     res = np.sum(raised) ** (-r)
-    return res
+    if not compute_gradient:
+        return res
+    else:
+        outer_der = -r * (np.sum(raised) ** (-r - 1))
+        inner_der = np.array(list(map(lambda x: -1 / r * (x ** (-1 / r - 1)), v)))
+        gradient = outer_der * inner_der
+        return res, gradient
 
 
 def holder_mean_derivative(values, r=0.1):
@@ -29,16 +35,27 @@ def holder_mean_derivative(values, r=0.1):
     return outer_der * inner_der
 
 
-def _smooth_min_two_elements(x, y, r=0.1):
+def _smooth_min_two_elements(x, y, r=0.1, compute_gradient=False):
     if x >= 0 and y >= 0:
-        return holder_mean([x, y], r)
+        return holder_mean([x, y], r, compute_gradient)
     elif x < 0 and y < 0:
-        return -1 / holder_mean([-1 / x, -1 / y], r)
+        res = holder_mean([-1 / x, -1 / y], r, compute_gradient)
+        if not compute_gradient:
+            return -1 / res
+        else:
+            value, grad = res
+            grad = np.array(grad)
+            grad = grad / (value**2)
+            return -1 / value, grad
     else:
-        return min(x, y)
+        if not compute_gradient:
+            return min(x, y)
+        else:
+            gradient = np.array([1.0, 0.0]) if x < y else np.array([0.0, 1.0])
+            return (min(x, y), gradient)
 
 
-def _smooth_min_list(values, r=0.1):
+def _smooth_min_list(values, r=0.1, compute_gradient=False):
     if len(values) == 0:
         raise ValueError("List of values cannot be empty")
     if isinstance(values, np.ndarray):
@@ -48,43 +65,128 @@ def _smooth_min_list(values, r=0.1):
             )
         values = values.tolist()
     if len(values) == 1:
-        return values[0]
-    min_value = values[0]
-    for val in values[1:]:
-        min_value = _smooth_min_two_elements(min_value, val, r)
-    return min_value
+        if not compute_gradient:
+            return values[0]
+        else:
+            return values[0], np.array([1.0])
+
+    if not compute_gradient:
+        min_value = values[0]
+        for val in values[1:]:
+            min_value = _smooth_min_two_elements(min_value, val, r, compute_gradient)
+        return min_value
+    else:
+        # ---- FORWARD + BACKWARD ----
+        forward_values = [values[0]]  # M1 = x1
+        two_gradients = []  # store df/da, df/db at each f-node
+        min_value = values[0]
+
+        for val in values[1:]:
+            # compute f(prev, val) and the local grads
+            result_value, local_grad = _smooth_min_two_elements(
+                min_value, val, r=r, compute_gradient=compute_gradient
+            )
+            # local_grad = [df/d(prev), df/d(val)]
+            two_gradients.append(local_grad)
+            min_value = result_value
+            forward_values.append(min_value)
+
+        # Backprop
+        # Final output derivative dM/dM = 1
+        dM = 1.0
+
+        # gradient wrt each original input
+        n = len(values)
+        grad_full = np.zeros(n)
+
+        # We processed in order x1, x2, ..., xn
+        # Now propagate backwards through each f-node:
+        #
+        # M_k = f(x_k, M_{k+1})
+        #
+        # local_grad[k] corresponds to:
+        #   left  = df/d(x_k)
+        #   right = df/d(M_{k+1})
+        #
+        # Chain rule:
+        #   dM wrt x_k = left * dM
+        #   new dM = right * dM
+        #
+        # Iterate backwards over f calls:
+        #
+        # Node 0: f(x1, x2)
+        # Node 1: f(M2, x3)
+        # ...
+        #
+        # Gradients stored in the same order as forward pass.
+
+        # Loop backward through f applications
+        for i in reversed(range(len(two_gradients))):
+            left, right = two_gradients[i]
+
+            # Gradient wrt the "right" argument of f:
+            # this corresponds to values[i+1]
+            grad_full[i + 1] = left * dM
+
+            # Propagate dM backwards through the f-node:
+            dM = right * dM
+
+        # Finally add gradient wrt x1
+        grad_full[0] = dM
+
+        return min_value, grad_full
 
 
-def smooth_min(x, y=None, r=0.1):
+def smooth_min(x, y=None, r=0.1, compute_gradient=False):
     match (x, y):
         case (list() | np.ndarray(), None):
-            return _smooth_min_list(x, r)
+            return _smooth_min_list(x, r, compute_gradient)
         case (_, None):
-            return x
+            if not compute_gradient:
+                return x
+            else:
+                return x, np.array([1.0])
         case (list() | np.ndarray(), _):
             if isinstance(y, (list, np.ndarray)):
                 raise NotImplementedError(
                     "Cannot perform smooth_min on two lists or arrays directly"
                 )
+            if compute_gradient:
+                raise NotImplementedError(
+                    "Cannot compute gradient for smooth_min with list and scalar"
+                )
             return _smooth_min_two_elements(_smooth_min_list(x, r), y, r)
         case (_, _):
-            return _smooth_min_two_elements(x, y, r)
+            return _smooth_min_two_elements(x, y, r, compute_gradient)
 
 
-def smooth_max(x, y=None, r=0.1):
+def smooth_max(x, y=None, r=0.1, compute_gradient=False):
     match (x, y):
         case (list() | np.ndarray(), None):
-            return -smooth_min(list(-np.array(x)), None, r)
+            if not compute_gradient:
+                return -smooth_min(list(-np.array(x)), None, r, compute_gradient)
+            else:
+                res = smooth_min(list(-np.array(x)), None, r, compute_gradient)
+                return -res[0], -res[1]
         case (_, None):
-            return x
+            if not compute_gradient:
+                return x
+            else:
+                return x, -np.array([1.0])
         case (list() | np.ndarray(), _):
             if isinstance(y, (list, np.ndarray)):
                 raise NotImplementedError(
                     "Cannot perform smooth_max on two lists or arrays directly"
                 )
-            return -smooth_min(list(-np.array(x)), y=-y, r=r)
+            if compute_gradient:
+                raise NotImplementedError(
+                    "Cannot compute gradient for smooth_max with list and scalar"
+                )
+            return -smooth_min(
+                list(-np.array(x)), y=-y, r=r, compute_gradient=compute_gradient
+            )
         case (_, _):
-            return -smooth_min(-x, -y, r)
+            return -smooth_min(-x, -y, r, compute_gradient=compute_gradient)
 
 
 def _smooth_argmin_two_elements(x, y, r=0.1):
@@ -206,10 +308,11 @@ def id_phi(s, h=0.5, r=0.1):
 
 
 # @njit
-def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None):
+def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None, compute_gradient=False):
     """Paper version"""
     N, m = A.shape
-    raw_inner_distances, raw_outer_distances = [], []
+    raw_inner_distances, raw_outer_distances = np.zeros(N), np.zeros(N)
+    raw_inner_gradients, raw_outer_gradients = np.zeros((N, m)), np.zeros((N, m))
 
     for i, ai_ in enumerate(A):
         ai = ai_.copy().reshape(-1, 1)
@@ -217,22 +320,48 @@ def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None):
         s_out = -s
         f_val, f_grad, f_hess = f(s, h)
         # if f_val > 1e-6:
-        raw_inner_distances.append(f_val)
+        raw_inner_distances[i] = f_val
+        raw_inner_gradients[i, :] = -(f_grad * ai.T).ravel()
         # else:
         #     raw_inner_distances.append(1e-6 ** (-1 / r))
         f_val_out, f_grad_out, f_hess_out = f(s_out, h)
         # if f_val_out > 1e-6:
-        raw_outer_distances.append(f_val_out)
+        raw_outer_distances[i] = f_val_out
+        raw_outer_gradients[i, :] = (f_grad_out * ai.T).ravel()
         # else:
         #     raw_outer_distances.append(1e-6 ** (-1 / r))
-
     if test == "in":
-        dist = -smooth_min(raw_inner_distances, r=r)
+        res = smooth_min(raw_inner_distances, r=r, compute_gradient=compute_gradient)
+        if not compute_gradient:
+            return -res
+        else:
+            dist = -res[0]
+            grad = -res[1] @ raw_inner_gradients
+            return dist, grad
     elif test == "out":
-        dist = smooth_max(raw_outer_distances, r=r)
+        res = smooth_max(raw_outer_distances, r=r, compute_gradient=compute_gradient)
+        if not compute_gradient:
+            return res
+        else:
+            dist = res[0]
+            grad = res[1] @ raw_outer_gradients
+            return dist, grad
     else:
-        dist = -smooth_min(raw_inner_distances, r=r) + smooth_max(raw_outer_distances, r=r)
-    return dist
+        res_min = smooth_min(
+            raw_inner_distances, r=r, compute_gradient=compute_gradient
+        )
+        res_max = smooth_max(
+            raw_outer_distances, r=r, compute_gradient=compute_gradient
+        )
+        if not compute_gradient:
+            return -res_min + res_max
+        else:
+            dist = -res_min[0] + res_max[0]
+            grad_in = -res_min[1] @ raw_inner_gradients
+            grad_out = res_max[1] @ raw_outer_gradients
+            grad = grad_in + grad_out
+            return dist, grad
+
 
 def signed_dist2nonconvex(f, p, A_list, b_list, inter_indices, r=0.1, h=0.5, test=None):
     n_polytopes = len(A_list)
@@ -247,7 +376,9 @@ def signed_dist2nonconvex(f, p, A_list, b_list, inter_indices, r=0.1, h=0.5, tes
                 select = np.array([k for k in range(N) if k not in Iij])
                 A_tilde = A[select, :]
                 b_tilde = b[select]
-                d_Ptilde_ij = signed_dist2convex(f, p, A_tilde, b_tilde, r=r, h=h, test="in")
+                d_Ptilde_ij = signed_dist2convex(
+                    f, p, A_tilde, b_tilde, r=r, h=h, test="in"
+                )
                 # j-th polytope
                 Aj = A_list[j]
                 bj = b_list[j]
@@ -255,7 +386,9 @@ def signed_dist2nonconvex(f, p, A_list, b_list, inter_indices, r=0.1, h=0.5, tes
                 select_j = np.array([k for k in range(Aj.shape[0]) if k not in Iji])
                 A_tilde_j = Aj[select_j, :]
                 b_tilde_j = bj[select_j]
-                d_Ptilde_ji = signed_dist2convex(f, p, A_tilde_j, b_tilde_j, r=r, h=h, test="in")
+                d_Ptilde_ji = signed_dist2convex(
+                    f, p, A_tilde_j, b_tilde_j, r=r, h=h, test="in"
+                )
                 R_i.append(smooth_max(d_Ptilde_ij, d_Ptilde_ji, r=r))
 
         if len(R_i) > 0:
@@ -274,9 +407,6 @@ def signed_dist2nonconvex(f, p, A_list, b_list, inter_indices, r=0.1, h=0.5, tes
 
     dist = smooth_min(ith_distances, r=r)
     return dist
-
-
-
 
 
 @njit
