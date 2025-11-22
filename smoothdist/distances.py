@@ -45,7 +45,9 @@ def _smooth_min_two_elements(x, y, r=0.1, compute_gradient=False):
         else:
             value, grad = res
             grad = np.array(grad)
-            grad = grad / (value**2)
+            chain = np.array([1 / (x**2), 1 / (y**2)])
+            # Apply chain rule d(-1/f(-1/x, -1/y))/dx = ( -1 / f^2 ) * d(-1/x) * df/df
+            grad = (grad / (value**2)) * chain
             return -1 / value, grad
     else:
         if not compute_gradient:

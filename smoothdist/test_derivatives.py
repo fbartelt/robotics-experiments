@@ -18,7 +18,7 @@ from polyhedron import add_polyhedron, create_isosurfaces
 """Holder mean test """
 ## OK ##
 rng = np.random.default_rng(42)
-eps = 1e-3
+eps = 1e-5
 
 # for i in range(10):
 #     vals = rng.uniform(0, 10, size=(10,))
@@ -43,9 +43,12 @@ eps = 1e-3
 """ Smoooth min test """
 for i in range(10):
     vals = rng.uniform(-10, -1, size=(2,))
+    vals = np.array([-2, -3.0])
     # vals = rng.uniform(0, 10, size=(2,))
+    # vals = rng.uniform(-10, 10, size=(2,))
     # vals = np.array([rng.uniform(-10, 0), rng.uniform(0, 10)])
-    value, derivative = smooth_min(vals[0], vals[1], r=0.1, compute_gradient=True)
+    # value, derivative = smooth_min(vals[0], vals[1], r=0.1, compute_gradient=True)
+    value, derivative = smooth_min(x=vals, r=0.1, compute_gradient=True)
     # Numerical derivative
     num_derivative = np.zeros_like(vals)
     for j in range(len(vals)):
@@ -59,6 +62,7 @@ for i in range(10):
     error = np.linalg.norm(derivative - num_derivative)
     if error > 1e-3:
         print(f"vals:{vals}")
+        print(f"value: {value}")
         print(f"Smooth min gradient check failed at iteration {i}: error = {error}")
         print("Analytical derivative:", derivative)
         print("Numerical derivative:", num_derivative)
