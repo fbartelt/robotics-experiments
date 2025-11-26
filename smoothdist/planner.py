@@ -89,11 +89,16 @@ def deform_path(
             dist_, grad_ = signed_dist2convex(
                 phi, p, A, b, r=r, h=h, test=kind, compute_gradient=True
             )
+            print(f"Pre dist: {dist_}")
             # print(f"Point {j}, Obstacle {i}, dist: {dist_}, grad: {grad_.ravel()}")
+            grad_sat = (1 / (1 + np.exp(alpha * dist_)))
             dist_ = (
                 (-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * dist_)))
             )  # Smooth saturation
-            grad_ = grad_ * (1 / (1 + np.exp(alpha * dist_)))
+            print(f"Post dist: {dist_}")
+            print(f"Pre grad: {grad_.ravel()}")
+            grad_ = grad_ * grad_sat
+            print(f"Post grad: {grad_.ravel()}")
             # print(f"Saturated dist: {dist_}, grad: {grad_.ravel()}")
             dists_[i] = np.round(dist_, 6)
             if np.round(dist_, 4) >= 0:
@@ -115,10 +120,11 @@ def deform_path(
         # coeff = np.abs(dists[j])  # np.sign(dists[j]) * np.sqrt(np.abs(dists[j]))
         coeff = 1.0
         if dists[k] > 0:
-            coeff = np.sqrt(np.abs(dists[k]))
+            coeff = 1.0
+            # coeff = np.sqrt(np.abs(dists[k]))
         else:
             coeff = np.sqrt(np.abs(dists[k]))
-        path[:, k] += grads[k] * 1
+        path[:, k] += grads[k] * coeff
 
     if min_path:
         for j, point in enumerate(path.T[1:-1]):
@@ -139,8 +145,8 @@ bounding_box = (-20.0, -20, 20, 20)
 radius_limits = (2, 6)
 q0 = np.array([-3.0, -12]).reshape(-1, 1)
 q0 = np.array([-8.5, -16]).reshape(-1, 1)
-# qd = np.array([15, 15]).reshape(-1, 1)
-qd = np.array([11.0, 15]).reshape(-1, 1)
+qd = np.array([18, 15]).reshape(-1, 1)
+# qd = np.array([11.0, 15]).reshape(-1, 1)
 n_points = 100
 h = 0.01
 r = 0.1
@@ -174,15 +180,17 @@ path = init_path.copy()
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
-max_iters = 10
+max_iters = 300
 kind = "in"
-# kind = None
+kind = "out"
+kind = None
 
 fig = go.Figure()
 for obstacle in obstacles:
     add_polygon(fig, obstacle.A, obstacle.b, add_reference=False)
 
-while np.any(np.array(dists) < 2.0):
+obstacles = [obstacles[0]]
+while np.any(np.array(dists) < 0.0):
     if iter_ >= max_iters:
         print(f"reached max iterations: {max_iters}")
         break
@@ -205,24 +213,25 @@ fig.show()
 # [jump]
 
 # %%
-# print(dists)
-fig = create_planning_plot(
-    constraints,
-    pc_list,
-    R_list,
-    q0,
-    qd,
-    path,
-    init_path,
-    bbox=bounding_box,
-    n_points=n_points,
-    n_points_contour=200,
-    n_countours=40,
-    eps=eps,
-    r=r,
-    h=h,
-    eta=eta,
-    bulge=bulge,
-    plot_cicles=False,
-)
-fig.show()
+x = np.linspace(-1, 1, 200)
+alpha = np.log(2) / 0.01
+
+go.Figure(
+    data=go.Scatter(
+        x=x,
+        y=(-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * x))),
+        mode="lines",
+        line=dict(color="blue", width=2),
+        name="Smooth Saturation",
+)).show()
+
+
+
+go.Figure(
+    data=go.Scatter(
+        x=x,
+        y=1 / (1 + np.exp(alpha * x)),
+        mode="lines",
+        line=dict(color="blue", width=2),
+        name="Saturation Gradient",
+)).show()

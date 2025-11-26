@@ -51,7 +51,8 @@ print("############# holder mean end")
 
 """ Smoooth min test """
 for i in range(10):
-    vals = rng.uniform(-10., 10, size=(4,))
+    vals = rng.uniform(-100., 100, size=(10,))
+    # vals = np.array([-29.0, -30.0, -50.0, -10.0])
     # vals = np.array([2, 3.0])
     # vals = rng.uniform(0, 10, size=(2,))
     # vals = rng.uniform(-10, 10, size=(2,))
@@ -66,13 +67,16 @@ for i in range(10):
         vals_plus[j] += eps
         vals_minus[j] -= eps
         value_plus = smooth_min(
-            vals_plus[0], vals_plus[1], r=0.1, compute_gradient=False
+                vals_plus, r=0.1, compute_gradient=False
         )
         value_minus = smooth_min(
-            vals_minus[0], vals_minus[1], r=0.1, compute_gradient=False
+                vals_minus, r=0.1, compute_gradient=False
         )
         num_derivative[j] = (value_plus - value_minus) / (2 * eps)
+    derivative = np.round(derivative, 6)
+    num_derivative = np.round(num_derivative, 6)
     error = np.linalg.norm(derivative - num_derivative)
+    # print(f"Iteration {i}, values: {vals}, min value: {value}, error: {error}\ngradient: {derivative}, num_gradient: {num_derivative}")
     if error > 1e-3:
         print(f"vals:{vals}")
         print(f"value: {value}")
@@ -85,7 +89,7 @@ print("############# smooth min end")
 
 """ Smoooth max test """
 for i in range(10):
-    vals = rng.uniform(-10., 10, size=(4,))
+    vals = rng.uniform(-100., 100, size=(4,))
     # vals = np.array([2, 3.0])
     # vals = rng.uniform(0, 10, size=(2,))
     # vals = rng.uniform(-10, 10, size=(2,))
@@ -100,10 +104,10 @@ for i in range(10):
         vals_plus[j] += eps
         vals_minus[j] -= eps
         value_plus = smooth_max(
-            vals_plus[0], vals_plus[1], r=0.1, compute_gradient=False
+                vals_plus, r=0.1, compute_gradient=False
         )
         value_minus = smooth_max(
-            vals_minus[0], vals_minus[1], r=0.1, compute_gradient=False
+                vals_minus, r=0.1, compute_gradient=False
         )
         num_derivative[j] = (value_plus - value_minus) / (2 * eps)
     error = np.linalg.norm(derivative - num_derivative)
@@ -140,18 +144,27 @@ polygon3 = Polytope.random(
     num_vertices=6, radius_lim=(1e-1, 1.0), bbox=bounding_box, seed=seed + 2
 )
 
+A_test = np.array([
+    [1.0, 0.0],
+    [0.0, 1.0],
+    [-1.0, 0.0],
+    [0.0, -1.0],
+    ])
+b_test = np.array([2.0, 2.0, 2.0, 2.0])
+polygon_test = Polytope(A_test, b_test)
 polygons = [
-    polygon,
+    polygon_test,
 ]
 
 vertices = polygon.vertices
 # bounding_box = (vertices.min(), vertices[:, 1].min(),
 #                 vertices.max(), vertices[:, 1].max())
-bounding_box = (-100, -100, -20, -20)
+bounding_box = (-20, -20, 20, 20)
 xs = np.linspace(bounding_box[0], bounding_box[2], n_points)
 ys = np.linspace(bounding_box[1], bounding_box[3], n_points)
 
 test = "out"
+# test = "in"
 test = None
 eps = 1e-5
 
