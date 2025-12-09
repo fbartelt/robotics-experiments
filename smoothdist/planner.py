@@ -26,7 +26,8 @@ def add_path(
     paths2add = np.array(path_hist)[idxs2add]
     print(f"Adding {len(paths2add)} paths to the figure.")
     for i, path in enumerate(paths2add):
-        alpha = 0.1 + (0.9 * i) / (len(paths2add) - 1) if len(paths2add) > 1 else 1.0
+        alpha = 0.1 + (0.5 * i) / (len(paths2add) - 1) if len(paths2add) > 1 else 1.0
+        alpha = alpha if i < len(paths2add) - 1 else 1.0
         color = base_color_rgba + f", {alpha})"
         fig.add_trace(
             go.Scatter(
@@ -47,7 +48,7 @@ def add_path(
                 mode="markers",
                 marker=dict(symbol=q0_symbol, size=10, color=color),
                 name="Start",
-                showlegend=(i == 0),
+                showlegend=(i == len(paths2add) - 1),
             )
         )
         # Mark qd
@@ -58,10 +59,9 @@ def add_path(
                 mode="markers",
                 marker=dict(symbol=qd_symbol, size=10, color=color),
                 name="Goal",
-                showlegend=(i == 0),
+                showlegend=(i == len(paths2add) - 1),
             )
         )
-
 
 def deform_path(
     init_path,
@@ -89,17 +89,6 @@ def deform_path(
             dist_, grad_ = signed_dist2convex(
                 phi, p, A, b, r=r, h=h, test=kind, compute_gradient=True
             )
-            print(f"Pre dist: {dist_}")
-            # print(f"Point {j}, Obstacle {i}, dist: {dist_}, grad: {grad_.ravel()}")
-            grad_sat = (1 / (1 + np.exp(alpha * dist_)))
-            dist_ = (
-                (-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * dist_)))
-            )  # Smooth saturation
-            print(f"Post dist: {dist_}")
-            print(f"Pre grad: {grad_.ravel()}")
-            grad_ = grad_ * grad_sat
-            print(f"Post grad: {grad_.ravel()}")
-            # print(f"Saturated dist: {dist_}, grad: {grad_.ravel()}")
             dists_[i] = np.round(dist_, 6)
             if np.round(dist_, 4) >= 0:
                 grads_[i, :] = grad_.ravel()
@@ -107,7 +96,11 @@ def deform_path(
                 grads_[i, :] = grad_.ravel()
         # Compute D_O and gradient (1 x n_obstacles)
         dist, grad = smooth_min(dists_, r=r, compute_gradient=True)
-        grad_full = grad @ grads_  # (1 x m)
+        grad_sat = (1 / (1 + np.exp(alpha * dist)))
+        dist = (
+            (-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * dist)))
+        )  # Smooth saturation
+        grad_full = grad_sat * grad @ grads_  # (1 x m)
         # idx_min = np.argmin(dists_)
         # grad_full = grads_[idx_min, :].reshape(1, -1)
         dists[j] = dist
@@ -137,7 +130,7 @@ def deform_path(
 
 
 # %%
-max_polygons = 3
+max_polygons = 8
 max_vertices = 15
 bounding_box = (-20.0, -20, 20, 20)
 # Distance between vertices will be at least 2*first element, and at most
@@ -145,6 +138,7 @@ bounding_box = (-20.0, -20, 20, 20)
 radius_limits = (2, 6)
 q0 = np.array([-3.0, -12]).reshape(-1, 1)
 q0 = np.array([-8.5, -16]).reshape(-1, 1)
+q0 = np.array([-17.0, -17]).reshape(-1, 1)
 qd = np.array([18, 15]).reshape(-1, 1)
 # qd = np.array([11.0, 15]).reshape(-1, 1)
 n_points = 100
@@ -154,7 +148,7 @@ zeta = 0.5
 alpha = np.log(2) / 0.2
 min_path = True
 max_attempts = 500
-seed = 1001  # 1001, 69 cool, 42 NICE post mods, 100 is cool
+seed = 1337  # 1001, 69 cool, 42 NICE post mods, 100 is cool
 min_area = None
 radius = None
 num_vertices = None
@@ -180,16 +174,28 @@ path = init_path.copy()
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
-max_iters = 300
+max_iters = 1500
 kind = "in"
 kind = "out"
 kind = None
 
-fig = go.Figure()
-for obstacle in obstacles:
-    add_polygon(fig, obstacle.A, obstacle.b, add_reference=False)
+# fig = go.Figure()
+fig = create_level_sets(
+    obstacles,
+    r=r,
+    h=h,
+    kind="both",
+    bbox=bounding_box,
+    n_points=10,
+    n_contours=40,
+    add_reference=False,
+    test=None,
+    rescale=True
+)
+# for obstacle in obstacles:
+#     add_polygon(fig, obstacle.A, obstacle.b, add_reference=False)
 
-obstacles = [obstacles[0]]
+# obstacles = [obstacles[0]]
 while np.any(np.array(dists) < 0.0):
     if iter_ >= max_iters:
         print(f"reached max iterations: {max_iters}")
@@ -206,8 +212,11 @@ while np.any(np.array(dists) < 0.0):
     iter_ += 1
 
 print(f"deformation completed in {iter_} iterations with min dist = {np.min(dists)}")
-add_path(fig, path_hist, num_paths=10, base_color="black")
+add_path(fig, path_hist, num_paths=6, base_color="black")
+fig.update_layout(width=1200, height=800)
 fig.show()
+
+# fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
 
 
 # [jump]

@@ -64,6 +64,7 @@ def add_polygon(fig, A, b, aux=0, add_reference=True):
         go.Scatter(
             x=x,
             y=y,
+            mode="lines",
             fill="toself",
             fillcolor="rgba(163, 159, 158, 0.2)",
             line=dict(color="rgba(163, 159, 158, 1)"),
@@ -389,17 +390,15 @@ def generate_random_polygon_set(
 
 def create_level_sets(
     polygons,
-    eps=1e-3,
     r=1e-1,
     h=1e-1,
-    eta=1.0,
     kind="both",
     bbox=(-5, -5, 5, 5),
     n_points=100,
     n_contours=50,
-    ignore=[],
-    test=False,
+    test=None,
     add_reference=False,
+    rescale=False,
 ):
     fig = go.Figure()
 
@@ -461,6 +460,12 @@ def create_level_sets(
             # distances.append(dist)
 
     distances = np.array(distances).reshape(n_points, n_points).T
+    if rescale:
+        smallest = np.min(distances)
+        largest = np.max(distances)
+        factor = largest / np.abs(smallest)
+        distances[distances < 0] *= factor
+
     contour = go.Contour(
         x=p1,
         y=p2,
