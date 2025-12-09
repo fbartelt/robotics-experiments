@@ -4,7 +4,15 @@ import plotly.graph_objects as go
 import plotly.colors as pc
 
 from distances import signed_dist2convex, phi, smooth_min
-from polygon import Polytope, add_polygon, create_level_sets, NonConvexPolygon
+from polygon import (
+    Polytope,
+    add_polygon,
+    create_level_sets,
+    NonConvexPolygon,
+    generate_random_polyhedron,
+    generate_random_polyhedron_set,
+)
+from polyhedron import add_polyhedron
 
 
 def add_path(
@@ -63,6 +71,7 @@ def add_path(
             )
         )
 
+
 def deform_path(
     init_path,
     obstacles,
@@ -96,9 +105,9 @@ def deform_path(
                 grads_[i, :] = grad_.ravel()
         # Compute D_O and gradient (1 x n_obstacles)
         dist, grad = smooth_min(dists_, r=r, compute_gradient=True)
-        grad_sat = (1 / (1 + np.exp(alpha * dist)))
-        dist = (
-            (-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * dist)))
+        grad_sat = 1 / (1 + np.exp(alpha * dist))
+        dist = (-1 / alpha) * np.log(
+            0.5 * (1 + np.exp(-alpha * dist))
         )  # Smooth saturation
         grad_full = grad_sat * grad @ grads_  # (1 x m)
         # idx_min = np.argmin(dists_)
@@ -130,15 +139,15 @@ def deform_path(
 
 
 # %%
-max_polygons = 8
+max_polygons = 8  # 8 (1337), 5 (1001)
 max_vertices = 15
 bounding_box = (-20.0, -20, 20, 20)
 # Distance between vertices will be at least 2*first element, and at most
 # 2*second element of radius_limits:
 radius_limits = (2, 6)
 q0 = np.array([-3.0, -12]).reshape(-1, 1)
-q0 = np.array([-8.5, -16]).reshape(-1, 1)
-q0 = np.array([-17.0, -17]).reshape(-1, 1)
+q0 = np.array([-8.5, -16]).reshape(-1, 1)  # 1001
+q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1337
 qd = np.array([18, 15]).reshape(-1, 1)
 # qd = np.array([11.0, 15]).reshape(-1, 1)
 n_points = 100
@@ -179,6 +188,7 @@ kind = "in"
 kind = "out"
 kind = None
 
+# bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
 fig = create_level_sets(
     obstacles,
@@ -186,11 +196,11 @@ fig = create_level_sets(
     h=h,
     kind="both",
     bbox=bounding_box,
-    n_points=10,
+    n_points=200,
     n_contours=40,
     add_reference=False,
     test=None,
-    rescale=True
+    rescale=True,
 )
 # for obstacle in obstacles:
 #     add_polygon(fig, obstacle.A, obstacle.b, add_reference=False)
@@ -216,31 +226,54 @@ add_path(fig, path_hist, num_paths=6, base_color="black")
 fig.update_layout(width=1200, height=800)
 fig.show()
 
-# fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
+fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
 
 
 # [jump]
 
 # %%
-x = np.linspace(-1, 1, 200)
-alpha = np.log(2) / 0.01
+A, b, verts, vol = generate_random_polyhedron(
+    max_vertices=10,
+    radius_lim=(3, 6),
+    bbox=(-100, 100),
+    dim=3,
+    seed=420,
+    max_attempts=500,
+    min_volume=2,
+)
 
-go.Figure(
-    data=go.Scatter(
-        x=x,
-        y=(-1 / alpha) * np.log(0.5 * (1 + np.exp(-alpha * x))),
-        mode="lines",
-        line=dict(color="blue", width=2),
-        name="Smooth Saturation",
-)).show()
+poly = Polytope(A, b)
+random_polys = generate_random_polyhedron_set(
+    n_polyhedra=3,
+    intersect_polyhedra=False,
+    q0=np.zeros((3, 1)),
+    qd=np.ones((3, 1)) * 10,
+    max_vertices=10,
+    radius_lim=(3, 6),
+    dim=3,
+    bbox=(-20, 20),
+    seed=1337,
+    max_attempts=500,
+)
+polyhedra = [Polytope(A, b) for A, b, *_ in random_polys]
+
+def add_corners(poly):
+    vertices = poly.vertices.T
+    fig.add_trace(
+        go.Scatter3d(
+            x=vertices[0, :],
+            y=vertices[1, :],
+            z=vertices[2, :],
+            mode="markers",
+            marker=dict(size=5, color="red"),
+            name="Vertices",
+        )
+    )
 
 
+fig = go.Figure()
+for poly in polyhedra:
+    add_polyhedron(fig, poly.A, poly.b, add_reference=False)
+    add_corners(poly)
 
-go.Figure(
-    data=go.Scatter(
-        x=x,
-        y=1 / (1 + np.exp(alpha * x)),
-        mode="lines",
-        line=dict(color="blue", width=2),
-        name="Saturation Gradient",
-)).show()
+fig.show()

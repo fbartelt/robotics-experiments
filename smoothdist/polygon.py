@@ -5,6 +5,7 @@ from scipy.spatial import HalfspaceIntersection, ConvexHull
 from scipy.special import factorial
 from typing import List, Tuple, Optional
 from distances import signed_dist2convex, id_phi, phi, smooth_min, signed_dist2nonconvex
+from scipy.special import gamma
 
 
 def get_polytope_constraints(vertices):
@@ -238,7 +239,6 @@ class Polytope:
         polytopes = [Polytope(A, b) for (A, b, _, _, _) in polygons]
         return polytopes
 
-
     def get_vertices(self):
         return self.get_polytope_vertices(self.A, self.b)
 
@@ -303,12 +303,78 @@ def generate_random_polygon(
         return A, b, vertices, area
 
 
+def generate_random_polyhedron(
+    max_vertices=20,
+    radius_lim=(1e-1, 1.0),
+    bbox=(-5, 5),
+    dim=3,
+    seed=None,
+    min_volume=None,
+    max_attempts=100,
+    radius=None,
+    num_vertices=None,
+):
+    if len(bbox) != 2 * dim:
+        if len(bbox) == 2:
+            bbox = (bbox[0],) * dim + (bbox[1],) * dim
+        else:
+            raise ValueError("Bounding box must have length 2 * dim")
+
+    def nsphere_coords(dim, r, angles):
+        coords = np.zeros(dim)
+        for i in range(dim):
+            coords[i] = (
+                r
+                * np.prod(np.sin(angles[:i]))
+                * (np.cos(angles[i]) if i < dim - 1 else 1)
+            )
+        return coords
+
+    def gen1(seed, num_vertices=num_vertices, radius=radius):
+        rng = np.random.default_rng(seed)
+        if num_vertices is None:
+            num_vertices = rng.integers(dim + 1, max_vertices + 1).item()
+        if radius is None:
+            radius = rng.uniform(radius_lim[0], radius_lim[1])
+        phi_angles = np.sort(rng.uniform(0, np.pi, (num_vertices, dim - 1)))
+        phi_angles[:, -1] *= 2  # Last angle in [0, 2pi]
+
+        vertices = np.array(
+            [nsphere_coords(dim, radius, angles) for angles in phi_angles]
+        )
+        # Calculate safe translation boundaries
+        offset = rng.uniform(
+            low=[bbox[i] + radius for i in range(dim)],
+            high=[bbox[i + dim] - radius for i in range(dim)],
+        )
+        vertices += offset
+        hull = ConvexHull(vertices)
+        A = hull.equations[:, :-1]
+        b = -hull.equations[:, -1]
+        volume = hull.volume
+        return A, b, vertices, volume
+
+    if min_volume is None:
+        return gen1(seed)
+    else:
+        attempts = 0
+        volume = 0.0
+        while volume < min_volume and attempts < max_attempts:
+            A, b, vertices, volume = gen1(
+                seed + attempts if seed is not None else attempts
+            )
+            attempts += 1
+        return A, b, vertices, volume
+
+
 def is_point_inside_polygon(point, A, b, tol=1e-6):
     res = linprog(
-        c=[0.0, 0.0],  # dummy objective
+        c = [0.0,] * len(point),
+        # c=[0.0, 0.0],  # dummy objective
         A_ub=A,
         b_ub=b,
-        bounds=[(point[0], point[0]), (point[1], point[1])],
+        # bounds=[(point[0], point[0]), (point[1], point[1])],
+        bounds=[(p, p) for p in point],
         method="highs",
     )
     return res.success and res.status == 0
@@ -319,10 +385,12 @@ def polygons_intersect(A1, b1, A2, b2):
     b_combined = np.vstack([b1.reshape(-1, 1), b2.reshape(-1, 1)])
 
     res = linprog(
-        c=[0.0, 0.0],
+        # c=[0.0, 0.0],
+        c=[0.0,] * A1.shape[1],
         A_ub=A_combined,
         b_ub=b_combined,
-        bounds=(None, None),
+        # bounds=(None, None),
+        bounds=[(None, None)] * A1.shape[1],
         method="highs",
     )
     return res.success and res.status == 0
@@ -387,6 +455,67 @@ def generate_random_polygon_set(
 
     return polygons
 
+def generate_random_polyhedron_set(
+    n_polyhedra=4,
+    intersect_polyhedra=False,
+    q0=None,
+    qd=None,
+    max_vertices=20,
+    radius_lim=(1e-1, 1.0),
+    dim=3,
+    bbox=(-5, 5),
+    seed=None,
+    min_volume=None,
+    max_attempts=1000,
+    radius=None,
+    num_vertices=None,
+):
+    rng = np.random.default_rng(seed)
+    polyhedra = []
+    attempts = 0
+
+    if min_volume is None:
+        # Half the volume of a n-sphere with radius equal to the minimum radius limit
+        min_volume = 1/2 * (np.pi ** (dim / 2) / gamma(dim / 2 + 1)) * radius_lim[0] ** dim
+
+    while len(polyhedra) < n_polyhedra and attempts < max_attempts:
+        A, b, vertices, volume = generate_random_polyhedron(
+            max_vertices=max_vertices,
+            radius_lim=radius_lim,
+            bbox=bbox,
+            seed=rng.integers(0, 1e9).item(),
+            dim=dim,
+            min_volume=min_volume,
+            max_attempts=max_attempts,
+            radius=radius,
+            num_vertices=num_vertices,
+        )
+        attempts += 1
+
+        if volume < min_volume:
+            continue
+
+        # Check q0, qd are outside
+        if q0 is not None and is_point_inside_polygon(q0.ravel(), A, b):
+            continue
+        if qd is not None and is_point_inside_polygon(qd.ravel(), A, b):
+            continue
+
+        # Check intersections with previous polygons
+        if not intersect_polyhedra:
+            if any(polygons_intersect(A, b, Ap, bp) for (Ap, bp, _, _, _) in polyhedra):
+                continue
+        # Get center of polygon and radius of circumscribed circle
+        center = np.mean(vertices, axis=0)
+        radius = 1.001 * np.max(np.linalg.norm(vertices - center, axis=1)).item()
+
+        # Passed all checks
+        polyhedra.append((A, b, vertices, center, radius))
+
+    if attempts == max_attempts:
+        raise RuntimeError("Too many attempts to generate non-overlapping polygons")
+
+    return polyhedra
 
 def create_level_sets(
     polygons,
