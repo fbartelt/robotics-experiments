@@ -71,6 +71,66 @@ def add_path(
             )
         )
 
+def add_path3d(
+    fig, path_hist, num_paths, base_color="#000000", q0_symbol="square", qd_symbol="x"
+):
+    base_color = "#000000"
+    base_color_rgb = pc.convert_colors_to_same_type(base_color, colortype="rgb")[0][0]
+    base_color_rgba = (
+        base_color_rgb.replace(" ", "").replace(")", "").replace("rgb", "rgba")
+    )
+
+    # Adds num_paths paths from path_hist to the figure
+    # each path is colored with a gradient from base_color 0.1 opacity to base_color 1.0 opacity
+    # q0 and qd are marked with different symbols
+    # paths2add = path_hist[:: max(1, len(path_hist) // num_paths)]
+    idxs2add = np.round(
+        np.linspace(0, len(path_hist) - 1, num=min(num_paths, len(path_hist)))
+    ).astype(int)
+    paths2add = np.array(path_hist)[idxs2add]
+    print(f"Adding {len(paths2add)} paths to the figure.")
+    for i, path in enumerate(paths2add):
+        alpha = 0.1 + (0.5 * i) / (len(paths2add) - 1) if len(paths2add) > 1 else 1.0
+        alpha = alpha if i < len(paths2add) - 1 else 1.0
+        color = base_color_rgba + f", {alpha})"
+        marker_size = 4
+        fig.add_trace(
+            go.Scatter3d(
+                x=path[0, :],
+                y=path[1, :],
+                z=path[2, :],
+                mode="lines+markers",
+                line=dict(color=color, width=4),
+                marker=dict(size=2, color=color),
+                name=f"Path {i+1}",
+                showlegend=False,
+            )
+        )
+        # Mark q0
+        fig.add_trace(
+            go.Scatter3d(
+                x=[path[0, 0]],
+                y=[path[1, 0]],
+                z=[path[2, 0]],
+                mode="markers",
+                marker=dict(symbol=q0_symbol, size=marker_size, color=color),
+                name="Start",
+                showlegend=(i == len(paths2add) - 1),
+            )
+        )
+        # Mark qd
+        fig.add_trace(
+            go.Scatter3d(
+                x=[path[0, -1]],
+                y=[path[1, -1]],
+                z=[path[2, -1]],
+                mode="markers",
+                marker=dict(symbol=qd_symbol, size=marker_size, color=color),
+                name="Goal",
+                showlegend=(i == len(paths2add) - 1),
+            )
+        )
+
 
 def deform_path(
     init_path,
@@ -226,54 +286,99 @@ add_path(fig, path_hist, num_paths=6, base_color="black")
 fig.update_layout(width=1200, height=800)
 fig.show()
 
-fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
+# fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
 
 
 # [jump]
 
 # %%
-A, b, verts, vol = generate_random_polyhedron(
-    max_vertices=10,
-    radius_lim=(3, 6),
-    bbox=(-100, 100),
-    dim=3,
-    seed=420,
-    max_attempts=500,
-    min_volume=2,
-)
+n_polyhedra = 12
+max_vertices = 15
+bounding_box = (-20.0, -20, -20, 20, 20, 20)
+# Distance between vertices will be at least 2*first element, and at most
+# 2*second element of radius_limits:
+radius_limits = (2, 10)
+q0 = np.array([-1., -15, 10.]).reshape(-1, 1)
+qd = np.array([18., 18, -18.]).reshape(-1, 1)
+# qd = np.array([11.0, 15]).reshape(-1, 1)
+n_points = 100
+h = 0.01
+r = 0.1
+zeta = 0.5
+alpha = np.log(2) / 0.2
+min_path = True
+max_attempts = 500
+seed = 1001  # 1001, 69 cool, 42 NICE post mods, 100 is cool
+min_volume = 4/3 * np.pi * (3 ** 3)  # at least radius 2
+radius = None
+num_vertices = None
 
-poly = Polytope(A, b)
-random_polys = generate_random_polyhedron_set(
-    n_polyhedra=3,
+obstacles = Polytope.random_set_polyhedra(
+    n_polyhedra=n_polyhedra,
     intersect_polyhedra=False,
-    q0=np.zeros((3, 1)),
-    qd=np.ones((3, 1)) * 10,
-    max_vertices=10,
-    radius_lim=(3, 6),
+    q0=q0,
+    qd=qd,
+    max_vertices=max_vertices,
+    radius_lim=radius_limits,
+    bbox=bounding_box,
+    seed=seed,
     dim=3,
-    bbox=(-20, 20),
-    seed=1337,
-    max_attempts=500,
+    min_volume=min_volume,
+    max_attempts=max_attempts,
+    radius=radius,
+    num_vertices=num_vertices,
 )
-polyhedra = [Polytope(A, b) for A, b, *_ in random_polys]
 
-def add_corners(poly):
-    vertices = poly.vertices.T
-    fig.add_trace(
-        go.Scatter3d(
-            x=vertices[0, :],
-            y=vertices[1, :],
-            z=vertices[2, :],
-            mode="markers",
-            marker=dict(size=5, color="red"),
-            name="Vertices",
-        )
-    )
+# Test with simple cube 
+# obstacles = [
+#     Polytope(
+#         A=np.array([
+#             [1, 0, 0],
+#             [-1, 0, 0],
+#             [0, 1, 0],
+#             [0, -1, 0],
+#             [0, 0, 1],
+#             [0, 0, -1],
+#         ]),
+#         b=np.array([5, 5, 5, 5, 5, 5]).reshape(-1, 1),
+#     )
+# ]
 
+lambda_ = np.linspace(0, 1, n_points)
+init_path = (1 - lambda_) * q0 + lambda_ * qd
+path = init_path.copy()
+dists = [-100]
+iter_ = 0
+path_hist = [init_path.copy()]
+max_iters = 200
+kind = "in"
+kind = "out"
+kind = None
 
+# bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 fig = go.Figure()
-for poly in polyhedra:
-    add_polyhedron(fig, poly.A, poly.b, add_reference=False)
-    add_corners(poly)
+for obstacle in obstacles:
+    add_polyhedron(fig, obstacle.A, obstacle.b, add_reference=False)
 
+# obstacles = [obstacles[0]]
+while np.any(np.array(dists) < 0.0):
+    if iter_ >= max_iters:
+        print(f"reached max iterations: {max_iters}")
+        break
+
+    path, dist, grad = deform_path(
+        path, obstacles, kind=kind, h=h, r=r, min_path=min_path, zeta=zeta, alpha=alpha
+    )
+    path_hist.append(path.copy())
+    dists = dist
+    if iter_ % 10 == 0:
+        print(f"iteration {iter_}: min dist = {np.min(dists)}")
+
+    iter_ += 1
+
+print(f"deformation completed in {iter_} iterations with min dist = {np.min(dists)}")
+add_path3d(fig, path_hist, num_paths=6, base_color="black")
+fig.update_layout(width=1200, height=800)
 fig.show()
+
+

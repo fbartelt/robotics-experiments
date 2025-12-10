@@ -239,6 +239,40 @@ class Polytope:
         polytopes = [Polytope(A, b) for (A, b, _, _, _) in polygons]
         return polytopes
 
+    @staticmethod
+    def random_set_polyhedra(
+        n_polyhedra=4,
+        intersect_polyhedra=False,
+        q0=None,
+        qd=None,
+        max_vertices=20,
+        radius_lim=(1e-1, 1.0),
+        dim=3,
+        bbox=(-5, 5),
+        seed=None,
+        min_volume=None,
+        max_attempts=1000,
+        radius=None,
+        num_vertices=None,
+    ):
+        polyhedra = generate_random_polyhedron_set(
+            n_polyhedra=n_polyhedra,
+            intersect_polyhedra=intersect_polyhedra,
+            q0=q0,
+            qd=qd,
+            max_vertices=max_vertices,
+            radius_lim=radius_lim,
+            dim=dim,
+            bbox=bbox,
+            seed=seed,
+            min_volume=min_volume,
+            max_attempts=max_attempts,
+            radius=radius,
+            num_vertices=num_vertices,
+        )
+        polytopes = [Polytope(A, b) for (A, b, _, _, _) in polyhedra]
+        return polytopes
+
     def get_vertices(self):
         return self.get_polytope_vertices(self.A, self.b)
 
@@ -335,18 +369,26 @@ def generate_random_polyhedron(
         if num_vertices is None:
             num_vertices = rng.integers(dim + 1, max_vertices + 1).item()
         if radius is None:
+            print( "Generating radius" + str(radius_lim))
             radius = rng.uniform(radius_lim[0], radius_lim[1])
+            print( "Generated radius" + str(radius))
         phi_angles = np.sort(rng.uniform(0, np.pi, (num_vertices, dim - 1)))
         phi_angles[:, -1] *= 2  # Last angle in [0, 2pi]
 
+        print(f"Radius is {radius}")
         vertices = np.array(
             [nsphere_coords(dim, radius, angles) for angles in phi_angles]
         )
+        print(f"2Radius is {radius}")
         # Calculate safe translation boundaries
-        offset = rng.uniform(
-            low=[bbox[i] + radius for i in range(dim)],
-            high=[bbox[i + dim] - radius for i in range(dim)],
-        )
+        try:
+            offset = rng.uniform(
+                low=[bbox[i] + radius for i in range(dim)],
+                high=[bbox[i + dim] - radius for i in range(dim)],
+            )
+        except ValueError:
+            print(bbox, dim, radius)
+            raise ValueError("Bounding box too small for the given radius")
         vertices += offset
         hull = ConvexHull(vertices)
         A = hull.equations[:, :-1]
@@ -507,10 +549,10 @@ def generate_random_polyhedron_set(
                 continue
         # Get center of polygon and radius of circumscribed circle
         center = np.mean(vertices, axis=0)
-        radius = 1.001 * np.max(np.linalg.norm(vertices - center, axis=1)).item()
+        radius_ = 1.001 * np.max(np.linalg.norm(vertices - center, axis=1)).item()
 
         # Passed all checks
-        polyhedra.append((A, b, vertices, center, radius))
+        polyhedra.append((A, b, vertices, center, radius_))
 
     if attempts == max_attempts:
         raise RuntimeError("Too many attempts to generate non-overlapping polygons")
