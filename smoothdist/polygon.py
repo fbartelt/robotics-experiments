@@ -369,17 +369,13 @@ def generate_random_polyhedron(
         if num_vertices is None:
             num_vertices = rng.integers(dim + 1, max_vertices + 1).item()
         if radius is None:
-            print( "Generating radius" + str(radius_lim))
             radius = rng.uniform(radius_lim[0], radius_lim[1])
-            print( "Generated radius" + str(radius))
         phi_angles = np.sort(rng.uniform(0, np.pi, (num_vertices, dim - 1)))
         phi_angles[:, -1] *= 2  # Last angle in [0, 2pi]
 
-        print(f"Radius is {radius}")
         vertices = np.array(
             [nsphere_coords(dim, radius, angles) for angles in phi_angles]
         )
-        print(f"2Radius is {radius}")
         # Calculate safe translation boundaries
         try:
             offset = rng.uniform(
@@ -388,7 +384,7 @@ def generate_random_polyhedron(
             )
         except ValueError:
             print(bbox, dim, radius)
-            raise ValueError("Bounding box too small for the given radius")
+            raise ValueError("Bounding box too small for the given radius limits")
         vertices += offset
         hull = ConvexHull(vertices)
         A = hull.equations[:, :-1]
