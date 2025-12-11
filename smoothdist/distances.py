@@ -27,6 +27,7 @@ def holder_mean(values, r=0.1, compute_gradient=False):
         inner_der = np.array(
             list(map(lambda x: -1 / r * (x ** (-1 / r - 1)), v + 1e-6))
         )
+        print(f"inner_der: {inner_der}")
         gradient = outer_der * inner_der
         return res, gradient
 
@@ -89,16 +90,9 @@ def _smooth_min_list(values, r=0.1, compute_gradient=False):
         return min_value
     else:
         # ---- FORWARD + BACKWARD ----
-
-        # r = 0.1
-        # values = [-10, 10, -2, -6]
-        # print(f"Values: {values}")
-        # compute_gradient = True
         n = len(values)
         gradient = np.ones(n)
         min_value = values[-1]
-        local_grads = []
-        # for i, val in enumerate(reversed(values[:-1])):
         for i in reversed(range(n - 1)):
             val = values[i]
             min_value, local_grad = _smooth_min_two_elements(
@@ -107,9 +101,6 @@ def _smooth_min_list(values, r=0.1, compute_gradient=False):
             left, right = local_grad
             gradient[i + 1:] *= right
             gradient[i] *= left
-            # print(f"Step {n - i - 1}: val={val}, min_value={min_value}, local_grad={local_grad}, gradient={gradient}")
-        # print("Final min value:", min_value)
-        # print("Final gradient:", gradient)
 
         return min_value, gradient
 
@@ -300,17 +291,11 @@ def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None, compute_gradient=Fal
         s = (b[i] - ai.T @ p).item()
         s_out = -s
         f_val, f_grad, f_hess = f(s, h)
-        # if f_val > 1e-6:
         raw_inner_distances[i] = f_val
         raw_inner_gradients[i, :] = -(f_grad * ai.T).ravel()
-        # else:
-        #     raw_inner_distances.append(1e-6 ** (-1 / r))
         f_val_out, f_grad_out, f_hess_out = f(s_out, h)
-        # if f_val_out > 1e-6:
         raw_outer_distances[i] = f_val_out
         raw_outer_gradients[i, :] = (f_grad_out * ai.T).ravel()
-        # else:
-        #     raw_outer_distances.append(1e-6 ** (-1 / r))
     if test == "in":
         res = smooth_min(raw_inner_distances, r=r, compute_gradient=compute_gradient)
         if not compute_gradient:
@@ -326,10 +311,6 @@ def signed_dist2convex(f, p, A, b, r=0.1, h=0.5, test=None, compute_gradient=Fal
         else:
             dist = res[0]
             grad = res[1] @ raw_outer_gradients
-            # print("Inside signed_dist2convex OUT gradient:", grad)
-            # print("Raw outer distances:", raw_outer_distances)
-            # print("Raw outer gradients:", raw_outer_gradients)
-            # print("Smooth max gradient:", res[1])
             return dist, grad
     else:
         res_min = smooth_min(
