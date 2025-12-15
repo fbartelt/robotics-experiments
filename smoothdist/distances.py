@@ -27,7 +27,6 @@ def holder_mean(values, r=0.1, compute_gradient=False):
         inner_der = np.array(
             list(map(lambda x: -1 / r * (x ** (-1 / r - 1)), v + 1e-6))
         )
-        print(f"inner_der: {inner_der}")
         gradient = outer_der * inner_der
         return res, gradient
 

@@ -3,7 +3,8 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
 
-from distances import signed_dist2convex, phi, smooth_min
+# from distances import signed_dist2convex, phi, smooth_min
+from smoothfunctions import signedDist2Convex, smoothMinListWithGradient
 from scipy.optimize import minimize
 from typing import List, Tuple, Optional, Callable
 from polygon import (
@@ -152,22 +153,32 @@ def deform_path(
     m = path.shape[0]  # dimension of the space
     n_obstacles = len(obstacles)
     dists, grads = np.zeros((N,)), np.zeros((N, m))
+    test = kind if kind in ["in", "out"] else ""
     for j, p_ in enumerate(init_path.T):
         p = p_.copy().reshape(-1, 1)
         dists_, grads_ = np.zeros((n_obstacles,)), np.zeros((n_obstacles, m))
         for i, obstacle in enumerate(obstacles):
             A, b = obstacle.A, obstacle.b
             # Compute each d_S and gradient (1 x m)
-            dist_, grad_ = signed_dist2convex(
-                phi, p, A, b, r=r, h=h, test=kind, compute_gradient=True
-            )
+            dist_, grad_ = signedDist2Convex(p, A, b.reshape(-1, 1), r=r, eps=h, test=test)
+            # dist_, grad_ = signed_dist2convex(
+            if np.any(np.isnan(grad_)):
+                print(f"NaN in grad: dist={dist_}, grad={grad_})")
+                raise ValueError("NaN in grad from signed distance.")
+            #     phi, p, A, b, r=r, h=h, test=kind, compute_gradient=True
+            # )
             dists_[i] = np.round(dist_, 6)
             if np.round(dist_, 4) >= 0:
                 grads_[i, :] = grad_.ravel()
             else:
                 grads_[i, :] = grad_.ravel()
         # Compute D_O and gradient (1 x n_obstacles)
-        dist, grad = smooth_min(dists_, r=r, compute_gradient=True)
+        # dist, grad = smooth_min(dists_, r=r, compute_gradient=True)
+        dist, grad = smoothMinListWithGradient(dists_, r=r)
+        if np.any(np.isnan(grad)):
+            print(f"NaN in grad: dist={dist}, grad={grad})")
+            raise ValueError("NaN in grad from smooth min.")
+
         grad_sat = 1 / (1 + np.exp(alpha * dist))
         dist = (-1 / alpha) * np.log(
             0.5 * (1 + np.exp(-alpha * dist))
@@ -449,18 +460,20 @@ kind = None
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
+print(f"Creating level sets for {len(obstacles)} obstacles.")
 fig = create_level_sets(
     obstacles,
     r=r,
     h=h,
     kind="both",
     bbox=bounding_box,
-    n_points=200,
+    n_points=20,
     n_contours=40,
     add_reference=False,
     test=None,
     rescale=True,
 )
+print("Level sets created.")
 # for obstacle in obstacles:
 #     add_polygon(fig, obstacle.A, obstacle.b, add_reference=False)
 
