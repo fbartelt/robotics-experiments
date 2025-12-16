@@ -13,12 +13,12 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(smoothfunctions, m) {
   m.doc() = "Smooth functions module";
-  m.def("holderMean", &holderMean, "Compute the Holder mean of a list of values",
-        py::arg("values"), py::arg("r"));
+  m.def("holderMean", &holderMean, "Compute the Holder mean between two values",
+        py::arg("x"), py::arg("y"), py::arg("r"));
   m.def("holderMeanGradient", &holderMeanGradient,
-        "Compute the gradient of the Holder mean", py::arg("values"), py::arg("r"));
+        "Compute the gradient of the Holder mean", py::arg("x"), py::arg("y"), py::arg("r"));
   m.def("holderMeanWithGradient", &holderMeanWithGradient,
-        "Compute the Holder mean and its gradient", py::arg("values"), py::arg("r"));
+        "Compute the Holder mean and its gradient", py::arg("x"), py::arg("y"), py::arg("r"));
   m.def("smoothMin2Elements", &smoothMin2Elements,
         "Compute the smooth minimum of two elements", py::arg("x"), py::arg("y"),
         py::arg("r"));

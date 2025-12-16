@@ -483,10 +483,10 @@ def generate_random_polygon_set(
                 continue
         # Get center of polygon and radius of circumscribed circle
         center = np.mean(vertices, axis=0)
-        radius = 1.001 * np.max(np.linalg.norm(vertices - center, axis=1)).item()
+        radius_ = 1.001 * np.max(np.linalg.norm(vertices - center, axis=1)).item()
 
         # Passed all checks
-        polygons.append((A, b, vertices, center, radius))
+        polygons.append((A, b, vertices, center, radius_))
 
     if attempts == max_attempts:
         raise RuntimeError("Too many attempts to generate non-overlapping polygons")

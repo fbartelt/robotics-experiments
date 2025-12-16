@@ -10,45 +10,51 @@ using namespace std;
 // ----------------------------------------------------------------------------------------
 //
 
-float holderMean(const Eigen::VectorXf &values, float r) {
+float holderMean(float x, float y, float r) {
   // Eigen::VectorXf powered = values.array().pow(-1.0f / r);
   // Stabler version:
   // If any value is zero, return 0
-  for (Eigen::Index i = 0; i < values.size(); ++i) {
-    if (values(i) == 0.0f) {
-      return 0.0f;
-    }
+  if (x == 0.0f || y == 0.0f) {
+    return 0.0f;
   }
   // Compute true minimum and 'normalize' values
-  float minValue = values.minCoeff();
-  Eigen::VectorXf normalized = values.array() / minValue;
-  Eigen::VectorXf powered = normalized.array().pow(-1.0f / r);
-  float sumPowered = powered.sum();
+  float minValue = std::min(x, y);
+  float xNorm = x / minValue;
+  float yNorm = y / minValue;
+  float sumPowered = pow(xNorm, -1.0f / r) + pow(yNorm, -1.0f / r);
   return minValue * pow(sumPowered, -r);
 }
 
-Eigen::VectorXf holderMeanGradient(const Eigen::VectorXf &values, float r) {
+Eigen::VectorXf holderMeanGradient(float x, float y, float r) {
   float eps = 1e-6f;
-  Eigen::VectorXf raised = values.array().pow(-1.0f / r);
-  float sumRaised = raised.sum();
-  float outerDer = -r * pow(sumRaised, -r - 1.0f);
-  Eigen::VectorXf innerDer =
-      (-1.0f / r) * (values.array() + eps).pow((-1.0f / r) - 1.0f);
-  // Check if any value in innerDer is infinite and replace with 1e8
-  for (Eigen::Index i = 0; i < innerDer.size(); ++i) {
-    if (isinf(innerDer(i))) {
-      innerDer(i) = 1e8f;
-    }
+  Eigen::VectorXf gradient(2);
+  float dfdx;
+  float dfdy;
+  // Define cases x=0 and y>0, x>0 and y=0, x=y, and general case
+  if (x == 0.0f && y > 0.0f) {
+    dfdx = 1.0f;
+    dfdy = 0.0f;
+  } else if (x > 0.0f && y == 0.0f) {
+    dfdx = 0.0f;
+    dfdy = 1.0f;
+  } else if (abs(x - y) < eps) {
+    dfdx = pow(2.0f, -r -1.0f);
+    dfdy = pow(2.0f, -r -1.0f);
+  } else {
+    // General case
+    dfdx = pow((1.0f + pow(x / y, 1.0f / r)), -r -1.0f);
+    dfdy = pow((1.0f + pow(y / x, 1.0f / r)), -r -1.0f);
   }
-  Eigen::VectorXf gradient = outerDer * innerDer;
+  gradient << dfdx, dfdy;
   // Check if any value in gradient is NaN
   for (Eigen::Index i = 0; i < gradient.size(); ++i) {
     if (isnan(gradient(i))) {
-      std::cout << "values: " << values.transpose() << std::endl;
-      std::cout << "raised: " << raised.transpose() << std::endl;
-      std::cout << "sumRaised: " << sumRaised << std::endl;
-      std::cout << "outerDer: " << outerDer << std::endl;
-      std::cout << "innerDer: " << innerDer.transpose() << std::endl;
+      std::cout << "gradient: " << gradient.transpose() << std::endl;
+      // std::cout << "values: " << values.transpose() << std::endl;
+      // std::cout << "raised: " << raised.transpose() << std::endl;
+      // std::cout << "sumRaised: " << sumRaised << std::endl;
+      // std::cout << "outerDer: " << outerDer << std::endl;
+      // std::cout << "innerDer: " << innerDer.transpose() << std::endl;
       throw runtime_error("Gradient contains NaN values");
     }
   }
@@ -56,22 +62,20 @@ Eigen::VectorXf holderMeanGradient(const Eigen::VectorXf &values, float r) {
 }
 
 tuple<float, Eigen::VectorXf>
-holderMeanWithGradient(const Eigen::VectorXf &values, float r) {
-  float mean = holderMean(values, r);
-  Eigen::VectorXf gradient = holderMeanGradient(values, r);
+holderMeanWithGradient(float x, float y, float r) {
+  float mean = holderMean(x, y, r);
+  Eigen::VectorXf gradient = holderMeanGradient(x, y, r);
   return make_tuple(mean, gradient);
 }
 
 // Min
 float smoothMin2Elements(float x, float y, float r) {
   if (x >= 0.0f && y >= 0.0f) {
-    Eigen::VectorXf values(2);
-    values << x, y;
-    return holderMean(values, r);
+    return holderMean(x, y, r);
   } else if (x < 0.0f && y < 0.0f) {
-    Eigen::VectorXf values(2);
-    values << -1.0f / x, -1.0f / y;
-    float res = holderMean(values, r);
+    float xbar = -1.0f / x;
+    float ybar = -1.0f / y;
+    float res = holderMean(xbar, ybar, r);
     return -1.0f / res;
   } else {
     return std::min(x, y);
@@ -80,13 +84,11 @@ float smoothMin2Elements(float x, float y, float r) {
 
 Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r) {
   if (x >= 0.0f && y >= 0.0f) {
-    Eigen::VectorXf values(2);
-    values << x, y;
-    return holderMeanGradient(values, r);
+    return holderMeanGradient(x, y, r);
   } else if (x < 0.0f && y < 0.0f) {
-    Eigen::VectorXf values(2);
-    values << -1.0f / x, -1.0f / y;
-    tuple<float, Eigen::VectorXf> res = holderMeanWithGradient(values, r);
+    float xbar = -1.0f / x;
+    float ybar = -1.0f / y;
+    tuple<float, Eigen::VectorXf> res = holderMeanWithGradient(xbar, ybar, r);
     float value = get<0>(res);
     Eigen::VectorXf grad = get<1>(res);
     Eigen::VectorXf chain(2);
@@ -96,7 +98,7 @@ Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r) {
     // Check if any value in grad is NaN
     for (Eigen::Index i = 0; i < grad.size(); ++i) {
       if (isnan(grad(i))) {
-        std::cout << "values: " << values.transpose() << std::endl;
+        std::cout << "values: " << x << ", " << y << std::endl;
         std::cout << "min: " << value << std::endl;
         std::cout << "holder grad: " << get<1>(res).transpose() << std::endl;
         std::cout << "chain: " << chain.transpose() << std::endl;
@@ -151,7 +153,6 @@ Eigen::VectorXf smoothMinListGradient(const Eigen::VectorXf &values, float r) {
   Eigen::VectorXf gradient = Eigen::VectorXf::Ones(n);
   float minValue = values[n - 1];
 
-  std::cout << "[DEBUG] --------------------------" << std::endl;
   for (int i = n - 2; i >= 0; --i) {
     tuple<float, Eigen::VectorXf> res =
         smoothMin2ElementsWithGradient(values[i], minValue, r);
@@ -161,9 +162,6 @@ Eigen::VectorXf smoothMinListGradient(const Eigen::VectorXf &values, float r) {
     float right = localGrad(1);
     gradient.segment(i + 1, n - i - 1) *= right;
     gradient(i) *= left;
-    std::cout << "[debug] smin_grad_loop grad: " << gradient.transpose()
-              << ", left: " << left << ", right: " << right << std::endl;
-    std::cout << "values: " << values[i] << ", minValue: " << minValue << std::endl;
   }
   return gradient;
 }

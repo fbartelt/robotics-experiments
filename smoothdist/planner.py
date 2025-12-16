@@ -409,7 +409,7 @@ def deform_path_optimize(
 
 
 # %%
-max_polygons = 7  # 7 (1111), 8 (1337), 5 (1001)
+max_polygons = 10  # 7 (1111), 10 (1337), 5 (1001)
 max_vertices = 20
 bounding_box = (-20.0, -20, 20, 20)
 # Distance between vertices will be at least 2*first element, and at most
@@ -424,10 +424,10 @@ n_points = 100
 h = 0.01
 r = 0.1
 zeta = 0.5
-alpha = np.log(2) / 0.2
+alpha = np.log(2) / 0.4
 min_path = True
 max_attempts = 500
-seed = 1111  # 1001, 1337, 1111
+seed = 1337  # 1001, 1337, 1111
 min_area = None
 radius = None
 num_vertices = None
@@ -453,7 +453,7 @@ path = init_path.copy()
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
-max_iters = 200
+max_iters = 1200
 kind = "in"
 kind = "out"
 kind = None

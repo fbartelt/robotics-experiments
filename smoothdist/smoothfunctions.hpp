@@ -8,10 +8,10 @@ using namespace std;
 // // Smooth Min / Max functions
 // ----------------------------------------------------------------------------------------
 
-float holderMean(const Eigen::VectorXf &values, float r);
-Eigen::VectorXf holderMeanGradient(const Eigen::VectorXf &values, float r);
+float holderMean(float x, float y, float r);
+Eigen::VectorXf holderMeanGradient(float x, float y, float r);
 tuple<float, Eigen::VectorXf>
-holderMeanWithGradient(const Eigen::VectorXf &values, float r);
+holderMeanWithGradient(float x, float y, float r);
 // Min
 float smoothMin2Elements(float x, float y, float r);
 Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r);
