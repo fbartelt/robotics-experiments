@@ -167,7 +167,8 @@ class OptimalPathProblem:
         self.obstacles = obstacles
         self.n_obstacles = len(obstacles)
         self.n_variables = self.N * self.n
-        self.m_constraints = 2 * self.n  # p1 = q0, pN = qd
+        # p1 = q0, pN = qd, ||p_{i+1} - p_{i}|| ≤ delta for i=1..N-1
+        self.m_constraints = 2 * self.n + (self.N - 1)
         # Distance-related parameters
         self.h = h
         self.r = r
@@ -199,7 +200,12 @@ class OptimalPathProblem:
             dists = np.zeros(self.n_obstacles)
             for j, obs in enumerate(self.obstacles):
                 dist_ij, _ = signedDist2Convex(
-                    p_i, obs.A, obs.b.reshape(-1, 1), r=self.r, eps=self.h, test=self.test
+                    p_i,
+                    obs.A,
+                    obs.b.reshape(-1, 1),
+                    r=self.r,
+                    eps=self.h,
+                    test=self.test,
                 )
                 dists[j] = dist_ij
             smooth_min_dist = smoothMinList(dists, self.r)
@@ -226,7 +232,12 @@ class OptimalPathProblem:
 
             for j, obs in enumerate(self.obstacles):
                 dist_ij, grad_ij = signedDist2Convex(
-                    p_i, obs.A, obs.b.reshape(-1, 1), r=self.r, eps=self.h, test=self.test
+                    p_i,
+                    obs.A,
+                    obs.b.reshape(-1, 1),
+                    r=self.r,
+                    eps=self.h,
+                    test=self.test,
                 )
                 dists[j] = dist_ij
                 grads[:, j] = grad_ij.flatten()
@@ -250,36 +261,117 @@ class OptimalPathProblem:
 
     def constraints(self, x):
         path = self.unpack_path(x)
-        constraints_ = []
-        constraints_.extend((path[:, 0].ravel() - self.q0.ravel()).tolist())  # p_1 = q0
-        constraints_.extend((path[:, -1].ravel() - self.qd.ravel()).tolist())  # p_N = qd
+        constraints = np.zeros(self.m_constraints)
+        # Equality constraints for endpoints
+        # Equality constraints: p1 = q0, pN = qd (2n constraints)
+        constraints[: self.n] = path[:, 0] - self.q0.flatten()
+        constraints[self.n : 2 * self.n] = path[:, -1] - self.qd.flatten()
+        # constraints_.extend((path[:, 0].ravel() - self.q0.ravel()).tolist())  # p_1 = q0
+        # constraints_.extend(
+        #     (path[:, -1].ravel() - self.qd.ravel()).tolist()
+        # )  # p_N = qd
+        # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2 (N-1 constraints)
+        offset = 2 * self.n
+        for i in range(self.N - 1):
+            p_i = path[:, i]
+            p_next = path[:, i + 1]
+            diff = p_next - p_i
+            constraints[offset + i] = np.dot(diff, diff) - self.delta**2
 
-        return np.array(constraints_).ravel()
+        return constraints
 
     def jacobian(self, x):
-        jac = np.zeros((self.m_constraints, self.n_variables))
-        row = 0
+        # jac = np.zeros((self.m_constraints, self.n_variables))
 
-        # First 2n rows are equality consts
-        for i in range(self.n):
-            jac[row, i] = 1.0
-            row += 1
+        # First 2n constraints are the fixed endpoints (eq. constraints)
+        # First n constraints: p1 = q0
+        # for i in range(self.n):
+        #     jac[i, i] = 1.0
+        #
+        # # Second n constraints: pN = qd
+        # for i in range(self.n):
+        #     jac[self.n + i, (self.N - 1) * self.n + i] = 1.0
+        #
+        # return jac.flatten()
+        non_zeros = []
 
-        for i in range(self.n):
-            jac[row, i - self.n] = 1.0
-            row += 1
+        # 1. Equality constraints (2n entries, all 1.0)
+        non_zeros.extend([1.0] * (2 * self.n))
 
-        return jac.flatten()
+        # 2. Inequality constraints (2n non-zeros per constraint)
+        # offset = 2 * self.n  # Start index for inequality constraints
+        for i in range(self.N - 1):
+            p_i = path[:, i]
+            p_next = path[:, i + 1]
+            diff = p_next - p_i
+
+            # ∂c_i/∂p_i = -2*diff (all n dimensions)
+            for dim in range(self.n):
+                non_zeros.append(-2.0 * diff[dim])
+
+            # ∂c_i/∂p_{i+1} = 2*diff (all n dimensions)
+            for dim in range(self.n):
+                non_zeros.append(2.0 * diff[dim])
+
+        return np.array(non_zeros)
 
     def jacobianstructure(self):
+        """Returns (row_indices, col_indices) for sparse Jacobian.
+        Each pair indicates a non-zero entry.
+        """
         # Full dense Jacobian: just return all indices
+        # row_indices = []
+        # col_indices = []
+        # for row in range(self.m_constraints):
+        #     for col in range(self.n_variables):
+        #         row_indices.append(row)
+        #         col_indices.append(col)
+        # return np.array(row_indices), np.array(col_indices)
+        # row_indices = []
+        # col_indices = []
+        #
+        # # First n constraints
+        # for i in range(self.n):
+        #     row_indices.append(i)
+        #     col_indices.append(i)
+        #
+        # # Last n constraints
+        # for i in range(self.n):
+        #     row_indices.append(self.n + i)
+        #     col_indices.append((self.N - 1) * self.n + i)
+        #
+        # return (np.array(row_indices), np.array(col_indices))
         row_indices = []
         col_indices = []
-        for row in range(self.m_constraints):
-            for col in range(self.n_variables):
+
+        # 1. Equality constraints (2n non-zeros)
+        # First n constraints: p1 = q0
+        for i in range(self.n):
+            row_indices.append(i)  # Constraint i
+            col_indices.append(i)  # Variable p1[i]
+
+        # Next n constraints: pN = qd
+        for i in range(self.n):
+            row_indices.append(self.n + i)  # Constraint n+i
+            col_indices.append((self.N - 1) * self.n + i)  # Variable pN[i]
+
+        # 2. Inequality constraints (2n non-zeros per constraint)
+        offset = 2 * self.n  # Start row for inequality constraints
+        for i in range(self.N - 1):
+            # Constraint for segment (i, i+1)
+            row = offset + i
+
+            # Derivatives wrt p_i (all n dimensions)
+            for dim in range(self.n):
                 row_indices.append(row)
-                col_indices.append(col)
-        return np.array(row_indices), np.array(col_indices)
+                col_indices.append(i * self.n + dim)
+
+            # Derivatives wrt p_{i+1} (all n dimensions)
+            for dim in range(self.n):
+                row_indices.append(row)
+                col_indices.append((i + 1) * self.n + dim)
+
+        return (np.array(row_indices), np.array(col_indices))
 
     def intermediate(
         self,
@@ -307,6 +399,27 @@ class OptimalPathProblem:
 
         return True
 
+    def bounds(self):
+        """
+        Returns bounds for constraints:
+        - Equality constraints: cl = cu = 0
+        - Inequality constraints: cl = -∞, cu = 0 (since ≤ 0)
+        """
+        cl = np.zeros(self.m_constraints)
+        cu = np.zeros(self.m_constraints)
+
+        # Equality constraints: p1 = q0, pN = qd
+        # Set both bounds to 0 (equality)
+        cl[: 2 * self.n] = 0.0
+        cu[: 2 * self.n] = 0.0
+
+        # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2
+        # c(x) ≤ 0, so lower bound = -∞, upper bound = 0
+        cl[2 * self.n :] = -self.delta**2
+        cu[2 * self.n :] = 0.0
+
+        return cl, cu
+
 
 def deform_path_ipopt(
     init_path,
@@ -330,13 +443,7 @@ def deform_path_ipopt(
     x_U = np.full(problem.n_variables, np.inf)
 
     # Constraint bounds
-    c_L = np.zeros(problem.m_constraints)
-    c_U = np.zeros(problem.m_constraints)
-    # First 2*d are equalities
-    c_U[: 2 * problem.n] = 0.0
-    # Last N-1 are upper bounds only (||p_{i+1} - p_i|| ≤ δ)
-    print(f"Delta: {problem.delta}. Shape of c_U: {c_U.shape}")
-    c_U[2 * problem.n :] = delta
+    c_L, c_U = problem.bounds()
 
     nlp = cyipopt.Problem(
         n=problem.n_variables,
@@ -429,14 +536,15 @@ obstacles = Polytope.random_set(
 lambda_ = np.linspace(0, 1, n_points)
 init_path = (1 - lambda_) * q0 + lambda_ * qd
 path = init_path.copy()
-delta = np.linalg.norm(path[:, 1] - path[:, 0]) * 2.0
+delta = 1.5 * np.linalg.norm(path[:, 1] - path[:, 0]) ** 2
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
 max_iters = 1200
+opt_max_iters = 20
 kind = "in"
 # kind = "out"
-kind = None
+# kind = None
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
@@ -462,12 +570,12 @@ print("Level sets created.")
 path_opt, path_hist, info = deform_path_ipopt(
     init_path,
     obstacles,
-    max_iter=100,
+    max_iter=opt_max_iters,
     kind=kind,
     h=h,
     r=r,
     alpha=alpha,
-    zeta=zeta,
+    zeta=zeta*0,
     min_path=False,
     delta=delta,
 )
