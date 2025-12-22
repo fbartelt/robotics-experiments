@@ -4,7 +4,7 @@ import plotly.colors as pc
 import cyipopt
 
 # from distances import signed_dist2convex, phi, smooth_min
-from smoothfunctions import signedDist2Convex, smoothMinListWithGradient, smoothMinList
+from smoothfunctions import signedDist2Convex, smoothMinListWithGradient, smoothMinList, phi
 from scipy.optimize import minimize
 from typing import List, Tuple, Optional, Callable
 from polygon import (
@@ -169,7 +169,7 @@ class OptimalPathProblem:
         self.n_obstacles = len(obstacles)
         self.n_variables = self.N * self.n
         # p1 = q0, pN = qd, ||p_{i+1} - p_{i}|| ≤ delta for i=1..N-1
-        self.m_constraints = 2 * self.n #+ (self.N - 1)
+        self.m_constraints = 2 * self.n  # + (self.N - 1)
         # Distance-related parameters
         self.h = h
         self.r = r
@@ -216,10 +216,6 @@ class OptimalPathProblem:
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
 
-            ## TODO: REMOVE THIS LINE (TEST ONLY)
-            sat_dist = smooth_min_dist
-            ### 
-
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
             # Path length cost
             # if self.min_path and i < self.N - 1:
@@ -258,11 +254,15 @@ class OptimalPathProblem:
             #     0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
             # )  # Smooth saturation
 
-            ### TODO: REMOVE THIS LINE (TEST ONLY)
-            grad_sat = 1.0
-            ###
-
             grad_full = grad_sat * (grads @ smooth_min_grad.reshape(-1, 1))  # n x 1
+            # Point 29 has negative distance outside obstacle in test case ??
+            if i == 29:
+                print(f"p_i: {p_i.ravel()}")
+                aux = [ phi(b - (a @ p_i), eps=self.h) for a, b in zip(self.obstacles[0].A, self.obstacles[0].b)]
+                print(f"DEBUG: point {i}, aux: {aux}")
+                print(
+                    f"[DEBUG]: point {i}, dists: {dists}, smooth_min_dist: {smooth_min_dist}, grad_sat: {grad_sat}, smooth_min_grad: {smooth_min_grad.flatten()}, grads: {grads.flatten()}, grad_full: {grad_full.flatten()}"
+                )
             grad[i] += -grad_full.flatten()  # Minimize negative sat_dist
             # Path length gradient
             # if self.min_path and i < self.N - 1:
@@ -460,6 +460,7 @@ class OptimalPathProblem:
 
         return cl, cu
 
+
 def deform_path_ipopt(
     init_path,
     obstacles,
@@ -498,6 +499,8 @@ def deform_path_ipopt(
         # Force first-order method (no second derivatives)
         # "hessian_approximation": "exact",
         "derivative_test": "first-order",
+        "derivative_test_perturbation": 1e-3,
+        "derivative_test_tol": 1e-2,
         # "derivative_test_print_all": "yes",
         # "hessian_approximation": "limited-memory",
         # 'gradient_approximation': 'finite-difference-values',
@@ -571,10 +574,9 @@ obstacles = Polytope.random_set(
     radius=radius,
     num_vertices=num_vertices,
 )
-obstacles = [obstacles[1]]
 
 lambda_ = np.linspace(0, 1, n_points)
-init_path = (1 - lambda_) * q0 + lambda_ * qd # (2 x n_points)
+init_path = (1 - lambda_) * q0 + lambda_ * qd  # (2 x n_points)
 init_path = init_path.T  # (n_points x 2)
 path = init_path.copy()
 delta = 1.5 * np.linalg.norm(path[:, 1] - path[:, 0]) ** 2
@@ -585,7 +587,7 @@ max_iters = 1200
 opt_max_iters = 100
 kind = "in"
 # kind = "out"
-# kind = None
+kind = None
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
@@ -616,7 +618,7 @@ path_opt, path_hist, info = deform_path_ipopt(
     h=h,
     r=r,
     alpha=alpha,
-    zeta=zeta*0,
+    zeta=zeta * 0,
     min_path=False,
     delta=delta,
 )
@@ -636,130 +638,134 @@ fig.show()
 import numpy as np
 import cyipopt
 
+
 class SimpleIPOPTTest:
     """A simple test problem to debug cyipopt's derivative checker."""
-    
+
     def __init__(self):
         self.n = 2  # dimension
         self.N = 2  # 2 points
         self.n_variables = self.n * self.N  # 4 variables
         self.m_constraints = 2 * self.n  # 4 constraints
-        
+
         # Fixed points
         self.q0 = np.array([0.0, 0.0])
         self.qd = np.array([1.0, 1.0])
-        
-        print(f"Test problem: {self.n_variables} variables, {self.m_constraints} constraints")
-        
+
+        print(
+            f"Test problem: {self.n_variables} variables, {self.m_constraints} constraints"
+        )
+
         # For debugging
         self.call_count = {
-            'objective': 0,
-            'gradient': 0,
-            'constraints': 0,
-            'jacobian': 0,
-            'jacobianstructure': 0
+            "objective": 0,
+            "gradient": 0,
+            "constraints": 0,
+            "jacobian": 0,
+            "jacobianstructure": 0,
         }
-    
+
     def pack_path(self, path):
         """Flatten the path - let's test BOTH orderings"""
         print(f"pack_path: Input shape {path.shape}")
         print(f"  Path:\n{path}")
-        
+
         # Test C-order (row-major)
-        x_c = path.flatten(order='C')
+        x_c = path.flatten(order="C")
         print(f"  C-order (row-major): {x_c}")
-        
+
         # Test F-order (column-major)
-        x_f = path.flatten(order='F')
+        x_f = path.flatten(order="F")
         print(f"  F-order (column-major): {x_f}")
-        
+
         # Let's use C-order for now
         return x_c
-    
+
     def unpack_path(self, x):
         """Unpack variables to path"""
         print(f"unpack_path: Input {x}")
-        
-        path_c = x.reshape((self.n, self.N), order='C')
-        path_f = x.reshape((self.n, self.N), order='F')
-        
+
+        path_c = x.reshape((self.n, self.N), order="C")
+        path_f = x.reshape((self.n, self.N), order="F")
+
         print(f"  C-order reshape:\n{path_c}")
         print(f"  F-order reshape:\n{path_f}")
-        
+
         return path_c
-    
+
     def objective(self, x):
-        self.call_count['objective'] += 1
+        self.call_count["objective"] += 1
         print(f"\nobjective call #{self.call_count['objective']}")
         print(f"  x = {x}")
-        
+
         # Simple quadratic: minimize sum of squares
         obj = np.sum(x**2)
         print(f"  objective = {obj}")
         return obj
-    
+
     def gradient(self, x):
-        self.call_count['gradient'] += 1
+        self.call_count["gradient"] += 1
         print(f"\ngradient call #{self.call_count['gradient']}")
-        
+
         # Gradient of sum(x^2) = 2x
         grad = 2 * x
         print(f"  gradient = {grad}")
         return grad
-    
+
     def constraints(self, x):
-        self.call_count['constraints'] += 1
+        self.call_count["constraints"] += 1
         print(f"\nconstraints call #{self.call_count['constraints']}")
-        
+
         # Unpack variables
         path = self.unpack_path(x)
-        
+
         # Constraints: p1 = q0, pN = qd
         constraints = np.zeros(self.m_constraints)
-        
+
         # First point constraints
         constraints[0] = path[0, 0] - self.q0[0]  # x1 - 0
         constraints[1] = path[1, 0] - self.q0[1]  # y1 - 0
-        
+
         # Last point constraints (N=2, so p2)
         constraints[2] = path[0, 1] - self.qd[0]  # x2 - 1
         constraints[3] = path[1, 1] - self.qd[1]  # y2 - 1
-        
+
         print(f"  constraints = {constraints}")
         return constraints
-    
+
     def jacobian(self, x):
-        self.call_count['jacobian'] += 1
+        self.call_count["jacobian"] += 1
         print(f"\njacobian call #{self.call_count['jacobian']}")
-        
+
         # Jacobian is constant for these linear constraints
         # Non-zero pattern should be:
         # constraint 0 (x1): depends on variable 0 (x1)
-        # constraint 1 (y1): depends on variable 1 (y1) 
+        # constraint 1 (y1): depends on variable 1 (y1)
         # constraint 2 (x2): depends on variable 2 (x2)
         # constraint 3 (y2): depends on variable 3 (y2)
-        
+
         # In sparse format: return [1.0, 1.0, 1.0, 1.0] for these 4 positions
         jac_values = np.ones(4)  # All derivatives are 1.0
         print(f"  jacobian values = {jac_values}")
         return jac_values
-    
+
     def jacobianstructure(self):
-        self.call_count['jacobianstructure'] += 1
+        self.call_count["jacobianstructure"] += 1
         print(f"\njacobianstructure call #{self.call_count['jacobianstructure']}")
-        
+
         # Sparse structure: (0,0), (1,1), (2,2), (3,3)
         row_indices = [0, 1, 2, 3]
         col_indices = [0, 1, 2, 3]
-        
+
         print(f"  row_indices = {row_indices}")
         print(f"  col_indices = {col_indices}")
         return (np.array(row_indices), np.array(col_indices))
-    
+
     def intermediate(self, *args):
         """IPOPT callback"""
         print(f"\nintermediate callback")
         return True
+
 
 # Create the problem
 problem = SimpleIPOPTTest()
@@ -772,9 +778,9 @@ ub = np.inf * np.ones(problem.n_variables)
 cl = np.zeros(problem.m_constraints)
 cu = np.zeros(problem.m_constraints)
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("SETTING UP IPOPT PROBLEM")
-print("="*60)
+print("=" * 60)
 
 # Create IPOPT problem
 nlp = cyipopt.Problem(
@@ -788,11 +794,11 @@ nlp = cyipopt.Problem(
 )
 
 # Set options for debugging
-nlp.add_option('derivative_test', 'first-order')
-nlp.add_option('derivative_test_tol', 1e-4)
-nlp.add_option('print_level', 5)
-nlp.add_option('max_iter', 0)  # Don't solve, just test derivatives
-nlp.add_option('tol', 1e-8)
+nlp.add_option("derivative_test", "first-order")
+nlp.add_option("derivative_test_tol", 1e-4)
+nlp.add_option("print_level", 5)
+nlp.add_option("max_iter", 0)  # Don't solve, just test derivatives
+nlp.add_option("tol", 1e-8)
 
 # Initial guess
 init_path = np.array([[0.5, 1.5], [2.5, 3.5]])  # 2D, 2 points
@@ -800,9 +806,9 @@ init_path.flatten()
 x0 = problem.pack_path(init_path)
 problem.unpack_path(x0)  # Debug unpacking
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("RUNNING DERIVATIVE TEST")
-print("="*60)
+print("=" * 60)
 
 # This will run the derivative test but not solve
 try:
@@ -810,16 +816,16 @@ try:
 except Exception as e:
     print(f"\nException during derivative test: {e}")
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("FINAL CALL COUNTS")
-print("="*60)
+print("=" * 60)
 for method, count in problem.call_count.items():
     print(f"{method}: {count} calls")
 
 # Let's also do a manual finite difference check
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("MANUAL FINITE DIFFERENCE CHECK")
-print("="*60)
+print("=" * 60)
 
 epsilon = 1e-6
 
