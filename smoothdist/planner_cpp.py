@@ -168,7 +168,7 @@ class OptimalPathProblem:
         self.n_obstacles = len(obstacles)
         self.n_variables = self.N * self.n
         # p1 = q0, pN = qd, ||p_{i+1} - p_{i}|| ≤ delta for i=1..N-1
-        self.m_constraints = 2 * self.n + (self.N - 1)
+        self.m_constraints = 2 * self.n #+ (self.N - 1)
         # Distance-related parameters
         self.h = h
         self.r = r
@@ -210,14 +210,15 @@ class OptimalPathProblem:
                 dists[j] = dist_ij
             smooth_min_dist = smoothMinList(dists, self.r)
             # Smooth saturation (avoids cheating by circunventing the map)
+            exponent = np.clip(-self.alpha * smooth_min_dist, -100, 100)
             sat_dist = (-1 / self.alpha) * np.log(
-                0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
+                0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
             # Path length cost
-            if self.min_path and i < self.N - 1:
-                p_next = path[:, i + 1].reshape(-1, 1)
-                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
+            # if self.min_path and i < self.N - 1:
+            #     p_next = path[:, i + 1].reshape(-1, 1)
+            #     total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
 
         return total_cost
 
@@ -245,22 +246,26 @@ class OptimalPathProblem:
             # Smooth min grad is shaped (1 x n_obstacles)
             smooth_min_dist, smooth_min_grad = smoothMinListWithGradient(dists, self.r)
             # Smooth saturation gradient
-            grad_sat = 1 / (1 + np.exp(self.alpha * smooth_min_dist))
-            sat_dist = (-1 / self.alpha) * np.log(
-                0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
-            )  # Smooth saturation
+            exponent = np.clip(self.alpha * smooth_min_dist, -100, 100)
+            grad_sat = 1 / (1 + np.exp(exponent))
+            # sat_dist = (-1 / self.alpha) * np.log(
+            #     0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
+            # )  # Smooth saturation
             grad_full = grad_sat * (grads @ smooth_min_grad.reshape(-1, 1))  # n x 1
             grad[:, i] += -grad_full.flatten()  # Minimize negative sat_dist
             # Path length gradient
-            if self.min_path and i < self.N - 1:
-                p_next = path[:, i + 1].reshape(-1, 1)
-                grad[:, i] += -self.zeta * (p_next - p_i).flatten()
-                grad[:, i + 1] += self.zeta * (p_next - p_i).flatten()
+            # if self.min_path and i < self.N - 1:
+            #     p_next = path[:, i + 1].reshape(-1, 1)
+            #     grad[:, i] += -self.zeta * (p_next - p_i).flatten()
+            #     grad[:, i + 1] += self.zeta * (p_next - p_i).flatten()
 
         return grad.flatten()
 
     def constraints(self, x):
         path = self.unpack_path(x)
+        print(f"DEBUG: path shape: {path.shape}")
+        print(f"DEBUG: path[:,0]: {path[:,0]}, q0: {self.q0.flatten()}")
+        print(f"DEBUG: path[:,-1]: {path[:,-1]}, qd: {self.qd.flatten()}")
         constraints = np.zeros(self.m_constraints)
         # Equality constraints for endpoints
         # Equality constraints: p1 = q0, pN = qd (2n constraints)
@@ -271,13 +276,13 @@ class OptimalPathProblem:
         #     (path[:, -1].ravel() - self.qd.ravel()).tolist()
         # )  # p_N = qd
         # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2 (N-1 constraints)
-        offset = 2 * self.n
-        for i in range(self.N - 1):
-            p_i = path[:, i]
-            p_next = path[:, i + 1]
-            diff = p_next - p_i
-            constraints[offset + i] = np.dot(diff, diff) - self.delta**2
-
+        # offset = 2 * self.n
+        # for i in range(self.N - 1):
+        #     p_i = path[:, i]
+        #     p_next = path[:, i + 1]
+        #     diff = p_next - p_i
+        #     constraints[offset + i] = np.dot(diff, diff) - self.delta**2
+        print(f"DEBUG: constraints: {constraints}")
         return constraints
 
     def jacobian(self, x):
@@ -300,20 +305,32 @@ class OptimalPathProblem:
 
         # 2. Inequality constraints (2n non-zeros per constraint)
         # offset = 2 * self.n  # Start index for inequality constraints
-        for i in range(self.N - 1):
-            p_i = path[:, i]
-            p_next = path[:, i + 1]
-            diff = p_next - p_i
+        # for i in range(self.N - 1):
+        #     p_i = path[:, i]
+        #     p_next = path[:, i + 1]
+        #     diff = p_next - p_i
+        #
+        #     # ∂c_i/∂p_i = -2*diff (all n dimensions)
+        #     for dim in range(self.n):
+        #         non_zeros.append(-2.0 * diff[dim])
+        #
+        #     # ∂c_i/∂p_{i+1} = 2*diff (all n dimensions)
+        #     for dim in range(self.n):
+        #         non_zeros.append(2.0 * diff[dim])
+        jac = np.zeros((self.m_constraints, self.n_variables))
+        row = 0
 
-            # ∂c_i/∂p_i = -2*diff (all n dimensions)
-            for dim in range(self.n):
-                non_zeros.append(-2.0 * diff[dim])
+        # First 2d rows are equality consts
+        for i in range(self.n):
+            jac[row, i] = 1.0
+            row += 1
 
-            # ∂c_i/∂p_{i+1} = 2*diff (all n dimensions)
-            for dim in range(self.n):
-                non_zeros.append(2.0 * diff[dim])
+        for i in range(self.n):
+            jac[row, i - self.n] = 1.0
+            row += 1
 
-        return np.array(non_zeros)
+        return jac.flatten()
+        # return np.array(non_zeros)
 
     def jacobianstructure(self):
         """Returns (row_indices, col_indices) for sparse Jacobian.
@@ -341,6 +358,7 @@ class OptimalPathProblem:
         #     col_indices.append((self.N - 1) * self.n + i)
         #
         # return (np.array(row_indices), np.array(col_indices))
+        print(f"WE ARE INSIDE JACOBIAN STRUCTURE WITH {self.m_constraints} CONSTRAINTS")
         row_indices = []
         col_indices = []
 
@@ -356,22 +374,33 @@ class OptimalPathProblem:
             col_indices.append((self.N - 1) * self.n + i)  # Variable pN[i]
 
         # 2. Inequality constraints (2n non-zeros per constraint)
-        offset = 2 * self.n  # Start row for inequality constraints
-        for i in range(self.N - 1):
-            # Constraint for segment (i, i+1)
-            row = offset + i
+        # offset = 2 * self.n  # Start row for inequality constraints
+        # for i in range(self.N - 1):
+        #     # Constraint for segment (i, i+1)
+        #     row = offset + i
+        #
+        #     # Derivatives wrt p_i (all n dimensions)
+        #     for dim in range(self.n):
+        #         row_indices.append(row)
+        #         col_indices.append(i * self.n + dim)
+        #
+        #     # Derivatives wrt p_{i+1} (all n dimensions)
+        #     for dim in range(self.n):
+        #         row_indices.append(row)
+        #         col_indices.append((i + 1) * self.n + dim)
 
-            # Derivatives wrt p_i (all n dimensions)
-            for dim in range(self.n):
+        print(f"DEBUG: Jacobian structure rows: {row_indices}")
+        print(f"DEBUG: Jacobian structure cols: {col_indices}")
+        row_indices = []
+        col_indices = []
+        for row in range(self.m_constraints):
+            for col in range(self.n_variables):
                 row_indices.append(row)
-                col_indices.append(i * self.n + dim)
-
-            # Derivatives wrt p_{i+1} (all n dimensions)
-            for dim in range(self.n):
-                row_indices.append(row)
-                col_indices.append((i + 1) * self.n + dim)
-
-        return (np.array(row_indices), np.array(col_indices))
+                col_indices.append(col)
+        print(f"DEBUG: Jacobian structure rows 2: {row_indices}")
+        print(f"DEBUG: Jacobian structure cols 2: {col_indices}")
+        return np.array(row_indices), np.array(col_indices)
+        # return (np.array(row_indices), np.array(col_indices))
 
     def intermediate(
         self,
@@ -415,8 +444,8 @@ class OptimalPathProblem:
 
         # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2
         # c(x) ≤ 0, so lower bound = -∞, upper bound = 0
-        cl[2 * self.n :] = -self.delta**2
-        cu[2 * self.n :] = 0.0
+        # cl[2 * self.n :] = -self.delta**2
+        # cu[2 * self.n :] = 0.0
 
         return cl, cu
 
@@ -458,7 +487,7 @@ def deform_path_ipopt(
     options = {
         # Force first-order method (no second derivatives)
         # "hessian_approximation": "exact",
-        # "derivative_test": "first-order",
+        "derivative_test": "first-order",
         # "derivative_test_print_all": "yes",
         # "hessian_approximation": "limited-memory",
         # 'gradient_approximation': 'finite-difference-values',
@@ -506,7 +535,7 @@ q0 = np.array([-8.5, -16]).reshape(-1, 1)  # 1001
 q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1337, 1111
 qd = np.array([18, 15]).reshape(-1, 1)
 # qd = np.array([11.0, 15]).reshape(-1, 1)
-n_points = 100
+n_points = 2
 h = 0.01
 r = 0.1
 zeta = 0.5 * 1e5
@@ -544,7 +573,7 @@ max_iters = 1200
 opt_max_iters = 20
 kind = "in"
 # kind = "out"
-# kind = None
+kind = None
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
@@ -589,3 +618,222 @@ fig.show()
 
 
 # [jump]
+
+# %%
+"""debug"""
+import numpy as np
+import cyipopt
+
+class SimpleIPOPTTest:
+    """A simple test problem to debug cyipopt's derivative checker."""
+    
+    def __init__(self):
+        self.n = 2  # dimension
+        self.N = 2  # 2 points
+        self.n_variables = self.n * self.N  # 4 variables
+        self.m_constraints = 2 * self.n  # 4 constraints
+        
+        # Fixed points
+        self.q0 = np.array([0.0, 0.0])
+        self.qd = np.array([1.0, 1.0])
+        
+        print(f"Test problem: {self.n_variables} variables, {self.m_constraints} constraints")
+        
+        # For debugging
+        self.call_count = {
+            'objective': 0,
+            'gradient': 0,
+            'constraints': 0,
+            'jacobian': 0,
+            'jacobianstructure': 0
+        }
+    
+    def pack_path(self, path):
+        """Flatten the path - let's test BOTH orderings"""
+        print(f"pack_path: Input shape {path.shape}")
+        print(f"  Path:\n{path}")
+        
+        # Test C-order (row-major)
+        x_c = path.flatten(order='C')
+        print(f"  C-order (row-major): {x_c}")
+        
+        # Test F-order (column-major)
+        x_f = path.flatten(order='F')
+        print(f"  F-order (column-major): {x_f}")
+        
+        # Let's use C-order for now
+        return x_c
+    
+    def unpack_path(self, x):
+        """Unpack variables to path"""
+        print(f"unpack_path: Input {x}")
+        
+        path_c = x.reshape((self.n, self.N), order='C')
+        path_f = x.reshape((self.n, self.N), order='F')
+        
+        print(f"  C-order reshape:\n{path_c}")
+        print(f"  F-order reshape:\n{path_f}")
+        
+        return path_c
+    
+    def objective(self, x):
+        self.call_count['objective'] += 1
+        print(f"\nobjective call #{self.call_count['objective']}")
+        print(f"  x = {x}")
+        
+        # Simple quadratic: minimize sum of squares
+        obj = np.sum(x**2)
+        print(f"  objective = {obj}")
+        return obj
+    
+    def gradient(self, x):
+        self.call_count['gradient'] += 1
+        print(f"\ngradient call #{self.call_count['gradient']}")
+        
+        # Gradient of sum(x^2) = 2x
+        grad = 2 * x
+        print(f"  gradient = {grad}")
+        return grad
+    
+    def constraints(self, x):
+        self.call_count['constraints'] += 1
+        print(f"\nconstraints call #{self.call_count['constraints']}")
+        
+        # Unpack variables
+        path = self.unpack_path(x)
+        
+        # Constraints: p1 = q0, pN = qd
+        constraints = np.zeros(self.m_constraints)
+        
+        # First point constraints
+        constraints[0] = path[0, 0] - self.q0[0]  # x1 - 0
+        constraints[1] = path[1, 0] - self.q0[1]  # y1 - 0
+        
+        # Last point constraints (N=2, so p2)
+        constraints[2] = path[0, 1] - self.qd[0]  # x2 - 1
+        constraints[3] = path[1, 1] - self.qd[1]  # y2 - 1
+        
+        print(f"  constraints = {constraints}")
+        return constraints
+    
+    def jacobian(self, x):
+        self.call_count['jacobian'] += 1
+        print(f"\njacobian call #{self.call_count['jacobian']}")
+        
+        # Jacobian is constant for these linear constraints
+        # Non-zero pattern should be:
+        # constraint 0 (x1): depends on variable 0 (x1)
+        # constraint 1 (y1): depends on variable 1 (y1) 
+        # constraint 2 (x2): depends on variable 2 (x2)
+        # constraint 3 (y2): depends on variable 3 (y2)
+        
+        # In sparse format: return [1.0, 1.0, 1.0, 1.0] for these 4 positions
+        jac_values = np.ones(4)  # All derivatives are 1.0
+        print(f"  jacobian values = {jac_values}")
+        return jac_values
+    
+    def jacobianstructure(self):
+        self.call_count['jacobianstructure'] += 1
+        print(f"\njacobianstructure call #{self.call_count['jacobianstructure']}")
+        
+        # Sparse structure: (0,0), (1,1), (2,2), (3,3)
+        row_indices = [0, 1, 2, 3]
+        col_indices = [0, 1, 2, 3]
+        
+        print(f"  row_indices = {row_indices}")
+        print(f"  col_indices = {col_indices}")
+        return (np.array(row_indices), np.array(col_indices))
+    
+    def intermediate(self, *args):
+        """IPOPT callback"""
+        print(f"\nintermediate callback")
+        return True
+
+# Create the problem
+problem = SimpleIPOPTTest()
+
+# Set up bounds
+lb = -np.inf * np.ones(problem.n_variables)
+ub = np.inf * np.ones(problem.n_variables)
+
+# Equality constraints: c(x) = 0
+cl = np.zeros(problem.m_constraints)
+cu = np.zeros(problem.m_constraints)
+
+print("\n" + "="*60)
+print("SETTING UP IPOPT PROBLEM")
+print("="*60)
+
+# Create IPOPT problem
+nlp = cyipopt.Problem(
+    n=problem.n_variables,
+    m=problem.m_constraints,
+    problem_obj=problem,
+    lb=lb,
+    ub=ub,
+    cl=cl,
+    cu=cu,
+)
+
+# Set options for debugging
+nlp.add_option('derivative_test', 'first-order')
+nlp.add_option('derivative_test_tol', 1e-4)
+nlp.add_option('print_level', 5)
+nlp.add_option('max_iter', 0)  # Don't solve, just test derivatives
+nlp.add_option('tol', 1e-8)
+
+# Initial guess
+init_path = np.array([[0.5, 1.5], [2.5, 3.5]])  # 2D, 2 points
+init_path.flatten()
+x0 = problem.pack_path(init_path)
+problem.unpack_path(x0)  # Debug unpacking
+
+print("\n" + "="*60)
+print("RUNNING DERIVATIVE TEST")
+print("="*60)
+
+# This will run the derivative test but not solve
+try:
+    x, info = nlp.solve(x0)
+except Exception as e:
+    print(f"\nException during derivative test: {e}")
+
+print("\n" + "="*60)
+print("FINAL CALL COUNTS")
+print("="*60)
+for method, count in problem.call_count.items():
+    print(f"{method}: {count} calls")
+
+# Let's also do a manual finite difference check
+print("\n" + "="*60)
+print("MANUAL FINITE DIFFERENCE CHECK")
+print("="*60)
+
+epsilon = 1e-6
+
+# Check constraints at x0
+c0 = problem.constraints(x0)
+print(f"\nConstraints at x0: {c0}")
+
+# Compute finite difference Jacobian
+J_fd = np.zeros((problem.m_constraints, problem.n_variables))
+for j in range(problem.n_variables):
+    x_pert = x0.copy()
+    x_pert[j] += epsilon
+    c_pert = problem.constraints(x_pert)
+    J_fd[:, j] = (c_pert - c0) / epsilon
+
+print(f"\nFinite difference Jacobian (full 4x4):")
+print(J_fd)
+
+# Compare with analytic Jacobian
+rows, cols = problem.jacobianstructure()
+jac_vals = problem.jacobian(x0)
+J_analytic = np.zeros((problem.m_constraints, problem.n_variables))
+for r, c, v in zip(rows, cols, jac_vals):
+    J_analytic[r, c] = v
+
+print(f"\nAnalytic Jacobian (from sparse):")
+print(J_analytic)
+
+print(f"\nDifference (max): {np.max(np.abs(J_analytic - J_fd))}")
