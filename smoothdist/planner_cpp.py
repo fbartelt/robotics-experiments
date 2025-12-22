@@ -36,7 +36,8 @@ def add_path(
     ).astype(int)
     paths2add = np.array(path_hist)[idxs2add]
     print(f"Adding {len(paths2add)} paths to the figure.")
-    for i, path in enumerate(paths2add):
+    for i, path_ in enumerate(paths2add):
+        path = path_.T  # Transpose to (2 x N)
         alpha = 0.1 + (0.5 * i) / (len(paths2add) - 1) if len(paths2add) > 1 else 1.0
         alpha = alpha if i < len(paths2add) - 1 else 1.0
         color = base_color_rgba + f", {alpha})"
@@ -160,10 +161,10 @@ class OptimalPathProblem:
         delta=0,
     ):
         self.init_path = init_path
-        self.N = init_path.shape[1]  # Number of path points
-        self.n = init_path.shape[0]  # Dimension of the space
-        self.q0 = init_path[:, 0].reshape(-1, 1)
-        self.qd = init_path[:, -1].reshape(-1, 1)
+        self.N = init_path.shape[0]  # Number of path points
+        self.n = init_path.shape[1]  # Dimension of the space
+        self.q0 = init_path[0].reshape(-1, 1)
+        self.qd = init_path[-1].reshape(-1, 1)
         self.obstacles = obstacles
         self.n_obstacles = len(obstacles)
         self.n_variables = self.N * self.n
@@ -187,7 +188,7 @@ class OptimalPathProblem:
         return path.flatten()
 
     def unpack_path(self, x):
-        return x.reshape((self.n, self.N))
+        return x.reshape((self.N, self.n))
 
     def objective(self, x):
         self._last_x = x.copy()
@@ -196,7 +197,7 @@ class OptimalPathProblem:
 
         # Obstacle avoidance cost
         for i in range(self.N):
-            p_i = path[:, i].reshape(-1, 1)
+            p_i = path[i].reshape(-1, 1)
             dists = np.zeros(self.n_obstacles)
             for j, obs in enumerate(self.obstacles):
                 dist_ij, _ = signedDist2Convex(
@@ -214,6 +215,11 @@ class OptimalPathProblem:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
+
+            ## TODO: REMOVE THIS LINE (TEST ONLY)
+            sat_dist = smooth_min_dist
+            ### 
+
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
             # Path length cost
             # if self.min_path and i < self.N - 1:
@@ -224,10 +230,10 @@ class OptimalPathProblem:
 
     def gradient(self, x):
         path = self.unpack_path(x)
-        grad = np.zeros_like(path)  # n x N
+        grad = np.zeros_like(path)  # N x n
 
         for i in range(self.N):
-            p_i = path[:, i].reshape(-1, 1)
+            p_i = path[i].reshape(-1, 1)
             dists = np.zeros(self.n_obstacles)
             grads = np.zeros((self.n, self.n_obstacles))
 
@@ -251,8 +257,13 @@ class OptimalPathProblem:
             # sat_dist = (-1 / self.alpha) * np.log(
             #     0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
             # )  # Smooth saturation
+
+            ### TODO: REMOVE THIS LINE (TEST ONLY)
+            grad_sat = 1.0
+            ###
+
             grad_full = grad_sat * (grads @ smooth_min_grad.reshape(-1, 1))  # n x 1
-            grad[:, i] += -grad_full.flatten()  # Minimize negative sat_dist
+            grad[i] += -grad_full.flatten()  # Minimize negative sat_dist
             # Path length gradient
             # if self.min_path and i < self.N - 1:
             #     p_next = path[:, i + 1].reshape(-1, 1)
@@ -263,14 +274,14 @@ class OptimalPathProblem:
 
     def constraints(self, x):
         path = self.unpack_path(x)
-        print(f"DEBUG: path shape: {path.shape}")
-        print(f"DEBUG: path[:,0]: {path[:,0]}, q0: {self.q0.flatten()}")
-        print(f"DEBUG: path[:,-1]: {path[:,-1]}, qd: {self.qd.flatten()}")
+        # print(f"DEBUG: path shape: {path.shape}")
+        # print(f"DEBUG: path[:,0]: {path[0]}, q0: {self.q0.flatten()}")
+        # print(f"DEBUG: path[:,-1]: {path[-1]}, qd: {self.qd.flatten()}")
         constraints = np.zeros(self.m_constraints)
         # Equality constraints for endpoints
         # Equality constraints: p1 = q0, pN = qd (2n constraints)
-        constraints[: self.n] = path[:, 0] - self.q0.flatten()
-        constraints[self.n : 2 * self.n] = path[:, -1] - self.qd.flatten()
+        constraints[: self.n] = path[0] - self.q0.flatten()
+        constraints[self.n : 2 * self.n] = path[-1] - self.qd.flatten()
         # constraints_.extend((path[:, 0].ravel() - self.q0.ravel()).tolist())  # p_1 = q0
         # constraints_.extend(
         #     (path[:, -1].ravel() - self.qd.ravel()).tolist()
@@ -282,7 +293,7 @@ class OptimalPathProblem:
         #     p_next = path[:, i + 1]
         #     diff = p_next - p_i
         #     constraints[offset + i] = np.dot(diff, diff) - self.delta**2
-        print(f"DEBUG: constraints: {constraints}")
+        # print(f"DEBUG: constraints: {constraints}")
         return constraints
 
     def jacobian(self, x):
@@ -317,20 +328,20 @@ class OptimalPathProblem:
         #     # ∂c_i/∂p_{i+1} = 2*diff (all n dimensions)
         #     for dim in range(self.n):
         #         non_zeros.append(2.0 * diff[dim])
-        jac = np.zeros((self.m_constraints, self.n_variables))
-        row = 0
-
-        # First 2d rows are equality consts
-        for i in range(self.n):
-            jac[row, i] = 1.0
-            row += 1
-
-        for i in range(self.n):
-            jac[row, i - self.n] = 1.0
-            row += 1
-
-        return jac.flatten()
-        # return np.array(non_zeros)
+        # jac = np.zeros((self.m_constraints, self.n_variables))
+        # row = 0
+        #
+        # # First 2d rows are equality consts
+        # for i in range(self.n):
+        #     jac[row, i] = 1.0
+        #     row += 1
+        #
+        # for i in range(self.n):
+        #     jac[row, i - self.n] = 1.0
+        #     row += 1
+        #
+        # return jac.flatten()
+        return np.array(non_zeros)
 
     def jacobianstructure(self):
         """Returns (row_indices, col_indices) for sparse Jacobian.
@@ -389,18 +400,18 @@ class OptimalPathProblem:
         #         row_indices.append(row)
         #         col_indices.append((i + 1) * self.n + dim)
 
-        print(f"DEBUG: Jacobian structure rows: {row_indices}")
-        print(f"DEBUG: Jacobian structure cols: {col_indices}")
-        row_indices = []
-        col_indices = []
-        for row in range(self.m_constraints):
-            for col in range(self.n_variables):
-                row_indices.append(row)
-                col_indices.append(col)
-        print(f"DEBUG: Jacobian structure rows 2: {row_indices}")
-        print(f"DEBUG: Jacobian structure cols 2: {col_indices}")
-        return np.array(row_indices), np.array(col_indices)
-        # return (np.array(row_indices), np.array(col_indices))
+        # print(f"DEBUG: Jacobian structure rows: {row_indices}")
+        # print(f"DEBUG: Jacobian structure cols: {col_indices}")
+        # row_indices = []
+        # col_indices = []
+        # for row in range(self.m_constraints):
+        #     for col in range(self.n_variables):
+        #         row_indices.append(row)
+        #         col_indices.append(col)
+        # print(f"DEBUG: Jacobian structure rows 2: {row_indices}")
+        # print(f"DEBUG: Jacobian structure cols 2: {col_indices}")
+        # return np.array(row_indices), np.array(col_indices)
+        return (np.array(row_indices), np.array(col_indices))
 
     def intermediate(
         self,
@@ -448,7 +459,6 @@ class OptimalPathProblem:
         # cu[2 * self.n :] = 0.0
 
         return cl, cu
-
 
 def deform_path_ipopt(
     init_path,
@@ -535,7 +545,7 @@ q0 = np.array([-8.5, -16]).reshape(-1, 1)  # 1001
 q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1337, 1111
 qd = np.array([18, 15]).reshape(-1, 1)
 # qd = np.array([11.0, 15]).reshape(-1, 1)
-n_points = 2
+n_points = 100
 h = 0.01
 r = 0.1
 zeta = 0.5 * 1e5
@@ -561,19 +571,21 @@ obstacles = Polytope.random_set(
     radius=radius,
     num_vertices=num_vertices,
 )
+obstacles = [obstacles[1]]
 
 lambda_ = np.linspace(0, 1, n_points)
-init_path = (1 - lambda_) * q0 + lambda_ * qd
+init_path = (1 - lambda_) * q0 + lambda_ * qd # (2 x n_points)
+init_path = init_path.T  # (n_points x 2)
 path = init_path.copy()
 delta = 1.5 * np.linalg.norm(path[:, 1] - path[:, 0]) ** 2
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
 max_iters = 1200
-opt_max_iters = 20
+opt_max_iters = 100
 kind = "in"
 # kind = "out"
-kind = None
+# kind = None
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
