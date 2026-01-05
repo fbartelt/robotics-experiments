@@ -94,7 +94,8 @@ def add_path3d(
     ).astype(int)
     paths2add = np.array(path_hist)[idxs2add]
     print(f"Adding {len(paths2add)} paths to the figure.")
-    for i, path in enumerate(paths2add):
+    for i, path_ in enumerate(paths2add):
+        path = path_.T  # Transpose to (3 x N)
         alpha = 0.1 + (0.5 * i) / (len(paths2add) - 1) if len(paths2add) > 1 else 1.0
         alpha = alpha if i < len(paths2add) - 1 else 1.0
         color = base_color_rgba + f", {alpha})"
@@ -572,6 +573,97 @@ fig.show()
 
 
 # [jump]
-
 # %%
+"""3D case"""
+n_polyhedra = 12
+max_vertices = 15
+bounding_box = (-20.0, -20, -20, 20, 20, 20)
+# Distance between vertices will be at least 2*first element, and at most
+# 2*second element of radius_limits:
+radius_limits = (2, 10)
+q0 = np.array([-1.0, -15, 10.0]).reshape(-1, 1)
+qd = np.array([18.0, 18, -18.0]).reshape(-1, 1)
+# qd = np.array([11.0, 15]).reshape(-1, 1)
+n_points = 100
+h = 0.01
+r = 0.1
+zeta = 0.5
+alpha = np.log(2) / 5e-2
+min_path = True
+max_attempts = 500
+opt_max_iters = 200
+seed = 1001  # 1001, 69 cool, 42 NICE post mods, 100 is cool
+min_volume = 4 / 3 * np.pi * (3**3)  # at least radius 2
+radius = None
+num_vertices = None
+
+obstacles = Polytope.random_set_polyhedra(
+    n_polyhedra=n_polyhedra,
+    intersect_polyhedra=False,
+    q0=q0,
+    qd=qd,
+    max_vertices=max_vertices,
+    radius_lim=radius_limits,
+    bbox=bounding_box,
+    seed=seed,
+    dim=3,
+    min_volume=min_volume,
+    max_attempts=max_attempts,
+    radius=radius,
+    num_vertices=num_vertices,
+)
+
+print(f"Generated {len(obstacles)} obstacles.")
+
+# Test with simple cube
+# obstacles = [
+#     Polytope(
+#         A=np.array([
+#             [1, 0, 0],
+#             [-1, 0, 0],
+#             [0, 1, 0],
+#             [0, -1, 0],
+#             [0, 0, 1],
+#             [0, 0, -1],
+#         ]),
+#         b=np.array([5, 5, 5, 5, 5, 5]).reshape(-1, 1),
+#     )
+# ]
+
+lambda_ = np.linspace(0, 1, n_points)
+init_path = (1 - lambda_) * q0 + lambda_ * qd
+init_path = init_path.T  # Shape (N x n)
+path = init_path.copy()
+print(f"Path shape: {path.shape}")
+delta = 3.0 * np.linalg.norm(path[1] - path[0]) ** 2
+dists = [-100]
+iter_ = 0
+path_hist = [init_path.copy()]
+max_iters = 200
+kind = "in"
+kind = "out"
+kind = None
+
+# bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
+fig = go.Figure()
+for obstacle in obstacles:
+    add_polyhedron(fig, obstacle.A, obstacle.b, add_reference=False)
+
+path_opt, path_hist, info = deform_path_ipopt(
+    init_path,
+    obstacles,
+    max_iter=opt_max_iters,
+    kind=kind,
+    h=h,
+    r=r,
+    alpha=alpha,
+    zeta=zeta,
+    min_path=min_path,
+    delta=delta,
+)
+
+print(f"deformation completed in {iter_} iterations with min dist = {np.min(dists)}")
+add_path3d(fig, path_hist, num_paths=6, base_color="black")
+fig.update_layout(width=1200, height=800)
+fig.show()
 
