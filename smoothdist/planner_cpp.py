@@ -215,12 +215,21 @@ class OptimalPathProblem:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
+            if np.isnan(sat_dist) or np.isinf(sat_dist) or np.isnan(smooth_min_dist) or np.isinf(smooth_min_dist):
+                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, sat_dist={sat_dist}")
 
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
             # Path length cost
-            # if self.min_path and i < self.N - 1:
-            #     p_next = path[:, i + 1].reshape(-1, 1)
-            #     total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
+            if self.min_path and i < self.N - 1:
+                p_next = path[i + 1].reshape(-1, 1)
+                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
+
+            # Curvature cost
+            # if i < self.N - 2:
+            #     # Discrete approximation of 
+            #     p_ip1 = path[i + 1].reshape(-1, 1)
+            #     p_ip2 = path[i + 2].reshape(-1, 1)
+
 
         return total_cost
 
@@ -250,6 +259,8 @@ class OptimalPathProblem:
             # Smooth saturation gradient
             exponent = np.clip(self.alpha * smooth_min_dist, -100, 100)
             grad_sat = 1 / (1 + np.exp(exponent))
+            if np.isnan(grad_sat) or np.isinf(grad_sat) or np.isnan(smooth_min_grad).any() or np.isinf(smooth_min_grad).any():
+                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, grad_sat={grad_sat}, smooth_min_grad={smooth_min_grad}")
             # sat_dist = (-1 / self.alpha) * np.log(
             #     0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
             # )  # Smooth saturation
@@ -265,35 +276,28 @@ class OptimalPathProblem:
             #     )
             grad[i] += -grad_full.flatten()  # Minimize negative sat_dist
             # Path length gradient
-            # if self.min_path and i < self.N - 1:
-            #     p_next = path[:, i + 1].reshape(-1, 1)
-            #     grad[:, i] += -self.zeta * (p_next - p_i).flatten()
-            #     grad[:, i + 1] += self.zeta * (p_next - p_i).flatten()
+            if self.min_path and i < self.N - 1:
+                p_next = path[i + 1].reshape(-1, 1)
+                grad[i] += -self.zeta * (p_next - p_i).flatten()
+                grad[i + 1] += self.zeta * (p_next - p_i).flatten()
 
         return grad.flatten()
 
     def constraints(self, x):
         path = self.unpack_path(x)
-        # print(f"DEBUG: path shape: {path.shape}")
-        # print(f"DEBUG: path[:,0]: {path[0]}, q0: {self.q0.flatten()}")
-        # print(f"DEBUG: path[:,-1]: {path[-1]}, qd: {self.qd.flatten()}")
         constraints = np.zeros(self.m_constraints)
-        # Equality constraints for endpoints
         # Equality constraints: p1 = q0, pN = qd (2n constraints)
         constraints[: self.n] = path[0] - self.q0.flatten()
         constraints[self.n : 2 * self.n] = path[-1] - self.qd.flatten()
-        # constraints_.extend((path[:, 0].ravel() - self.q0.ravel()).tolist())  # p_1 = q0
-        # constraints_.extend(
-        #     (path[:, -1].ravel() - self.qd.ravel()).tolist()
-        # )  # p_N = qd
+
         # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2 (N-1 constraints)
-        offset = 2 * self.n
-        for i in range(self.N - 1):
-            p_i = path[i]
-            p_next = path[i + 1]
-            diff = p_next - p_i
-            constraints[offset + i] = np.dot(diff, diff)
-        # print(f"DEBUG: constraints: {constraints}")
+        # offset = 2 * self.n
+        # for i in range(self.N - 1):
+        #     p_i = path[i]
+        #     p_next = path[i + 1]
+        #     diff = p_next - p_i
+        #     constraints[offset + i] = np.dot(diff, diff)
+
         return constraints
 
     def jacobian(self, x):
@@ -309,17 +313,17 @@ class OptimalPathProblem:
             jac[row, i - self.n] = 1.0
             row += 1
 
-        for i in range(self.N - 1):
-            idx_i = i * self.n
-            idx_ip1 = (i + 1) * self.n
-
-            diff = path[i + 1] - path[i]
-
-            grad_i = -2 * diff
-            grad_ip1 = -grad_i
-            jac[row, idx_i : idx_i + self.n] = grad_i
-            jac[row, idx_ip1 : idx_ip1 + self.n] = grad_ip1
-            row += 1
+        # for i in range(self.N - 1):
+        #     idx_i = i * self.n
+        #     idx_ip1 = (i + 1) * self.n
+        #
+        #     diff = path[i + 1] - path[i]
+        #
+        #     grad_i = -2 * diff
+        #     grad_ip1 = -grad_i
+        #     jac[row, idx_i : idx_i + self.n] = grad_i
+        #     jac[row, idx_ip1 : idx_ip1 + self.n] = grad_ip1
+        #     row += 1
 
         return jac.flatten()
 
@@ -378,7 +382,7 @@ class OptimalPathProblem:
 
         # Inequality constraints: ||p_{i+1} - p_i||^2 ≤ ζ^2
         # c(x) >= 0, so lower bound = 0, upper bound = zeta^2
-        cu[2 * self.n :] = self.delta**2
+        # cu[2 * self.n :] = self.delta**2
 
         return cl, cu
 
@@ -438,7 +442,7 @@ def deform_path_ipopt(
         "mu_strategy": "adaptive",
         # 'linear_solver': 'mumps',
         # Adjust convergence criteria for first-order method
-        "tol": 1e-3,  # Relax tolerance (default 1e-8)
+        "tol": 1e-6,  # Relax tolerance (default 1e-8)
         "max_iter": max_iter,  # Increase iteration limit
         "acceptable_iter": 10,  # Stop after 10 "good enough" iters
         # Output control
@@ -465,19 +469,39 @@ bounding_box = (-20.0, -20, 20, 20)
 # Distance between vertices will be at least 2*first element, and at most
 # 2*second element of radius_limits:
 radius_limits = (2, 6)
+
+seed = 1337  # 1001, 1337, 1111
 q0 = np.array([-3.0, -12]).reshape(-1, 1)
-q0 = np.array([-8.5, -16]).reshape(-1, 1)  # 1001
-q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1337, 1111
-qd = np.array([18, 15]).reshape(-1, 1)
+# SEED 1001
+if seed == 1001:
+    q0 = np.array([-17., -7]).reshape(-1, 1)  # 1001
+    qd = np.array([19, -7]).reshape(-1, 1)
+    max_polygons = 10
+elif seed == 1111:
+    q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1111
+    qd = np.array([6.8, 19.]).reshape(-1, 1)
+    max_polygons = 15
+elif seed == 1337:
+    q0 = np.array([-6.8, -17.9]).reshape(-1, 1)  # 1337
+    # q0 = np.array([1., -17.9]).reshape(-1, 1)  # 1337
+    qd = np.array([13, 17.9]).reshape(-1, 1)
+    max_polygons = 20
+# SEED 1337
+# q0 = np.array([-17.0, -17]).reshape(-1, 1)  # 1337, 1111
+# qd = np.array([18, 15]).reshape(-1, 1)
 # qd = np.array([11.0, 15]).reshape(-1, 1)
 n_points = 100
 h = 0.01
 r = 0.1
-zeta = 0.5 * 1e5
-alpha = np.log(2) / 1e-3
+zeta = 0.5 * 1
+alpha = np.log(2) / 5e-2
 min_path = True
 max_attempts = 500
-seed = 1337  # 1001, 1337, 1111
+lambda_ = np.linspace(0, 1, n_points)
+init_path = (1 - lambda_) * q0 + lambda_ * qd  # (2 x n_points)
+init_path = init_path.T  # (n_points x 2)
+path = init_path.copy()
+delta = 3.0 * np.linalg.norm(path[:, 1] - path[:, 0]) ** 2
 min_area = None
 radius = None
 num_vertices = None
@@ -497,16 +521,10 @@ obstacles = Polytope.random_set(
     num_vertices=num_vertices,
 )
 
-lambda_ = np.linspace(0, 1, n_points)
-init_path = (1 - lambda_) * q0 + lambda_ * qd  # (2 x n_points)
-init_path = init_path.T  # (n_points x 2)
-path = init_path.copy()
-delta = 1.5 * np.linalg.norm(path[:, 1] - path[:, 0]) ** 2
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
-max_iters = 1200
-opt_max_iters = 100
+opt_max_iters = 200
 kind = "in"
 # kind = "out"
 kind = None
@@ -540,8 +558,8 @@ path_opt, path_hist, info = deform_path_ipopt(
     h=h,
     r=r,
     alpha=alpha,
-    zeta=zeta * 0,
-    min_path=False,
+    zeta=zeta,
+    min_path=min_path,
     delta=delta,
 )
 
