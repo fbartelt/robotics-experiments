@@ -575,7 +575,7 @@ fig.show()
 # [jump]
 # %%
 """3D case"""
-n_polyhedra = 12
+n_polyhedra = 29
 max_vertices = 15
 bounding_box = (-20.0, -20, -20, 20, 20, 20)
 # Distance between vertices will be at least 2*first element, and at most
@@ -592,7 +592,7 @@ alpha = np.log(2) / 5e-2
 min_path = True
 max_attempts = 500
 opt_max_iters = 200
-seed = 1001  # 1001, 69 cool, 42 NICE post mods, 100 is cool
+seed = 1337  # 1001, 69 cool, 42 NICE post mods, 100 is cool
 min_volume = 4 / 3 * np.pi * (3**3)  # at least radius 2
 radius = None
 num_vertices = None
