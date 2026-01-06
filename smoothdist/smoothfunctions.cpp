@@ -92,7 +92,9 @@ Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r) {
     float value = get<0>(res);
     Eigen::VectorXf grad = get<1>(res);
     Eigen::VectorXf chain(2);
-    chain << 1.0f / (x * x), 1.0f / (y * y);
+    // Avoid near-zero division by adding small epsilon
+    float eps = 1e-6f;
+    chain << 1.0f / (x * x + eps), 1.0f / (y * y + eps);
     // Apply chain rule d(-1/f(-1/x, -1/y))/dx = ( -1 / f^2 ) * d(-1/x) * df/df
     grad = (grad / (value * value)).cwiseProduct(chain);
     // Check if any value in grad is NaN
@@ -103,7 +105,7 @@ Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r) {
         std::cout << "holder grad: " << get<1>(res).transpose() << std::endl;
         std::cout << "chain: " << chain.transpose() << std::endl;
         std::cout << "grad: " << grad.transpose() << std::endl;
-        throw runtime_error("Gradient contains NaN values");
+        throw runtime_error("Gradient contains NaN values at pos: " + to_string(i));
       }
     }
     return grad;
