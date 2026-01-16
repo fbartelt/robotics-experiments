@@ -62,5 +62,8 @@ PYBIND11_MODULE(smoothfunctions, m) {
         "Compute the signed distance to a convex shape defined by linear inequalities",
         py::arg("p"), py::arg("A"), py::arg("b"), py::arg("r") = 0.1f,
         py::arg("eps") = 0.01f, py::arg("test") = "");
+  m.def("signedEuclideanDistance", &signedEuclideanDistance,
+        "Compute the signed Euclidean distance to a convex shape defined by linear inequalities",
+        py::arg("p"), py::arg("A"), py::arg("b"));
 }
 

@@ -10,8 +10,7 @@ using namespace std;
 
 float holderMean(float x, float y, float r);
 Eigen::VectorXf holderMeanGradient(float x, float y, float r);
-tuple<float, Eigen::VectorXf>
-holderMeanWithGradient(float x, float y, float r);
+tuple<float, Eigen::VectorXf> holderMeanWithGradient(float x, float y, float r);
 // Min
 float smoothMin2Elements(float x, float y, float r);
 Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r);
@@ -40,3 +39,6 @@ tuple<float, Eigen::VectorXf>
 signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
                   const Eigen::VectorXf &b, float r = 0.1f, float eps = 0.01f,
                   string test = "");
+tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
+                                                      const Eigen::MatrixXf &A,
+                                                      const Eigen::VectorXf &b);

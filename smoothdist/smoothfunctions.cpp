@@ -1,7 +1,7 @@
-#include <cmath>
-#include <iostream>
-#include <eigen3/Eigen/Dense>
 #include "smoothfunctions.hpp"
+#include <cmath>
+#include <eigen3/Eigen/Dense>
+#include <iostream>
 
 using namespace std;
 
@@ -38,12 +38,12 @@ Eigen::VectorXf holderMeanGradient(float x, float y, float r) {
     dfdx = 0.0f;
     dfdy = 1.0f;
   } else if (abs(x - y) < eps) {
-    dfdx = pow(2.0f, -r -1.0f);
-    dfdy = pow(2.0f, -r -1.0f);
+    dfdx = pow(2.0f, -r - 1.0f);
+    dfdy = pow(2.0f, -r - 1.0f);
   } else {
     // General case
-    dfdx = pow((1.0f + pow(x / y, 1.0f / r)), -r -1.0f);
-    dfdy = pow((1.0f + pow(y / x, 1.0f / r)), -r -1.0f);
+    dfdx = pow((1.0f + pow(x / y, 1.0f / r)), -r - 1.0f);
+    dfdy = pow((1.0f + pow(y / x, 1.0f / r)), -r - 1.0f);
   }
   gradient << dfdx, dfdy;
   // Check if any value in gradient is NaN
@@ -61,8 +61,8 @@ Eigen::VectorXf holderMeanGradient(float x, float y, float r) {
   return gradient;
 }
 
-tuple<float, Eigen::VectorXf>
-holderMeanWithGradient(float x, float y, float r) {
+tuple<float, Eigen::VectorXf> holderMeanWithGradient(float x, float y,
+                                                     float r) {
   float mean = holderMean(x, y, r);
   Eigen::VectorXf gradient = holderMeanGradient(x, y, r);
   return make_tuple(mean, gradient);
@@ -105,7 +105,8 @@ Eigen::VectorXf smoothMin2ElementsGradient(float x, float y, float r) {
         std::cout << "holder grad: " << get<1>(res).transpose() << std::endl;
         std::cout << "chain: " << chain.transpose() << std::endl;
         std::cout << "grad: " << grad.transpose() << std::endl;
-        throw runtime_error("Gradient contains NaN values at pos: " + to_string(i));
+        throw runtime_error("Gradient contains NaN values at pos: " +
+                            to_string(i));
       }
     }
     return grad;
@@ -250,8 +251,7 @@ tuple<float, float> phiWithGradient(float s, float eps) {
 
 tuple<float, Eigen::VectorXf>
 signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
-                  const Eigen::VectorXf &b, float r, float eps,
-                  string test) {
+                  const Eigen::VectorXf &b, float r, float eps, string test) {
   int N = A.rows();
   int m = A.cols();
   Eigen::VectorXf rawInnerDistances(N);
@@ -304,4 +304,33 @@ signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
     }
     return make_tuple(dist, grad);
   }
+}
+
+// ----------------------------------------------------------------------------------------
+// Non Smooth functions for comparison
+// ----------------------------------------------------------------------------------------
+
+tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
+                              const Eigen::MatrixXf &A,
+                              const Eigen::VectorXf &b) {
+  int N = A.rows();
+  int m = A.cols();
+  Eigen::VectorXf distances(N);
+  Eigen::MatrixXf gradients(N, m);
+  for (int i = 0; i < N; ++i) {
+    Eigen::VectorXf ai = A.row(i).transpose();
+    // If s  positive, the point is outside
+    float s = ai.dot(p) - b(i);
+    distances(i) = s;
+    gradients.row(i) = ai.transpose();
+  }
+  // Final signed distance is the minimum distance
+  float minDistance = distances.minCoeff();
+  // return minDistance;
+  Eigen::VectorXf grad(m);
+  // Find index of minimum distance
+  Eigen::Index minIndex;
+  distances.minCoeff(&minIndex);
+  grad = gradients.row(minIndex).transpose();
+  return make_tuple(minDistance, grad);
 }
