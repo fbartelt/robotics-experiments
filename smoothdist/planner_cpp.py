@@ -471,7 +471,7 @@ bounding_box = (-20.0, -20, 20, 20)
 # 2*second element of radius_limits:
 radius_limits = (2, 6)
 
-seed = 1337  # 1001, 1337, 1111
+seed = 1111  # 1001, 1337, 1111
 q0 = np.array([-3.0, -12]).reshape(-1, 1)
 # SEED 1001
 if seed == 1001:
@@ -539,7 +539,7 @@ fig = create_level_sets(
     h=h,
     kind="both",
     bbox=bounding_box,
-    n_points=20,
+    n_points=200,
     n_contours=40,
     add_reference=False,
     test=None,
@@ -569,7 +569,7 @@ add_path(fig, path_hist, num_paths=6, base_color="black")
 fig.update_layout(width=1200, height=800)
 fig.show()
 
-# fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
+fig.write_image(f"path_seed_{seed}_maxpoly_{max_polygons}.pdf")
 
 
 # [jump]
