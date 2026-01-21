@@ -315,22 +315,52 @@ tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
                               const Eigen::VectorXf &b) {
   int N = A.rows();
   int m = A.cols();
+  float eps = 1e-8f;
   Eigen::VectorXf distances(N);
   Eigen::MatrixXf gradients(N, m);
   for (int i = 0; i < N; ++i) {
     Eigen::VectorXf ai = A.row(i).transpose();
     // If s  positive, the point is outside
-    float s = ai.dot(p) - b(i);
+    float s = (ai.dot(p) - b(i)) / (ai.norm() + eps);
     distances(i) = s;
-    gradients.row(i) = ai.transpose();
+    gradients.row(i) = ai.transpose() / (ai.norm() + eps);
   }
-  // Final signed distance is the minimum distance
-  float minDistance = distances.minCoeff();
-  // return minDistance;
-  Eigen::VectorXf grad(m);
-  // Find index of minimum distance
-  Eigen::Index minIndex;
-  distances.minCoeff(&minIndex);
-  grad = gradients.row(minIndex).transpose();
-  return make_tuple(minDistance, grad);
+  // // Final signed distance is the minimum distance
+  // float minDistance = distances.minCoeff();
+  // // return minDistance;
+  // Eigen::VectorXf grad(m);
+  // // Find index of minimum distance
+  // Eigen::Index minIndex;
+  // distances.minCoeff(&minIndex);
+  // grad = gradients.row(minIndex).transpose();
+  // return make_tuple(minDistance, grad);
+
+  // Step 2: Determine if point is outside or inside
+  float min_positive = std::numeric_limits<float>::max();
+  float max_negative = -std::numeric_limits<float>::max();
+  int min_positive_idx = -1;
+  int max_negative_idx = -1;
+  
+  for (int i = 0; i < m; ++i) {
+    float d = distances(i);
+    
+    if (d > 0 && d < min_positive) {
+      min_positive = d;
+      min_positive_idx = i;
+    }
+    
+    if (d <= 0 && d > max_negative) {
+      max_negative = d;
+      max_negative_idx = i;
+    }
+  }
+  
+  // Step 3: Return appropriate distance and gradient
+  if (min_positive_idx != -1) {
+    // Point is outside - return smallest positive distance
+    return make_tuple(min_positive, gradients.row(min_positive_idx).transpose());
+  } else {
+    // Point is inside - return largest negative distance
+    return make_tuple(max_negative, gradients.row(max_negative_idx).transpose());
+  }
 }

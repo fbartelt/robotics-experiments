@@ -1,14 +1,18 @@
+# %%
 import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
 import cyipopt
 import time
 import pandas as pd
+import uaibot as ub  # For QP solver only
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import sys
+
 # add current path to sys.path
 import os
+
 # current_dir = os.path.dirname(os.path.abspath(__file__))
 # sys.path.append(current_dir)
 
@@ -18,7 +22,7 @@ from smoothfunctions import (
     smoothMinListWithGradient,
     smoothMinList,
     phi,
-    signedEuclideanDistance
+    # signedEuclideanDistance
 )
 from scipy.optimize import minimize
 from typing import List, Tuple, Optional, Callable
@@ -31,6 +35,105 @@ from polygon import (
     generate_random_polyhedron_set,
 )
 from polyhedron import add_polyhedron
+
+
+def signedEuclideanDistance(
+    p: np.ndarray, A: np.ndarray, b: np.ndarray
+) -> Tuple[float, np.ndarray]:
+    """
+    Compute the signed Euclidean distance from point p to the convex polytope defined by Ax ≤ b.
+    Returns the distance and the gradient with respect to p.
+    """
+    n = p.shape[0]  # Dimension
+    m = A.shape[0]  # Number of constraints
+
+    # -----------------------------------------------------------------
+    # Step 1: Setup the QP problem
+    # -----------------------------------------------------------------
+    # We want to solve: minimize 0.5 * ||x - p||^2 subject to A x ≤ b
+    # This is equivalent to: minimize 0.5 * x'Ix - p'x + 0.5 * p'p
+    # The constant 0.5 * p'p doesn't affect the solution
+
+    # H = I (identity matrix)
+    H = 2.0 * np.eye(n)
+
+    # f = -p
+    f = -2.0 * p.reshape(-1, 1)  # Make it a column vector
+
+    # For the solver's inequality constraints: we have A x ≤ b
+    # So we can use A_ineq = A, b_ineq = b
+    A_ineq = A.copy()
+    b_ineq = b.copy().reshape(-1, 1)
+
+    # No equality constraints
+    A_eq = None
+    b_eq = None
+
+    # -----------------------------------------------------------------
+    # Step 2: Solve the QP
+    # -----------------------------------------------------------------
+    try:
+        x_solution = ub.Utils.solve_qp(H, f, -A_ineq, -b_ineq, A_eq, b_eq)
+
+        # Ensure x_solution is 1D array
+        x_proj = np.asarray(x_solution).reshape(-1, 1)
+
+    except Exception as e:
+        # If QP fails, fall back to approximation
+        print(f"QP solver failed: {e}. Using approximation.")
+        raise e
+    # -----------------------------------------------------------------
+    # Step 3: Compute Euclidean distance and projection
+    # -----------------------------------------------------------------
+    euclidean_dist = np.linalg.norm(p - x_proj)
+
+    # -----------------------------------------------------------------
+    # Step 4: Determine if point is inside or outside
+    # -----------------------------------------------------------------
+    # Check if p satisfies A p ≤ b (with tolerance)
+    TOL = 1e-6
+    is_inside = np.all(A @ p - b <= TOL)
+
+    # Apply sign convention: positive outside, negative inside
+    signed_distance = euclidean_dist if not is_inside else -euclidean_dist
+
+    # -----------------------------------------------------------------
+    # Step 5: Compute gradient
+    # -----------------------------------------------------------------
+    if euclidean_dist < TOL:
+        # Point is on or very close to boundary
+        # Find the most violated constraint (for outside) or active constraint (for inside)
+        violations = A @ p - b
+
+        if not is_inside:
+            # Outside: use gradient of most violated constraint
+            max_violation_idx = np.argmax(violations)
+            a_i = A[max_violation_idx, :]
+            grad = a_i / (np.linalg.norm(a_i) + TOL)
+        else:
+            # Inside or on boundary: find an active constraint at the projection
+            # Check which constraints are active at x_proj
+            active_constraints = np.where(np.abs(A @ x_proj - b) < TOL)[0]
+
+            if len(active_constraints) > 0:
+                # Use the first active constraint
+                a_i = A[active_constraints[0], :]
+                grad = a_i / (np.linalg.norm(a_i) + TOL)
+                if is_inside:
+                    grad = -grad  # Inside: gradient points toward boundary
+            else:
+                # No constraint exactly active (shouldn't happen, but as fallback)
+                grad = np.zeros_like(p)
+    else:
+        # Standard case: gradient is unit vector
+        if not is_inside:
+            # Outside: gradient points from projection to p
+            grad = (p - x_proj) / euclidean_dist
+        else:
+            # Inside: gradient points from p to projection
+            grad = (x_proj - p) / euclidean_dist
+
+    return signed_distance, grad
 
 
 def add_path(
@@ -152,7 +255,10 @@ def add_path3d(
             )
         )
 
-def check_free_path(path: np.ndarray, obstacles: List[Polytope], r, h, margin: float=0.0) -> bool:
+
+def check_free_path(
+    path: np.ndarray, obstacles: List[Polytope], r, h, margin: float = 0.0
+) -> bool:
     """
     Check if the given path is collision-free with respect to the list of obstacles.
     """
@@ -171,10 +277,13 @@ def check_free_path(path: np.ndarray, obstacles: List[Polytope], r, h, margin: f
                 test="",
             )
             if dist_ij < margin:
-                print(f"Collision detected at point {i} with obstacle {j}. Distance: {dist_ij}")
+                print(
+                    f"Collision detected at point {i} with obstacle {j}. Distance: {dist_ij}"
+                )
                 return False  # Collision detected
 
     return True  # No collisions detected
+
 
 class OptimalPathProblem:
     """
@@ -299,7 +408,9 @@ class OptimalPathProblem:
                 #     eps=self.h,
                 #     test=self.test,
                 # )
-                dist_ij, grad_ij = signedEuclideanDistance(p_i, obs.A, obs.b.reshape(-1, 1))
+                dist_ij, grad_ij = signedEuclideanDistance(
+                    p_i, obs.A, obs.b.reshape(-1, 1)
+                )
                 dists[j] = dist_ij
                 grads[:, j] = grad_ij.flatten()
 
@@ -536,9 +647,7 @@ def path_distance_stats(path, obstacles, r, h, alpha, test=""):
         smooth_min_dist = smoothMinList(d_obs, r)
         # Smooth saturation (avoids cheating by circunventing the map)
         exponent = np.clip(-alpha * smooth_min_dist, -100, 100)
-        sat_dist = (-1 / alpha) * np.log(
-            0.5 * (1 + np.exp(exponent))
-        )
+        sat_dist = (-1 / alpha) * np.log(0.5 * (1 + np.exp(exponent)))
         dists.append(sat_dist)
         # dists.append(min(d_obs))
     dists = np.array(dists)
@@ -548,6 +657,8 @@ def path_distance_stats(path, obstacles, r, h, alpha, test=""):
         "p10_dist": float(np.percentile(dists, 10)),
         "num_violations": int(np.sum(dists < 0)),
     }
+
+
 # %%
 # Check if path is collision free for a bunch of cases (2D)
 seed = 42
@@ -576,36 +687,57 @@ successes = []
 records = []
 save_every = 50
 
-intersect = True  # Whether to allow intersecting obstacles
+intersect = False  # Whether to allow intersecting obstacles
 
 
 def run_single_case(i):
-# for i in range(max_checks):
+    # for i in range(max_checks):
     t0_total = time.perf_counter()
     max_polygons = rng.integers(10, 20).item()
     q0 = rng.uniform(bounding_box[0], bounding_box[2], size=(2, 1))
     qd = rng.uniform(bounding_box[0], bounding_box[2], size=(2, 1))
     aux = 1
     # ||qd - q0||^2 >= 800
-    while np.linalg.norm(q0 - qd) ** 2 < 2 * ((bounding_box[2] - bounding_box[0]) / 2) ** 2:
+    while (
+        np.linalg.norm(q0 - qd) ** 2
+        < 2 * ((bounding_box[2] - bounding_box[0]) / 2) ** 2
+    ):
         rng2 = np.random.default_rng(seed + i + aux)
         qd = rng2.uniform(bounding_box[0], bounding_box[2], size=(2, 1))
         aux += 1
     print(f"Got q0 and qd after {aux} attempts.")
-    obstacles = Polytope.random_set(
-        n_polytopes=max_polygons,
-        intersect_polytopes=intersect,
-        q0=q0,
-        qd=qd,
-        max_vertices=max_vertices,
-        radius_lim=radius_limits,
-        bbox=bounding_box,
-        seed=seed,
-        min_area=min_area,
-        max_attempts=max_attempts,
-        radius=radius,
-        num_vertices=num_vertices,
-    )
+    try:
+        obstacles = Polytope.random_set(
+            n_polytopes=max_polygons,
+            intersect_polytopes=intersect,
+            q0=q0,
+            qd=qd,
+            max_vertices=max_vertices,
+            radius_lim=radius_limits,
+            bbox=bounding_box,
+            seed=seed,
+            min_area=min_area,
+            max_attempts=max_attempts,
+            radius=radius,
+            num_vertices=num_vertices,
+        )
+    except Exception as e:
+        print(f"Failed to generate obstacles: {e}. Skipping this case.")
+        default_dict = {
+            "run_id": i,
+            "seed": seed,
+            "num_obstacles": max_polygons,
+            "num_path_points": n_points,
+            "ipopt_info": "Generation Failed",
+            "total_time": 0,
+            "ipopt_time": 0,
+            "success_collision_free": False,
+            "min_dist": float("nan"),
+            "mean_dist": float("nan"),
+            "p10_dist": float("nan"),
+            "num_violations": -1,
+        }
+        return default_dict
     print(f"Generated {len(obstacles)} obstacles.")
     lambda_ = np.linspace(0, 1, n_points)
     init_path = (1 - lambda_) * q0 + lambda_ * qd  # (2 x n_points)
@@ -663,31 +795,52 @@ def run_single_case(i):
 def run_single_case3d(i):
     """Run a single test case in 3D."""
     t0_total = time.perf_counter()
-    max_polygons = rng.integers(10, 20).item()
+    max_polygons = rng.integers(20, 40).item()
     q0 = rng.uniform(bounding_box[0], bounding_box[3], size=(3, 1))
     qd = rng.uniform(bounding_box[0], bounding_box[3], size=(3, 1))
     aux = 1
     # ||qd - q0||^2 >= 800
-    while np.linalg.norm(q0 - qd) ** 2 < 2 * ((bounding_box[3] - bounding_box[0]) / 2) ** 2:
+    while (
+        np.linalg.norm(q0 - qd) ** 2
+        < 2 * ((bounding_box[3] - bounding_box[0]) / 2) ** 2
+    ):
         rng2 = np.random.default_rng(seed + i + aux)
         qd = rng2.uniform(bounding_box[0], bounding_box[3], size=(3, 1))
         aux += 1
     print(f"Got q0 and qd after {aux} attempts.")
-    obstacles = Polytope.random_set_polyhedra(
-        n_polyhedra=max_polygons,
-        intersect_polyhedra=intersect,
-        q0=q0,
-        qd=qd,
-        max_vertices=max_vertices,
-        radius_lim=radius_limits,
-        dim=3,
-        bbox=bounding_box_3d,
-        seed=seed,
-        min_volume=min_volume,
-        max_attempts=max_attempts,
-        radius=radius,
-        num_vertices=num_vertices,
-    )
+    try:
+        obstacles = Polytope.random_set_polyhedra(
+            n_polyhedra=max_polygons,
+            intersect_polyhedra=intersect,
+            q0=q0,
+            qd=qd,
+            max_vertices=max_vertices,
+            radius_lim=radius_limits,
+            dim=3,
+            bbox=bounding_box_3d,
+            seed=seed,
+            min_volume=min_volume,
+            max_attempts=max_attempts,
+            radius=radius,
+            num_vertices=num_vertices,
+        )
+    except Exception as e:
+        print(f"Failed to generate obstacles: {e}. Skipping this case.")
+        default_dict = {
+            "run_id": i,
+            "seed": seed,
+            "num_obstacles": max_polygons,
+            "num_path_points": n_points,
+            "ipopt_info": "Generation Failed",
+            "total_time": 0,
+            "ipopt_time": 0,
+            "success_collision_free": False,
+            "min_dist": float("nan"),
+            "mean_dist": float("nan"),
+            "p10_dist": float("nan"),
+            "num_violations": -1,
+        }
+        return default_dict
     print(f"Generated {len(obstacles)} obstacles.")
     lambda_ = np.linspace(0, 1, n_points)
     init_path = (1 - lambda_) * q0 + lambda_ * qd  # (2 x n_points)
@@ -742,16 +895,15 @@ def run_single_case3d(i):
     return record
 
 
-
 if __name__ == "__main__":
     n_workers = cpu_count()
 
     with Pool(processes=n_workers) as pool:
         records = list(
             tqdm(
-                #2d
+                # 2d
                 # pool.imap_unordered(run_single_case, range(max_checks)),
-                #3d
+                # 3d
                 pool.imap_unordered(run_single_case3d, range(max_checks)),
                 total=max_checks,
             )
@@ -761,8 +913,12 @@ if __name__ == "__main__":
     base_name = "planning_stats_smooth_distance"
     str_intersect = "_WITH_" if intersect else "_WITHOUT_"
     dim = "3d"  # or "2d"
-    df.to_csv(f"{base_name}{str_intersect}_{dim}_EUCLIDEAN.csv", index=False)
+    final_file_name = f"{base_name}{str_intersect}_{dim}_EUCLIDEAN__NEW__.csv"
+    df.to_csv(final_file_name, index=False)
     print("[EOS] Final results saved to planning_stats_smooth_distance.csv")
+    # Print some summary statistics
+    n_success = sum(r["success_collision_free"] for r in records)
+    print(f"Total successful collision-free paths: {n_success}/{max_checks}")
 
     # records.append(record)
     # successes.append(collision_free)
@@ -776,3 +932,17 @@ if __name__ == "__main__":
     #     print("Saved.")
 
 
+# %%
+# test signedEuclideanDistance
+# Square centered at 0
+A = np.array(
+    [
+        [1, 0],
+        [0, 1],
+        [-1, 0],
+        [0, -1],
+    ]
+)
+b = np.array([1, 1, 1, 1]).reshape(-1, 1)
+p = np.array([1.1, 1.0]).reshape(-1, 1)
+signedEuclideanDistance(p, A, b)
