@@ -2,9 +2,32 @@
 #include <cmath>
 #include <eigen3/Eigen/Dense>
 #include <iostream>
+#include <vector>
+#include <cassert>
+#include <cmath>
+
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Polyhedron_3.h>
+#include <CGAL/Polygon_2.h>
+#include <CGAL/halfspace_intersection_2.h>
+#include <CGAL/halfspace_intersection_3.h>
+#include <CGAL/squared_distance_2.h>
+#include <CGAL/squared_distance_3.h>
 
 using namespace std;
 
+// CGAL
+using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
+
+// 2D
+using Point2 = Kernel::Point_2;
+using Line2  = Kernel::Line_2;
+using Polygon2 = CGAL::Polygon_2<Kernel>;
+
+// 3D
+using Point3 = Kernel::Point_3;
+using Plane3 = Kernel::Plane_3;
+using Polyhedron3 = CGAL::Polyhedron_3<Kernel>;
 // ----------------------------------------------------------------------------------------
 // Smooth Min / Max functions
 // ----------------------------------------------------------------------------------------
@@ -309,6 +332,126 @@ signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
 // ----------------------------------------------------------------------------------------
 // Non Smooth functions for comparison
 // ----------------------------------------------------------------------------------------
+
+inline bool isInsidePolytope(
+    const Eigen::VectorXf &p,
+    const Eigen::MatrixXf &A,
+    const Eigen::VectorXf &b)
+{
+    for (int i = 0; i < A.rows(); ++i) {
+        if (A.row(i).dot(p) > b(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+float signedEuclideanDistance2D(
+    const Eigen::VectorXf &p,
+    const Eigen::MatrixXf &A,
+    const Eigen::VectorXf &b)
+{
+    assert(p.size() == 2);
+    assert(A.cols() == 2);
+    assert(A.rows() == b.size());
+
+    // --------------------------------------
+    // Build halfspaces as CGAL lines
+    // a₁x + a₂y ≤ b  →  a₁x + a₂y - b = 0
+    // --------------------------------------
+    std::vector<Line2> lines;
+    lines.reserve(A.rows());
+
+    for (int i = 0; i < A.rows(); ++i) {
+        lines.emplace_back(
+            A(i, 0),
+            A(i, 1),
+            -b(i)
+        );
+    }
+
+    // --------------------------------------
+    // Halfspace intersection → convex polygon
+    // --------------------------------------
+    Polygon2 polygon;
+    Point2 interior_point(0.0, 0.0);
+
+    CGAL::halfspace_intersection_2(
+        lines.begin(),
+        lines.end(),
+        polygon,
+        interior_point
+    );
+
+    // --------------------------------------
+    // Distance query
+    // --------------------------------------
+    Point2 query(p(0), p(1));
+    double dist2 = CGAL::squared_distance(query, polygon);
+    double dist  = std::sqrt(dist2);
+
+    // --------------------------------------
+    // Signed result
+    // --------------------------------------
+    bool inside = isInsidePolytope(p, A, b);
+    return inside ? -static_cast<float>(dist)
+                  :  static_cast<float>(dist);
+}
+
+
+float signedEuclideanDistance3D(
+    const Eigen::VectorXf &p,
+    const Eigen::MatrixXf &A,
+    const Eigen::VectorXf &b)
+{
+    assert(p.size() == 3);
+    assert(A.cols() == 3);
+    assert(A.rows() == b.size());
+
+    // --------------------------------------
+    // Build halfspaces as CGAL planes
+    // aᵀx ≤ b → aᵀx - b = 0
+    // --------------------------------------
+    std::vector<Plane3> planes;
+    planes.reserve(A.rows());
+
+    for (int i = 0; i < A.rows(); ++i) {
+        planes.emplace_back(
+            A(i, 0),
+            A(i, 1),
+            A(i, 2),
+            -b(i)
+        );
+    }
+
+    // --------------------------------------
+    // Halfspace intersection → polyhedron
+    // --------------------------------------
+    Polyhedron3 poly;
+    Point3 interior_point(0.0, 0.0, 0.0);
+
+    CGAL::halfspace_intersection_3(
+        planes.begin(),
+        planes.end(),
+        poly,
+        interior_point
+    );
+
+    // --------------------------------------
+    // Distance query
+    // --------------------------------------
+    Point3 query(p(0), p(1), p(2));
+    double dist2 = CGAL::squared_distance(query, poly);
+    double dist  = std::sqrt(dist2);
+
+    // --------------------------------------
+    // Signed result
+    // --------------------------------------
+    bool inside = isInsidePolytope(p, A, b);
+    return inside ? -static_cast<float>(dist)
+                  :  static_cast<float>(dist);
+}
+
 
 tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
                               const Eigen::MatrixXf &A,
