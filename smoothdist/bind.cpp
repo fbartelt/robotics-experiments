@@ -62,8 +62,17 @@ PYBIND11_MODULE(smoothfunctions, m) {
         "Compute the signed distance to a convex shape defined by linear inequalities",
         py::arg("p"), py::arg("A"), py::arg("b"), py::arg("r") = 0.1f,
         py::arg("eps") = 0.01f, py::arg("test") = "");
-  m.def("signedEuclideanDistance", &signedEuclideanDistance,
-        "Compute the signed Euclidean distance to a convex shape defined by linear inequalities",
-        py::arg("p"), py::arg("A"), py::arg("b"));
+  // m.def("signedEuclideanDistance", &signedEuclideanDistance,
+  //       "Compute the signed Euclidean distance to a convex shape defined by linear inequalities",
+        // py::arg("p"), py::arg("A"), py::arg("b"));
+  m.def("ESDF2D_CGAL", &ESDF2D_CGAL,
+        "Compute the Euclidean Signed Distance Function in 2D using CGAL", py::arg("p"),
+        py::arg("A"), py::arg("b"));
+  m.def("ESDF3D_CGAL", &ESDF3D_CGAL,
+        "Compute the Euclidean Signed Distance Function in 3D using CGAL", py::arg("p"),
+        py::arg("A"), py::arg("b"));
+  m.def("ESDF_CGAL", &ESDF_CGAL,
+        "Compute the Euclidean Signed Distance Function in 2D or 3D using CGAL", py::arg("p"),
+        py::arg("A"), py::arg("b"));
 }
 

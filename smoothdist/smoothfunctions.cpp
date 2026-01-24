@@ -1,37 +1,29 @@
 #include "smoothfunctions.hpp"
+#include <cassert>
 #include <cmath>
 #include <eigen3/Eigen/Dense>
 #include <iostream>
 #include <vector>
-#include <cassert>
-#include <cmath>
 
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Polyhedron_3.h>
-#include <CGAL/Polygon_2.h>
-#include <CGAL/halfspace_intersection_2.h>
-#include <CGAL/halfspace_intersection_3.h>
+#include <CGAL/Simple_cartesian.h>
 #include <CGAL/squared_distance_2.h>
 #include <CGAL/squared_distance_3.h>
+
+// This is uaibot header file
+#include "declarations.h"
 
 using namespace std;
 
 // CGAL
-using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
+typedef CGAL::Simple_cartesian<double> Kernel;
+typedef Kernel::Point_2 Point_2;
+typedef Kernel::Point_3 Point_3;
+typedef Kernel::Line_2 Line_2;
+typedef Kernel::Plane_3 Plane_3;
 
-// 2D
-using Point2 = Kernel::Point_2;
-using Line2  = Kernel::Line_2;
-using Polygon2 = CGAL::Polygon_2<Kernel>;
-
-// 3D
-using Point3 = Kernel::Point_3;
-using Plane3 = Kernel::Plane_3;
-using Polyhedron3 = CGAL::Polyhedron_3<Kernel>;
 // ----------------------------------------------------------------------------------------
 // Smooth Min / Max functions
 // ----------------------------------------------------------------------------------------
-//
 
 float holderMean(float x, float y, float r) {
   // Eigen::VectorXf powered = values.array().pow(-1.0f / r);
@@ -330,180 +322,190 @@ signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
 }
 
 // ----------------------------------------------------------------------------------------
-// Non Smooth functions for comparison
+// Euclidean Sign Distance Function (ESDF) -- CGAL + Uaibot Implementation
 // ----------------------------------------------------------------------------------------
 
-inline bool isInsidePolytope(
-    const Eigen::VectorXf &p,
-    const Eigen::MatrixXf &A,
-    const Eigen::VectorXf &b)
-{
-    for (int i = 0; i < A.rows(); ++i) {
-        if (A.row(i).dot(p) > b(i)) {
-            return false;
-        }
-    }
-    return true;
+// CGAL convertions
+Point_2 toCGALPoint2D(const Eigen::VectorXf &p) {
+  assert(p.size() == 2);
+  return Point_2(p(0), p(1));
 }
 
-float signedEuclideanDistance2D(
-    const Eigen::VectorXf &p,
-    const Eigen::MatrixXf &A,
-    const Eigen::VectorXf &b)
-{
-    assert(p.size() == 2);
-    assert(A.cols() == 2);
-    assert(A.rows() == b.size());
-
-    // --------------------------------------
-    // Build halfspaces as CGAL lines
-    // a₁x + a₂y ≤ b  →  a₁x + a₂y - b = 0
-    // --------------------------------------
-    std::vector<Line2> lines;
-    lines.reserve(A.rows());
-
-    for (int i = 0; i < A.rows(); ++i) {
-        lines.emplace_back(
-            A(i, 0),
-            A(i, 1),
-            -b(i)
-        );
-    }
-
-    // --------------------------------------
-    // Halfspace intersection → convex polygon
-    // --------------------------------------
-    Polygon2 polygon;
-    Point2 interior_point(0.0, 0.0);
-
-    CGAL::halfspace_intersection_2(
-        lines.begin(),
-        lines.end(),
-        polygon,
-        interior_point
-    );
-
-    // --------------------------------------
-    // Distance query
-    // --------------------------------------
-    Point2 query(p(0), p(1));
-    double dist2 = CGAL::squared_distance(query, polygon);
-    double dist  = std::sqrt(dist2);
-
-    // --------------------------------------
-    // Signed result
-    // --------------------------------------
-    bool inside = isInsidePolytope(p, A, b);
-    return inside ? -static_cast<float>(dist)
-                  :  static_cast<float>(dist);
+Point_3 toCGALPoint3D(const Eigen::VectorXf &p) {
+  assert(p.size() == 3);
+  return Point_3(p(0), p(1), p(2));
 }
 
+std::vector<Line_2> toCGALLines2D(const Eigen::MatrixXf &A,
+                                  const Eigen::VectorXf &b) {
+  // Convert halfspace representation to CGAL lines
+  // a₁x + a₂y ≤ b  →  a₁x + a₂y - b = 0
+  assert(A.cols() == 2);
+  assert(A.rows() == b.size());
 
-float signedEuclideanDistance3D(
-    const Eigen::VectorXf &p,
-    const Eigen::MatrixXf &A,
-    const Eigen::VectorXf &b)
-{
-    assert(p.size() == 3);
-    assert(A.cols() == 3);
-    assert(A.rows() == b.size());
+  std::vector<Line_2> lines;
+  lines.reserve(A.rows());
 
-    // --------------------------------------
-    // Build halfspaces as CGAL planes
-    // aᵀx ≤ b → aᵀx - b = 0
-    // --------------------------------------
-    std::vector<Plane3> planes;
-    planes.reserve(A.rows());
-
-    for (int i = 0; i < A.rows(); ++i) {
-        planes.emplace_back(
-            A(i, 0),
-            A(i, 1),
-            A(i, 2),
-            -b(i)
-        );
-    }
-
-    // --------------------------------------
-    // Halfspace intersection → polyhedron
-    // --------------------------------------
-    Polyhedron3 poly;
-    Point3 interior_point(0.0, 0.0, 0.0);
-
-    CGAL::halfspace_intersection_3(
-        planes.begin(),
-        planes.end(),
-        poly,
-        interior_point
-    );
-
-    // --------------------------------------
-    // Distance query
-    // --------------------------------------
-    Point3 query(p(0), p(1), p(2));
-    double dist2 = CGAL::squared_distance(query, poly);
-    double dist  = std::sqrt(dist2);
-
-    // --------------------------------------
-    // Signed result
-    // --------------------------------------
-    bool inside = isInsidePolytope(p, A, b);
-    return inside ? -static_cast<float>(dist)
-                  :  static_cast<float>(dist);
-}
-
-
-tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
-                              const Eigen::MatrixXf &A,
-                              const Eigen::VectorXf &b) {
-  int N = A.rows();
-  int m = A.cols();
-  float eps = 1e-8f;
-  Eigen::VectorXf distances(N);
-  Eigen::MatrixXf gradients(N, m);
-  for (int i = 0; i < N; ++i) {
-    Eigen::VectorXf ai = A.row(i).transpose();
-    // If s  positive, the point is outside
-    float s = (ai.dot(p) - b(i)) / (ai.norm() + eps);
-    distances(i) = s;
-    gradients.row(i) = ai.transpose() / (ai.norm() + eps);
+  for (int i = 0; i < A.rows(); ++i) {
+    lines.emplace_back(A(i, 0), A(i, 1), -b(i));
   }
-  // // Final signed distance is the minimum distance
-  // float minDistance = distances.minCoeff();
-  // // return minDistance;
-  // Eigen::VectorXf grad(m);
-  // // Find index of minimum distance
-  // Eigen::Index minIndex;
-  // distances.minCoeff(&minIndex);
-  // grad = gradients.row(minIndex).transpose();
-  // return make_tuple(minDistance, grad);
+  return lines;
+}
 
-  // Step 2: Determine if point is outside or inside
-  float min_positive = std::numeric_limits<float>::max();
-  float max_negative = -std::numeric_limits<float>::max();
-  int min_positive_idx = -1;
-  int max_negative_idx = -1;
-  
-  for (int i = 0; i < m; ++i) {
-    float d = distances(i);
-    
-    if (d > 0 && d < min_positive) {
-      min_positive = d;
-      min_positive_idx = i;
-    }
-    
-    if (d <= 0 && d > max_negative) {
-      max_negative = d;
-      max_negative_idx = i;
+std::vector<Plane_3> toCGALPlanes3D(const Eigen::MatrixXf &A,
+                                    const Eigen::VectorXf &b) {
+  // Convert halfspace representation to CGAL planes
+  // aᵀx ≤ b → aᵀx - b = 0
+  assert(A.cols() == 3);
+  assert(A.rows() == b.size());
+
+  std::vector<Plane_3> planes;
+  planes.reserve(A.rows());
+
+  for (int i = 0; i < A.rows(); ++i) {
+    planes.emplace_back(A(i, 0), A(i, 1), A(i, 2), -b(i));
+  }
+  return planes;
+}
+
+inline bool isInsidePolytope(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
+                             const Eigen::VectorXf &b) {
+  for (int i = 0; i < A.rows(); ++i) {
+    if (A.row(i).dot(p) > b(i)) {
+      return false;
     }
   }
-  
-  // Step 3: Return appropriate distance and gradient
-  if (min_positive_idx != -1) {
-    // Point is outside - return smallest positive distance
-    return make_tuple(min_positive, gradients.row(min_positive_idx).transpose());
+  return true;
+}
+
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF2D_CGAL(const Eigen::VectorXf &p,
+                                          const Eigen::MatrixXf &A,
+                                          const Eigen::VectorXf &b) {
+  // Convert point and halfspace representation to CGAL types
+  Point_2 point = toCGALPoint2D(p);
+  std::vector<Line_2> lines = toCGALLines2D(A, b);
+
+  // Check if p is inside the polytope
+  bool inside = isInsidePolytope(p, A, b);
+  float eps = 1e-6f;
+  if (inside) {
+    // If inside, compute the minimum distance to each hyperplane
+    // nearest point is necessarily on the boundary of the polytope
+    std::vector<float> distances;
+    std::vector<Eigen::VectorXf> closest_points;
+    for (const auto &line : lines) {
+      Point_2 closest_point = line.projection(point);
+      float dist = sqrt(CGAL::squared_distance(point, closest_point));
+      // Debug for NaN values
+      if (isnan(dist)) {
+        std::cout << "Point: (" << point.x() << ", " << point.y() << ")" << std::endl;
+        std::cout << "Closest Point: (" << closest_point.x() << ", " << closest_point.y() << ")" << std::endl;
+        std::cout << "Squared Distance: " << CGAL::squared_distance(point, closest_point) << std::endl;
+        std::cout << "Distance: " << dist << std::endl;
+      }
+      distances.push_back(dist);
+      Eigen::VectorXf cp(2);
+      cp << closest_point.x(), closest_point.y();
+      closest_points.push_back(cp);
+    }
+    auto minIt = std::min_element(distances.begin(), distances.end());
+    int minIndex = std::distance(distances.begin(), minIt);
+    float minDist = -distances[minIndex];
+    Eigen::VectorXf closest_point = closest_points[minIndex];
+    // Gradient computation (Gradient is a row vector)
+    Eigen::VectorXf grad = (p - closest_point).normalized();
+    return make_tuple(minDist, -grad, closest_point);
   } else {
-    // Point is inside - return largest negative distance
-    return make_tuple(max_negative, gradients.row(max_negative_idx).transpose());
+    // If outside, then another strategy is needed since hyperplanes
+    // are infinite and nearest point may not lie on polytope boundary.
+    // In this case we rely on Uaibot distance computation
+    // First param is a 4x4 identity matrix
+    // Uaibot functions are for 3d only, so we create a 3D polytope with z=0
+    Eigen::MatrixXf A_aux = Eigen::MatrixXf::Zero(A.rows() + 2, 3);
+    A_aux.block(0, 0, A.rows(), 2) = A;
+    // Add planes for z >= 0 and z <= 0
+    A_aux.row(A.rows()) << 0.0f, 0.0f, 1.0f;  // For z >= 0
+    A_aux.row(A.rows() + 1) << 0.0f, 0.0f, -1.0f; // For z <= 0
+    Eigen::VectorXf b_aux = Eigen::VectorXf::Zero(b.size() + 2);
+    b_aux.head(b.size()) = b;
+    b_aux(b.size()) = 0.0f;  // For z >= 0
+    b_aux(b.size() + 1) = 0.0f; // For z <= 0
+    GeometricPrimitives polytope = GeometricPrimitives::create_convexpolytope(Eigen::Matrix4f::Identity(), A_aux, b_aux);
+    Eigen::MatrixXf htm = Eigen::MatrixXf::Identity(4,4);
+    htm.block<2,1>(0,3) = p;
+    GeometricPrimitives point_geom = GeometricPrimitives::create_sphere(htm, eps);
+    PrimDistResult dist_res = point_geom.dist_to(polytope, 0.1f, 0.05f, 1e-3f, 20);
+    float distance = dist_res.dist;
+    Eigen::Vector3f closest_point = dist_res.proj_B;
+    Eigen::VectorXf nearest_point_2d(2);
+    nearest_point_2d << closest_point(0), closest_point(1);
+    Eigen::VectorXf grad = (p - nearest_point_2d).normalized();
+    if (isnan(distance)){
+      std::cout << "Distance is NaN" << std::endl;
+      std::cout << "Point p: " << p.transpose() << std::endl;
+      std::cout << "Closest point: " << closest_point.transpose() << std::endl;
+      std::cout << "Grad: " << grad.transpose() << std::endl;
+      std::cout << "distance: " << distance << std::endl;
+    }
+    return make_tuple(distance, grad, nearest_point_2d);
+  }
+}
+
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF3D_CGAL(const Eigen::VectorXf &p,
+                                          const Eigen::MatrixXf &A,
+                                          const Eigen::VectorXf &b) {
+  // Convert point and halfspace representation to CGAL types
+  Point_3 point = toCGALPoint3D(p);
+  std::vector<Plane_3> planes = toCGALPlanes3D(A, b);
+
+  // Check if p is inside the polytope
+  bool inside = isInsidePolytope(p, A, b);
+  float eps = 1e-6f;
+  if (inside) {
+    // If inside, compute the minimum distance to each hyperplane
+    // nearest point is necessarily on the boundary of the polytope
+    std::vector<float> distances;
+    std::vector<Eigen::VectorXf> closest_points;
+    for (const auto &plane : planes) {
+      Point_3 closest_point = plane.projection(point);
+      float dist = sqrt(CGAL::squared_distance(point, closest_point));
+      distances.push_back(dist);
+      Eigen::VectorXf cp(3);
+      cp << closest_point.x(), closest_point.y(), closest_point.z();
+      closest_points.push_back(cp);
+    }
+    auto minIt = std::min_element(distances.begin(), distances.end());
+    int minIndex = std::distance(distances.begin(), minIt);
+    float minDist = -distances[minIndex];
+    Eigen::VectorXf closest_point = closest_points[minIndex];
+    // Gradient computation (Gradient is a row vector)
+    Eigen::VectorXf grad = (p - closest_point).normalized();
+    return make_tuple(minDist, -grad, closest_point);
+  } else {
+    // If outside, then another strategy is needed since hyperplanes
+    // are infinite and nearest point may not lie on polytope boundary.
+    // In this case we rely on Uaibot distance computation
+    // First param is a 4x4 identity matrix
+    GeometricPrimitives polytope = GeometricPrimitives::create_convexpolytope(Eigen::Matrix4f::Identity(), A, b);
+    Eigen::MatrixXf htm = Eigen::MatrixXf::Identity(4,4);
+    htm.block<3,1>(0,3) = p;
+    GeometricPrimitives point_geom = GeometricPrimitives::create_sphere(htm, eps);
+    PrimDistResult dist_res = point_geom.dist_to(polytope, 0.0f, 0.0f, 1e-3f, 20, p*0);
+    float distance = dist_res.dist;
+    Eigen::VectorXf closest_point = dist_res.proj_B;
+    Eigen::VectorXf grad = (p - closest_point).normalized();
+    return make_tuple(distance, grad, closest_point);
+  }
+}
+
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF_CGAL(const Eigen::VectorXf &p,
+                                        const Eigen::MatrixXf &A,
+                                        const Eigen::VectorXf &b) {
+  if (p.size() == 2) {
+    return ESDF2D_CGAL(p, A, b);
+  } else if (p.size() == 3) {
+    return ESDF3D_CGAL(p, A, b);
+  } else {
+    throw invalid_argument("Point dimension must be 2 or 3 for ESDF_CGAL");
   }
 }

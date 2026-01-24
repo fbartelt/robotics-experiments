@@ -42,3 +42,14 @@ signedDist2Convex(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
 tuple<float, Eigen::VectorXf> signedEuclideanDistance(const Eigen::VectorXf &p,
                                                       const Eigen::MatrixXf &A,
                                                       const Eigen::VectorXf &b);
+
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF2D_CGAL(const Eigen::VectorXf &p,
+                                          const Eigen::MatrixXf &A,
+                                          const Eigen::VectorXf &b);
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF3D_CGAL(const Eigen::VectorXf &p,
+                                          const Eigen::MatrixXf &A,
+                                          const Eigen::VectorXf &b);
+tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF_CGAL(const Eigen::VectorXf &p,
+                                        const Eigen::MatrixXf &A,
+                                        const Eigen::VectorXf &b);
+
