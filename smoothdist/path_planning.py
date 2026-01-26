@@ -4,7 +4,13 @@ import plotly.colors as pc
 import cyipopt
 
 # from distances import signed_dist2convex, phi, smooth_min
-from smoothfunctions import signedDist2Convex, smoothMinListWithGradient, smoothMinList, phi, ESDF_CGAL
+from smoothfunctions import (
+    signedDist2Convex,
+    smoothMinListWithGradient,
+    smoothMinList,
+    phi,
+    ESDF_CGAL,
+)
 from scipy.optimize import minimize
 from typing import List, Tuple, Optional, Callable
 from polygon import (
@@ -137,6 +143,7 @@ def add_path3d(
             )
         )
 
+
 class OptimalPathProblemESDF:
     """
     Optimal path deformation problem using IPOPT.
@@ -204,8 +211,15 @@ class OptimalPathProblemESDF:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
-            if np.isnan(sat_dist) or np.isinf(sat_dist) or np.isnan(min_dist) or np.isinf(min_dist):
-                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={min_dist}, sat_dist={sat_dist}")
+            if (
+                np.isnan(sat_dist)
+                or np.isinf(sat_dist)
+                or np.isnan(min_dist)
+                or np.isinf(min_dist)
+            ):
+                print(
+                    f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={min_dist}, sat_dist={sat_dist}"
+                )
                 raise ValueError("NaN or Inf detected in objective computation.")
 
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
@@ -239,8 +253,15 @@ class OptimalPathProblemESDF:
             # Smooth saturation gradient
             exponent = np.clip(self.alpha * min_dist, -100, 100)
             grad_sat = 1 / (1 + np.exp(exponent))
-            if np.isnan(grad_sat) or np.isinf(grad_sat) or np.isnan(min_grad).any() or np.isinf(min_grad).any():
-                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={min_dist}, grad_sat={grad_sat}, smooth_min_grad={min_grad}")
+            if (
+                np.isnan(grad_sat)
+                or np.isinf(grad_sat)
+                or np.isnan(min_grad).any()
+                or np.isinf(min_grad).any()
+            ):
+                print(
+                    f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={min_dist}, grad_sat={grad_sat}, smooth_min_grad={min_grad}"
+                )
             grad_full = grad_sat * min_grad  # n x 1
 
             grad[i] += -grad_full.flatten()  # Minimize negative sat_dist
@@ -331,6 +352,7 @@ class OptimalPathProblemESDF:
 
         return cl, cu
 
+
 class OptimalPathProblem:
     """
     Optimal path deformation problem using IPOPT.
@@ -409,8 +431,15 @@ class OptimalPathProblem:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
-            if np.isnan(sat_dist) or np.isinf(sat_dist) or np.isnan(smooth_min_dist) or np.isinf(smooth_min_dist):
-                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, sat_dist={sat_dist}")
+            if (
+                np.isnan(sat_dist)
+                or np.isinf(sat_dist)
+                or np.isnan(smooth_min_dist)
+                or np.isinf(smooth_min_dist)
+            ):
+                print(
+                    f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, sat_dist={sat_dist}"
+                )
 
             total_cost += -sat_dist  # Minimize negative sat_dist to maximize distance
             # Path length cost
@@ -420,10 +449,9 @@ class OptimalPathProblem:
 
             # Curvature cost
             # if i < self.N - 2:
-            #     # Discrete approximation of 
+            #     # Discrete approximation of
             #     p_ip1 = path[i + 1].reshape(-1, 1)
             #     p_ip2 = path[i + 2].reshape(-1, 1)
-
 
         return total_cost
 
@@ -453,8 +481,15 @@ class OptimalPathProblem:
             # Smooth saturation gradient
             exponent = np.clip(self.alpha * smooth_min_dist, -100, 100)
             grad_sat = 1 / (1 + np.exp(exponent))
-            if np.isnan(grad_sat) or np.isinf(grad_sat) or np.isnan(smooth_min_grad).any() or np.isinf(smooth_min_grad).any():
-                print(f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, grad_sat={grad_sat}, smooth_min_grad={smooth_min_grad}")
+            if (
+                np.isnan(grad_sat)
+                or np.isinf(grad_sat)
+                or np.isnan(smooth_min_grad).any()
+                or np.isinf(smooth_min_grad).any()
+            ):
+                print(
+                    f"DEBUG: NaN or Inf detected at point {i}: smooth_min_dist={smooth_min_dist}, grad_sat={grad_sat}, smooth_min_grad={smooth_min_grad}"
+                )
             # sat_dist = (-1 / self.alpha) * np.log(
             #     0.5 * (1 + np.exp(-self.alpha * smooth_min_dist))
             # )  # Smooth saturation
@@ -587,6 +622,7 @@ def deform_path_ipopt(
     method="ours",
     max_iter=200,
     ipopt_options=None,
+    verbose=True,
     **kwargs,
 ):
     if method.lower() == "esdf":
@@ -602,9 +638,13 @@ def deform_path_ipopt(
             **kwargs,
         )
 
-    print(
-        f"{problem.n_variables} variables, {problem.m_constraints} constraints. N x d = {problem.N} x {problem.n}"
-    )
+    if verbose:
+        method_str = "ESDF-based" if method.lower() == "esdf" else "SmoothSDF-based"
+        msg = f"Deforming path using IPOPT ({method_str} formulation)..."
+        msg += f"\nNumber of path points: {problem.N}, Dimension: {problem.n}"
+        msg += f"\nNumber of obstacles: {len(obstacles)}"
+        msg += f"\nOptimization variables: {problem.n_variables}, constraints: {problem.m_constraints}"
+        print(msg)
 
     x0 = init_path.flatten()
 
@@ -625,13 +665,14 @@ def deform_path_ipopt(
     )
 
     if ipopt_options is None:
+        print_lvl = 5 if verbose else 0
         options = {
-           "mu_strategy": "adaptive",
+            "mu_strategy": "adaptive",
             "tol": 1e-6,  # Relax tolerance (default 1e-8)
             "max_iter": max_iter,  # Increase iteration limit
             "acceptable_iter": 10,  # Stop after 10 "good enough" iters
             # Output control
-            "print_level": 5,
+            "print_level": print_lvl,
             "print_frequency_iter": 10,
         }
     else:
@@ -640,12 +681,10 @@ def deform_path_ipopt(
     for key in options.keys():
         nlp.add_option(key, options[key])
 
-    print("Starting IPOPT solver...")
+    if verbose:
+        print("Starting IPOPT solver...")
     x_opt, info = nlp.solve(x0)
 
     path_opt = problem.unpack_path(x_opt)
 
     return path_opt, problem.path_history, info
-
-
-
