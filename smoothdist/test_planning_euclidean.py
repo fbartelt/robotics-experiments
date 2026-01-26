@@ -68,31 +68,31 @@ min_area = None
 radius = None
 num_vertices = None
 
-obstacles = Polytope.random_set(
-    n_polytopes=max_polygons,
-    intersect_polytopes=False,
-    q0=q0,
-    qd=qd,
-    max_vertices=max_vertices,
-    radius_lim=radius_limits,
-    bbox=bounding_box,
-    seed=seed,
-    min_area=min_area,
-    max_attempts=max_attempts,
-    radius=radius,
-    num_vertices=num_vertices,
-)
-
-# square = Polytope(
-#     A=np.array([
-#         [1, 0],
-#         [0, 1],
-#         [-1, 0],
-#         [0, -1],
-#     ]),
-#     b=np.array([5, 5, 5, 5]).reshape(-1, 1),
+# obstacles = Polytope.random_set(
+#     n_polytopes=max_polygons,
+#     intersect_polytopes=False,
+#     q0=q0,
+#     qd=qd,
+#     max_vertices=max_vertices,
+#     radius_lim=radius_limits,
+#     bbox=bounding_box,
+#     seed=seed,
+#     min_area=min_area,
+#     max_attempts=max_attempts,
+#     radius=radius,
+#     num_vertices=num_vertices,
 # )
-# obstacles = [square]
+
+square = Polytope(
+    A=np.array([
+        [1, 0],
+        [0, 1],
+        [-1, 0],
+        [0, -1],
+    ]),
+    b=np.array([5, 5, 5, 5]).reshape(-1, 1),
+)
+obstacles = [square]
 
 dists = [-100]
 iter_ = 0
@@ -126,6 +126,7 @@ print("Level sets created.")
 path_opt, path_hist, info = deform_path_ipopt(
     init_path,
     obstacles,
+    method="esdf",
     max_iter=opt_max_iters,
     kind=kind,
     h=h,

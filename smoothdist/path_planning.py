@@ -195,8 +195,8 @@ class OptimalPathProblemESDF:
             dists = np.zeros(self.n_obstacles)
             for j, obs in enumerate(self.obstacles):
                 dist_ij, *_ = ESDF_CGAL(p_i, obs.A, obs.b.reshape(-1, 1))
-                if dist_ij < 0 or np.isnan(dist_ij) or np.isinf(dist_ij):
-                    print(f"Point {i}, Obstacle {j}, dist = {dist_ij}")
+                # if dist_ij < 0 or np.isnan(dist_ij) or np.isinf(dist_ij):
+                #     print(f"Point {i}, Obstacle {j}, dist = {dist_ij}")
                 dists[j] = dist_ij
             min_dist = min(dists)
             # Smooth saturation (avoids cheating by circunventing the map)

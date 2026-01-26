@@ -434,10 +434,15 @@ tuple<float, Eigen::VectorXf, Eigen::VectorXf> ESDF2D_CGAL(const Eigen::VectorXf
     Eigen::MatrixXf htm = Eigen::MatrixXf::Identity(4,4);
     htm.block<2,1>(0,3) = p;
     GeometricPrimitives point_geom = GeometricPrimitives::create_sphere(htm, eps);
-    PrimDistResult dist_res = point_geom.dist_to(polytope, 0.1f, 0.05f, 1e-3f, 20);
-    float distance = dist_res.dist;
+    // This will return points at infinity in square test case !!!
+    // PrimDistResult dist_res = point_geom.dist_to(polytope, 0.0f, 0.0f, 1e-3f, 20);
+    // Testing for the smallest smoothing parameters that avoid infinities
+    PrimDistResult dist_res = point_geom.dist_to(polytope, 1e-5f, 1e-5f, 1e-3f, 20);
+    // PrimDistResult dist_res = point_geom.dist_to(polytope, 0.1f, 0.05f, 1e-3f, 20);
     Eigen::Vector3f closest_point = dist_res.proj_B;
     Eigen::VectorXf nearest_point_2d(2);
+    // Compute distance manually since dist_res.dist is a smoothed distance
+    float distance = (p - nearest_point_2d).norm();
     nearest_point_2d << closest_point(0), closest_point(1);
     Eigen::VectorXf grad = (p - nearest_point_2d).normalized();
     if (isnan(distance)){
