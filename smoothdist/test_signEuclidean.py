@@ -2,7 +2,7 @@
 import smoothfunctions as sf
 import numpy as np
 import plotly.graph_objects as go
-from smoothfunctions import ESDF2D_CGAL
+from smoothfunctions import ESDF2D_CGAL, ESDF_CGAL
 from polygon import (
     Polytope,
     add_polygon,
@@ -73,13 +73,15 @@ for i in range(10):
         delta = np.random.uniform(-1, 1, size=(2, )) * 0.1
         p = polygon.centroid + delta
 
-    dist, grad, closest = ESDF2D_CGAL(p, A, b)
+    dist, grad, closest = ESDF_CGAL(p, A, b)
     if closest.shape != p.shape:
         closest = closest[:2]
     size = np.linalg.norm(p - closest)
-    print(f"Distance: {dist}, Gradient: {grad.ravel()}")
+    print(f"Distance: {dist}, Gradient: {grad.ravel()}, size: {size}")
+    print(f"Point: {p}, Closest: {closest}")
 
-    add_vector(fig, p, -grad, size=size, color="red", name="gradient")
+    grad = -grad if dist > 0 else grad
+    add_vector(fig, p, grad, size=size, color="red", name="gradient")
     add_point(fig, p, color="blue", name="query point")
     add_point(fig, closest, color="green", name="closest point")
 fig.show()

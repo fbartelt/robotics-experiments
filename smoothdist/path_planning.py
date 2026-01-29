@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
@@ -201,7 +202,14 @@ class OptimalPathProblemESDF:
             p_i = path[i].reshape(-1, 1)
             dists = np.zeros(self.n_obstacles)
             for j, obs in enumerate(self.obstacles):
-                dist_ij, *_ = ESDF_CGAL(p_i, obs.A, obs.b.reshape(-1, 1))
+                time_0 = time.time()
+                dist_ij, grad, closest_pt = ESDF_CGAL(p_i, obs.A, obs.b.reshape(-1, 1))
+                time_1 = time.time()
+                # print(f"ESDF_CGAL time: {time_1 - time_0:.6f} seconds")
+                if np.isinf(dist_ij):
+                    print(f"Dist={dist_ij} for point {p_i.ravel()}")
+                    print(f"Closest point: {closest_pt.ravel()}")
+                    print(f"Expected dist: {np.linalg.norm(p_i.ravel() - closest_pt.ravel())}")
                 # if dist_ij < 0 or np.isnan(dist_ij) or np.isinf(dist_ij):
                 #     print(f"Point {i}, Obstacle {j}, dist = {dist_ij}")
                 dists[j] = dist_ij
