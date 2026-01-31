@@ -47,33 +47,36 @@ def check_free_path(
 ) -> bool:
     """
     Check if the given path is collision-free with respect to the list of obstacles.
+    Here we use a thinner than the original margin to be conservative using linear
+    interpolation between path points.
     """
     N = path.shape[0]
     n_obstacles = len(obstacles)
+    samples = 100  # Number of samples between each pair of points
 
-    for i in range(N):
+    # First and N-th point will never collide by construction
+    for i in range(N - 1):
         p_i = path[i].reshape(-1, 1)
-        for j, obs in enumerate(obstacles):
-            dist_ij, _ = signedDist2Convex(
-                p_i,
-                obs.A,
-                obs.b.reshape(-1, 1),
-                r=r,
-                eps=h,
-                test="",
-            )
-            if dist_ij < margin:
-                print(
-                    f"Collision detected at point {i} with obstacle {j}. Distance: {dist_ij}"
-                )
-                return False  # Collision detected
-
+        p_next = path[i + 1].reshape(-1, 1)
+        segment = np.linspace(p_i, p_next, samples)  # (samples x dim x 1)
+        for p_seg in segment:
+            p_seg = p_seg.reshape(-1, 1).astype(np.float32)
+            for obs in obstacles:
+                A = obs.A.astype(np.float32)
+                b = obs.b.reshape(-1, 1).astype(np.float32)
+                check = A @ p_seg - b
+                if check < margin:
+                    return False  # Collision detected
     return True  # No collisions detected
 
 
 def path_distance_stats(path, obstacles, r, h, alpha, test=""):
     dists = []
-    for p in path:
+    N = path.shape[0]
+    path_len = 0.0
+    path_curv = 0.0
+
+    for idx, p in enumerate(path):
         p = p.reshape(-1, 1).astype(np.float32)
         d_obs = []
         for obs in obstacles:
@@ -87,13 +90,22 @@ def path_distance_stats(path, obstacles, r, h, alpha, test=""):
         exponent = np.clip(-alpha * smooth_min_dist, -100, 100)
         sat_dist = (-1 / alpha) * np.log(0.5 * (1 + np.exp(exponent)))
         dists.append(sat_dist)
-        # dists.append(min(d_obs))
+        # Store path length and curvature
+        if idx < N - 1:
+            path_len += np.linalg.norm(path[idx + 1] - path[idx])
+            if idx < N - 2:
+                path_curv += np.linalg.norm(
+                    path[idx + 2] - 2 * path[idx + 1] + path[idx]
+                )
     dists = np.array(dists)
     return {
         "min_dist": float(np.min(dists)),
         "mean_dist": float(np.mean(dists)),
         "p10_dist": float(np.percentile(dists, 10)),
         "num_violations": int(np.sum(dists < 0)),
+        "path": path,
+        "path_len": path_len,
+        "path_curv": path_curv,
     }
 
 
@@ -166,7 +178,7 @@ def run_single_case(i, method="ours"):
             "seed": seed,
             "num_obstacles": max_polygons,
             "num_path_points": n_points,
-            "ipopt_info": "Generation Failed",
+            "ipopt_status": -100,
             "total_time": 0,
             "ipopt_time": 0,
             "success_collision_free": False,
@@ -174,6 +186,9 @@ def run_single_case(i, method="ours"):
             "mean_dist": float("nan"),
             "p10_dist": float("nan"),
             "num_violations": -1,
+            "path": None,
+            "path_len": float("nan"),
+            "path_curv": float("nan"),
         }
         return default_dict
     print(f"Generated {len(obstacles)} obstacles.")
@@ -203,7 +218,7 @@ def run_single_case(i, method="ours"):
     t_opt = time.perf_counter() - t0_opt
     t_total = time.perf_counter() - t0_total
 
-    collision_free = check_free_path(path_opt, obstacles, r=r, h=h, margin=-1e-3)
+    collision_free = check_free_path(path_opt, obstacles, r=r, h=h, margin=0.0)
     dist_stats = path_distance_stats(
         path_opt,
         obstacles,
@@ -218,11 +233,8 @@ def run_single_case(i, method="ours"):
         "seed": seed,
         "num_obstacles": len(obstacles),
         "num_path_points": n_points,
-        "ipopt_info": info,
-        # "solver_status": info.get("status", None),
-        # "solver_converged": info.get("status", 0) == 0,
-        # "num_iterations": info.get("iter_count", None),
-        # "max_iter_reached": info.get("iter_count", 0) >= opt_max_iters,
+        # "ipopt_info": info,
+        "ipopt_status": info.get("status", -20), # -20 == None 
         "total_time": t_total,
         "ipopt_time": t_opt,
         "success_collision_free": collision_free,
@@ -387,7 +399,9 @@ if __name__ == "__main__":
         n_success = sum(r["success_collision_free"] for r in records)
         # Average min distance even if collision happened
         avg_min_dist = np.mean([r["min_dist"] for r in records])
-        print(f"Total successful collision-free paths: {n_success}/{max_checks}. Average min dist: {avg_min_dist:.4f}")
+        print(
+            f"Total successful collision-free paths: {n_success}/{max_checks}. Average min dist: {avg_min_dist:.4f}"
+        )
 
         # records.append(record)
         # successes.append(collision_free)
