@@ -27,15 +27,19 @@ from path_planning import (
 )
 
 
-bounding_box = (-20., -20., 20., 20.)
+bounding_box = (-12., -10., 7., 10.)
+# bounding_box = (-20., -20., 20., 20.)
 q0 = np.array([-10.0, -17]).reshape(-1, 1)  # 1111
+q0 = np.array([-8.0, -9]).reshape(-1, 1)  # 1111
 # qd = -q0
 qd = np.array([0., 17]).reshape(-1, 1)
+qd = np.array([6.0, 9.0]).reshape(-1, 1)  # 1111
 
 n_points = 100
 h = 0.01
 r = 0.1
 zeta = 0.5 / 2
+zeta = np.sqrt(0.5 / 2) * 1e1
 alpha = np.log(2) / 5e-2
 min_path = True
 max_attempts = 500
@@ -55,23 +59,37 @@ A1 = np.array([
     [0.0, 1.0],
     [0.0, -1.0],
 ])
-b1 = np.array([-0.5, 5.0*3, 15.0, 5.0])
-o1 = Polytope(A1, b1)
-b2 = np.array([5.0*3, -0.5, 15.0, 5.0])
-o2 = Polytope(A1, b2)
-horizontal_left = np.array([-0.5, 20.0, -5., 15.0])
-horizontal_right = np.array([20., -0.5, -5., 15.0])
-o3 = Polytope(A1, horizontal_left)
-o4 = Polytope(A1, horizontal_right)
-obstacles = [o1, o2, o3, o4]
+# b1 = np.array([-0.5, 5.0*3, 15.0, 5.0])
+# o1 = Polytope(A1, b1)
+# b2 = np.array([5.0*3, -0.5, 15.0, 5.0])
+# o2 = Polytope(A1, b2)
+# horizontal_left = np.array([-0.5, 20.0, -5., 15.0])
+# horizontal_right = np.array([20., -0.5, -5., 15.0])
+# o3 = Polytope(A1, horizontal_left)
+# o4 = Polytope(A1, horizontal_right)
+# horizontal_top_right = np.array([20., 2.5, 30.0, -16.0])
+# o5 = Polytope(A1, horizontal_top_right)
+left_wall = np.array([-5, 7.0, 5.0, 5.0])
+o1 = Polytope(A1, left_wall)
+top_wall = np.array([3.0, 7.0, 7.0, -5.0])
+o2 = Polytope(A1, top_wall)
+bottom_wall = np.array([-5.0, 12.0, -5.0, 8.0])
+o3 = Polytope(A1, bottom_wall)
+bottom_wall2 = np.array([7.0, 4.0, -5.0, 8.0])
+o4 = Polytope(A1, bottom_wall2)
+right_wall = np.array([7., -5.0, 7.0, 5.0])
+o5 = Polytope(A1, right_wall)
+table = np.array([4.0, 4.0, 3.0, 3.0])
+o6 = Polytope(A1, table)
+obstacles = [o1, o2, o3, o4, o5, o6]
 
 dists = [-100]
 iter_ = 0
 path_hist = [init_path.copy()]
-opt_max_iters = 200
+opt_max_iters = 200 * 1
 kind = None
 method = "ours"
-method = "esdf"
+# method = "esdf"
 
 # bounding_box = (-20.0, -20, 20, 20.11) # 1337 plotting related
 # fig = go.Figure()
@@ -109,9 +127,9 @@ path_opt, path_hist, info = deform_path_ipopt(
 
 print(f"deformation completed in {iter_} iterations with min dist = {np.min(dists)}")
 add_path(fig, path_hist, num_paths=6, base_color="black")
-aux_fun = lambda x : fig.update_layout(width=1200, height=800)
-aux_fun(path_opt)
-fig.show()
+fig.update_layout(width=1200, height=800).show()
+# aux_fun(path_opt)
+# fig.show()
 print(info['status'])
 
 
