@@ -65,7 +65,7 @@ def check_free_path(
                 A = obs.A.astype(np.float32)
                 b = obs.b.reshape(-1, 1).astype(np.float32)
                 check = A @ p_seg - b
-                if check < margin:
+                if all(check < margin):
                     return False  # Collision detected
     return True  # No collisions detected
 
@@ -129,7 +129,7 @@ h = 0.01
 r = 0.1
 
 opt_max_iters = 200
-zeta = 0.5 * 1
+zeta = 0.5 / 2
 alpha = np.log(2) / 5e-2
 min_path = True
 

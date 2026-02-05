@@ -9,6 +9,8 @@ files_in_path = os.listdir(data_path)
 print(f"Files in data path: {files_in_path}")
 file_num = 0
 file = files_in_path[file_num]
+file_order = ['ours', 'esdf']
+files_in_path.sort()
 
 # Load file num
 df = pd.read_csv(os.path.join(data_path, file))
@@ -27,6 +29,8 @@ Average min distance to obstacles: {:.2f} units
 Average mean distance to obstacles: {:.2f} units
 Average p10 distance to obstacles: {:.2f} units
 Average number of violations: {:.2f} units
+Average path length: {:.2f} units
+Average path curvature: {:.2f} 1/units
 -------------------------------
 """
 for file in files_in_path:
@@ -39,7 +43,9 @@ for file in files_in_path:
         df['min_dist'].mean(),
         df['mean_dist'].mean(),
         df['p10_dist'].mean(),
-        df['num_violations'].mean()
+        df['num_violations'].mean(),
+        df['path_len'].mean(),
+        df['path_curv'].mean(),
     )
     print(stats_msg.format(*stats))
 print("-------------------------------")
