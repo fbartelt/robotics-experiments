@@ -3,6 +3,19 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
 import cyipopt
+from itertools import combinations
+from scipy.spatial import HalfspaceIntersection, ConvexHull, Delaunay
+from scipy.optimize import linprog
+from cyipopt import Problem
+from numba import njit
+
+# To display in notebook
+from IPython.display import HTML, display
+import webbrowser
+from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.colors import LinearSegmentedColormap
 
 # from distances import signed_dist2convex, phi, smooth_min
 from smoothfunctions import (
@@ -122,7 +135,7 @@ def add_path3d(
         # Mark q0
         fig.add_trace(
             go.Scatter3d(
-                x=[path[0, 0]],
+        x=[path[0, 0]],
                 y=[path[1, 0]],
                 z=[path[2, 0]],
                 mode="markers",
@@ -209,7 +222,9 @@ class OptimalPathProblemESDF:
                 if np.isinf(dist_ij):
                     print(f"Dist={dist_ij} for point {p_i.ravel()}")
                     print(f"Closest point: {closest_pt.ravel()}")
-                    print(f"Expected dist: {np.linalg.norm(p_i.ravel() - closest_pt.ravel())}")
+                    print(
+                        f"Expected dist: {np.linalg.norm(p_i.ravel() - closest_pt.ravel())}"
+                    )
                 # if dist_ij < 0 or np.isnan(dist_ij) or np.isinf(dist_ij):
                 #     print(f"Point {i}, Obstacle {j}, dist = {dist_ij}")
                 dists[j] = dist_ij
@@ -219,6 +234,7 @@ class OptimalPathProblemESDF:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
+            sat_dist = self.alpha * min_dist if min_dist < 0 else min_dist
             if (
                 np.isnan(sat_dist)
                 or np.isinf(sat_dist)
@@ -234,7 +250,7 @@ class OptimalPathProblemESDF:
             # Path length cost
             if self.min_path and i < self.N - 1:
                 p_next = path[i + 1].reshape(-1, 1)
-                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
+                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 4
 
         return total_cost
 
@@ -261,6 +277,7 @@ class OptimalPathProblemESDF:
             # Smooth saturation gradient
             exponent = np.clip(self.alpha * min_dist, -100, 100)
             grad_sat = 1 / (1 + np.exp(exponent))
+            grad_sat = self.alpha if min_dist < 0 else 1.0
             if (
                 np.isnan(grad_sat)
                 or np.isinf(grad_sat)
@@ -276,8 +293,10 @@ class OptimalPathProblemESDF:
             # Path length gradient
             if self.min_path and i < self.N - 1:
                 p_next = path[i + 1].reshape(-1, 1)
-                grad[i] += -self.zeta * (p_next - p_i).flatten()
-                grad[i + 1] += self.zeta * (p_next - p_i).flatten()
+                seg_norm = np.linalg.norm(p_next - p_i) ** 2
+                # 1/2 ||p - p_i||^4 ==> 2 * ||p - p_i||^2 * (p - p_i)
+                grad[i] += -2 * self.zeta * (p_next - p_i).flatten() * seg_norm
+                grad[i + 1] += 2 * self.zeta * (p_next - p_i).flatten() * seg_norm
 
         return grad.flatten()
 
@@ -439,6 +458,7 @@ class OptimalPathProblem:
             sat_dist = (-1 / self.alpha) * np.log(
                 0.5 * (1 + np.exp(exponent))
             )  # Smooth saturation
+            sat_dist = self.alpha * smooth_min_dist if smooth_min_dist < 0 else smooth_min_dist
             if (
                 np.isnan(sat_dist)
                 or np.isinf(sat_dist)
@@ -453,7 +473,7 @@ class OptimalPathProblem:
             # Path length cost
             if self.min_path and i < self.N - 1:
                 p_next = path[i + 1].reshape(-1, 1)
-                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 2
+                total_cost += (self.zeta / 2) * np.linalg.norm(p_next - p_i) ** 4
 
             # Curvature cost
             # if i < self.N - 2:
@@ -489,6 +509,7 @@ class OptimalPathProblem:
             # Smooth saturation gradient
             exponent = np.clip(self.alpha * smooth_min_dist, -100, 100)
             grad_sat = 1 / (1 + np.exp(exponent))
+            grad_sat = self.alpha if smooth_min_dist < 0 else 1.0
             if (
                 np.isnan(grad_sat)
                 or np.isinf(grad_sat)
@@ -515,8 +536,9 @@ class OptimalPathProblem:
             # Path length gradient
             if self.min_path and i < self.N - 1:
                 p_next = path[i + 1].reshape(-1, 1)
-                grad[i] += -self.zeta * (p_next - p_i).flatten()
-                grad[i + 1] += self.zeta * (p_next - p_i).flatten()
+                seg_norm = np.linalg.norm(p_next - p_i) ** 2
+                grad[i] += -2 * self.zeta * (p_next - p_i).flatten() * seg_norm
+                grad[i + 1] += 2 * self.zeta * (p_next - p_i).flatten() * seg_norm
 
         return grad.flatten()
 
@@ -696,3 +718,141 @@ def deform_path_ipopt(
     path_opt = problem.unpack_path(x_opt)
 
     return path_opt, problem.path_history, info
+
+
+def find_strictly_feasible_point(A, b):
+    """
+    Solve an LP to find a strictly feasible point x such that A x < b
+    """
+    m, n = A.shape
+    # Objective: maximize δ (slack)
+    c = np.zeros(n + 1)
+    c[-1] = -1  # Maximize δ ⇒ minimize -δ
+
+    # Constraints: A x + δ ||A_i|| ≤ b_i
+    norms = np.linalg.norm(A, axis=1)
+    A_lp = np.hstack((A, norms[:, None]))
+    bounds = [(None, None)] * n + [(0, None)]  # δ ≥ 0
+
+    res = linprog(c, A_ub=A_lp, b_ub=b, bounds=bounds, method="highs")
+    if res.success:
+        return res.x[:-1]  # Return x (ignore δ)
+    else:
+        raise ValueError("Could not find a strictly feasible point.")
+
+
+def get_polytope_vertices_opt(A, b, tol=1e-6):
+    n_dim = A.shape[1]  # Dimension of the polytope (e.g., 2 for 2D)
+    vertices = []
+
+    # Generate direction vectors (all combinations of ±1 in each dimension)
+    directions = []
+    for signs in combinations([-1, 1] * n_dim, n_dim):
+        directions.append(np.array(signs))
+    directions = np.unique(directions, axis=0)  # Remove duplicates
+
+    # Solve LP for each direction
+    for c in directions:
+        res = linprog(
+            c=-c,  # Maximize c^T x (linprog minimizes, so we negate)
+            A_ub=A,
+            b_ub=b,
+            bounds=(None, None),  # No bounds beyond Ax ≤ b
+            method="highs",  # Uses the HiGHS solver
+        )
+        if res.success:
+            vertex = np.round(res.x, int(-np.log10(tol)))
+            if not any(np.allclose(vertex, v, atol=tol) for v in vertices):
+                vertices.append(vertex)
+    interior_point = find_strictly_feasible_point(A, b)
+    halfspaces = np.hstack((A, -b[:, None]))
+    hs = HalfspaceIntersection(halfspaces, interior_point)
+    reconstructed_vertices = hs.intersections
+
+    # Use ConvexHull to order them
+    hull = ConvexHull(reconstructed_vertices)
+    vertices = reconstructed_vertices[hull.vertices]
+
+    return np.array(vertices)
+
+
+def add_polygon_plt(ax, A, b, alpha=0.5, color=(0.64, 0.62, 0.61)):
+    """Add polygon to matplotlib axes"""
+    vertices = get_polytope_vertices_opt(A, b)
+    # print(vertices)
+    hull = ConvexHull(vertices)
+    poly_vertices = vertices[hull.vertices]
+    ax.fill(
+        poly_vertices[:, 0],
+        poly_vertices[:, 1],
+        color=color,
+        alpha=alpha,
+        edgecolor=color,
+        linewidth=1,
+    )
+
+
+def animate_deformation_matplotlib(
+    path_list,
+    init_path,
+    obstacles,
+    q0,
+    qd,
+    p1,
+    p2,
+    distances,
+    frame_delay=200,  # ms between frames
+):
+    # Create static figure and axes
+    fig, ax = plt.subplots(figsize=(10, 8))
+    n_iters = len(path_list)
+    # Precompute all paths
+    paths = [init_path.copy()]
+    paths.extend(path_list)
+
+    # Setup static elements
+    # Create RdBu-like colormap
+    cmap = LinearSegmentedColormap.from_list("RdBu", ["#2166ac", "#f7f7f7", "#b2182b"])
+    contour = ax.contourf(p1, p2, distances, levels=20, cmap=cmap, alpha=1.0)
+    cbar = plt.colorbar(contour, ax=ax)
+    cbar.set_label("Distance")
+
+    # Add polygons
+    # for A, b in obstacles:
+    for obs in obstacles:
+        A, b = obs.A, obs.b
+        add_polygon_plt(ax, A, b)
+
+    ax.plot(q0[0, 0], q0[1, 0], "gx", markersize=10, label="q0")
+    ax.plot(qd[0, 0], qd[1, 0], "b*", markersize=10, label="qd")
+
+    # Initialize path line
+    (path_line,) = ax.plot([], [], "ok-", linewidth=2)
+
+    # Add legend and set limits
+    ax.legend()
+    ax.set_xlim(np.min(p1), np.max(p1))
+    ax.set_ylim(np.min(p2), np.max(p2))
+    ax.set_aspect("equal", "box")
+    ax.set_title("Path Deformation Animation")
+    ax.grid(True)
+
+    # Animation update function
+    def update(frame):
+        path = paths[frame]
+        # path_line.set_data(path[0, :], path[1, :])
+        path_line.set_data(path[:, 0], path[:, 1])
+        ax.set_title(f"Deformation Step: {frame}/{n_iters}")
+        return (path_line,)
+
+    # Create animation
+    ani = FuncAnimation(
+        ax.figure, update, frames=n_iters, interval=frame_delay, blit=True
+    )
+
+    return ani
+
+def show_animation(animation, filename="anim.html"):
+    path = Path(filename).absolute()
+    animation.save(path, writer="html")
+    webbrowser.open(f"file://{path}")

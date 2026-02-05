@@ -3,9 +3,16 @@ import plotly.graph_objects as go
 from scipy.optimize import linprog
 from scipy.spatial import HalfspaceIntersection, ConvexHull
 from scipy.special import factorial
-from typing import List, Tuple, Optional
-from distances import signed_dist2convex, id_phi, phi, smooth_min, signed_dist2nonconvex
+
+# from typing import List, Tuple
+from distances import signed_dist2nonconvex
 from scipy.special import gamma
+from smoothfunctions import (
+    signedDist2Convex,
+    ESDF_CGAL,
+    smoothMinList,
+    phi,
+)
 
 
 def get_polytope_constraints(vertices):
@@ -407,7 +414,10 @@ def generate_random_polyhedron(
 
 def is_point_inside_polygon(point, A, b, tol=1e-6):
     res = linprog(
-        c = [0.0,] * len(point),
+        c=[
+            0.0,
+        ]
+        * len(point),
         # c=[0.0, 0.0],  # dummy objective
         A_ub=A,
         b_ub=b,
@@ -424,7 +434,10 @@ def polygons_intersect(A1, b1, A2, b2):
 
     res = linprog(
         # c=[0.0, 0.0],
-        c=[0.0,] * A1.shape[1],
+        c=[
+            0.0,
+        ]
+        * A1.shape[1],
         A_ub=A_combined,
         b_ub=b_combined,
         # bounds=(None, None),
@@ -493,6 +506,7 @@ def generate_random_polygon_set(
 
     return polygons
 
+
 def generate_random_polyhedron_set(
     n_polyhedra=4,
     intersect_polyhedra=False,
@@ -514,7 +528,9 @@ def generate_random_polyhedron_set(
 
     if min_volume is None:
         # Half the volume of a n-sphere with radius equal to the minimum radius limit
-        min_volume = 1/2 * (np.pi ** (dim / 2) / gamma(dim / 2 + 1)) * radius_lim[0] ** dim
+        min_volume = (
+            1 / 2 * (np.pi ** (dim / 2) / gamma(dim / 2 + 1)) * radius_lim[0] ** dim
+        )
 
     while len(polyhedra) < n_polyhedra and attempts < max_attempts:
         A, b, vertices, volume = generate_random_polyhedron(
@@ -555,6 +571,7 @@ def generate_random_polyhedron_set(
 
     return polyhedra
 
+
 def create_level_sets(
     polygons,
     r=1e-1,
@@ -564,8 +581,10 @@ def create_level_sets(
     n_points=100,
     n_contours=50,
     test=None,
+    method="ours",
     add_reference=False,
     rescale=False,
+    return_cmap_data=False,
 ):
     fig = go.Figure()
 
@@ -608,22 +627,37 @@ def create_level_sets(
                         # test=None
                     )
                 elif isinstance(polygon, Polytope):
-                    dist_i = signed_dist2convex(
-                        # id_phi,
-                        phi,
-                        p,
-                        polygon.A,
-                        polygon.b,
-                        r=r,
-                        h=h,
-                        # test="out"
-                        test=test,
-                        # test=None
-                    )
+                    if method.lower() == "esdf":
+                        dist_i, *_ = ESDF_CGAL(
+                            p=p,
+                            A=polygon.A,
+                            b=polygon.b.reshape(-1, 1),
+                        )
+                    else:
+                        dist_i, _ = signedDist2Convex(
+                            p=p,
+                            A=polygon.A,
+                            b=polygon.b.reshape(-1, 1),
+                            r=r,
+                            eps=h,
+                            test="" if test is None else test,
+                        )
+                        # dist_i = signed_dist2convex(
+                        #     # id_phi,
+                        #     phi,
+                        #     p,
+                        #     polygon.A,
+                        #     polygon.b,
+                        #     r=r,
+                        #     h=h,
+                        #     # test="out"
+                        #     test=test,
+                        #     # test=None
+                        # )
                 else:
                     raise ValueError("Unknown polygon type")
                 dists.append(dist_i)
-            distances.append(smooth_min(dists, r=r))
+            distances.append(smoothMinList(dists, r=r))
             # distances.append(dist)
 
     distances = np.array(distances).reshape(n_points, n_points).T
@@ -654,4 +688,7 @@ def create_level_sets(
         margin=dict(t=0, l=10, r=10, b=10),
     )
 
-    return fig
+    if not return_cmap_data:
+        return fig
+    else:
+        return fig, (p1, p2, distances)
