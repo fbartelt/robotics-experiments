@@ -9,10 +9,10 @@ find_package(pybind11 CONFIG REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 
 # Server
-set(UAIBOT_DIR ${CMAKE_SOURCE_DIR}/../../debugenv/lib/python3.13/site-packages/uaibot/c_implementation)
+# set(UAIBOT_DIR ${CMAKE_SOURCE_DIR}/../../debugenv/lib/python3.13/site-packages/uaibot/c_implementation)
 
 # Local computer
-# set(UAIBOT_DIR ${CMAKE_SOURCE_DIR}/../../UAIbotPy/uaibot/c_implementation)
+set(UAIBOT_DIR ${CMAKE_SOURCE_DIR}/../../UAIbotPy/uaibot/c_implementation)
 include_directories(${UAIBOT_DIR} ${UAIBOT_DIR}/third_party/quadprogpp/src)
 
 # Add system Eigen path so <Eigen/Core> works

@@ -387,6 +387,7 @@ inline bool isInsidePolytope(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
 tuple<float, Eigen::VectorXf, Eigen::VectorXf>
 ESDF2D(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
        const Eigen::VectorXf &b) {
+  // Half-Squared disance
   // Check if p is inside the polytope
   bool inside = isInsidePolytope(p, A, b);
   // float eps = 1e-6f;
@@ -403,7 +404,8 @@ ESDF2D(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
       // distance
       if (dist > max_dist) {
         max_dist = dist;
-        grad = ai.normalized();
+        // grad = ai.normalized();
+        grad = ai;
         closest_point = p - dist * (grad);
       }
       distance = max_dist;
@@ -421,8 +423,11 @@ ESDF2D(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
     Eigen::VectorXf b_ineq = -b;
     closest_point = solveQP(H, f, A_ineq, b_ineq);
     distance = (p - closest_point).norm();
-    grad = (p - closest_point).normalized();
+    // grad = (p - closest_point).normalized();
+    grad = (p - closest_point);
   }
+  float sign = distance >= 0.0f ? 1.0f : -1.0f;
+  distance = 0.5f * distance * distance * sign;
   return make_tuple(distance, grad, closest_point);
 }
 
@@ -445,7 +450,8 @@ ESDF3D(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
       // distance
       if (dist > max_dist) {
         max_dist = dist;
-        grad = ai.normalized();
+        // grad = ai.normalized();
+        grad = ai;
         closest_point = p - dist * (grad);
       }
       distance = max_dist;
@@ -463,160 +469,16 @@ ESDF3D(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
     Eigen::VectorXf b_ineq = -b;
     closest_point = solveQP(H, f, A_ineq, b_ineq);
     distance = (p - closest_point).norm();
-    grad = (p - closest_point).normalized();
+    // grad = (p - closest_point).normalized();
+    grad = (p - closest_point);
   }
+  float sign = distance >= 0.0f ? 1.0f : -1.0f;
+  distance = 0.5f * distance * distance * sign;
   return make_tuple(distance, grad, closest_point);
 }
 
 tuple<float, Eigen::VectorXf, Eigen::VectorXf>
-ESDF2D_CGAL(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
-            const Eigen::VectorXf &b) {
-  // Convert point and halfspace representation to CGAL types
-  Point_2 point = toCGALPoint2D(p);
-  std::vector<Line_2> lines = toCGALLines2D(A, b);
-
-  // Check if p is inside the polytope
-  bool inside = isInsidePolytope(p, A, b);
-  float eps = 1e-6f;
-  if (inside) {
-    // If inside, compute the minimum distance to each hyperplane
-    // nearest point is necessarily on the boundary of the polytope
-    std::vector<float> distances;
-    std::vector<Eigen::VectorXf> closest_points;
-    for (const auto &line : lines) {
-      Point_2 closest_point = line.projection(point);
-      float dist = sqrt(CGAL::squared_distance(point, closest_point));
-      // Debug for NaN values
-      if (isnan(dist) || isinf(dist)) {
-        std::cout << "Point: (" << point.x() << ", " << point.y() << ")"
-                  << std::endl;
-        std::cout << "Closest Point: (" << closest_point.x() << ", "
-                  << closest_point.y() << ")" << std::endl;
-        std::cout << "Squared Distance: "
-                  << CGAL::squared_distance(point, closest_point) << std::endl;
-        std::cout << "Distance: " << dist << std::endl;
-      }
-      distances.push_back(dist);
-      Eigen::VectorXf cp(2);
-      cp << closest_point.x(), closest_point.y();
-      closest_points.push_back(cp);
-    }
-    auto minIt = std::min_element(distances.begin(), distances.end());
-    int minIndex = std::distance(distances.begin(), minIt);
-    float minDist = -distances[minIndex];
-    Eigen::VectorXf closest_point = closest_points[minIndex];
-    // Gradient computation (Gradient is a row vector)
-    Eigen::VectorXf grad = (p - closest_point).normalized();
-    return make_tuple(minDist, -grad, closest_point);
-  } else {
-    // If outside, then another strategy is needed since hyperplanes
-    // are infinite and nearest point may not lie on polytope boundary.
-    // In this case we rely on Uaibot distance computation
-    // First param is a 4x4 identity matrix
-    // Uaibot functions are for 3d only, so we create a 3D polytope with z=0
-    Eigen::MatrixXf A_aux = Eigen::MatrixXf::Zero(A.rows() + 2, 3);
-    A_aux.block(0, 0, A.rows(), 2) = A;
-    // Add planes for z >= 0 and z <= 0
-    A_aux.row(A.rows()) << 0.0f, 0.0f, 1.0f;      // For z >= 0
-    A_aux.row(A.rows() + 1) << 0.0f, 0.0f, -1.0f; // For z <= 0
-    Eigen::VectorXf b_aux = Eigen::VectorXf::Zero(b.size() + 2);
-    b_aux.head(b.size()) = b;
-    b_aux(b.size()) = 0.0f;     // For z >= 0
-    b_aux(b.size() + 1) = 0.0f; // For z <= 0
-    GeometricPrimitives polytope = GeometricPrimitives::create_convexpolytope(
-        Eigen::Matrix4f::Identity(), A_aux, b_aux);
-    Eigen::MatrixXf htm = Eigen::MatrixXf::Identity(4, 4);
-    htm.block<2, 1>(0, 3) = p;
-    GeometricPrimitives point_geom =
-        GeometricPrimitives::create_sphere(htm, eps);
-    // This will return points at infinity in square test case !!!
-    // PrimDistResult dist_res = point_geom.dist_to(polytope, 0.0f, 0.0f, 1e-3f,
-    // 20); Testing for the smallest smoothing parameters that avoid infinities
-    // 1e-5f works for most cases, but not all
-    float test_eps = 1e-4f;
-    PrimDistResult dist_res =
-        point_geom.dist_to(polytope, test_eps, test_eps, 1e-3f, 20);
-    // PrimDistResult dist_res = point_geom.dist_to(polytope, 0.1f, 0.05f,
-    // 1e-3f, 20);
-    Eigen::Vector3f closest_point = dist_res.proj_B;
-    Eigen::VectorXf nearest_point_2d(2);
-    nearest_point_2d << closest_point(0), closest_point(1);
-    // Compute distance manually since dist_res.dist is a smoothed distance
-    float distance = (p - nearest_point_2d).norm();
-    Eigen::VectorXf grad = (p - nearest_point_2d).normalized();
-    // For some reason this returns inf sometimes. E.g.:
-    // Distance is NaN. Point is inside
-    // Point p: -17 -17
-    // Closest point:  6.87796 -8.06637        0
-    // Grad: -0.936595 -0.350415
-    // distance: inf
-
-    if (isnan(distance) || isinf(distance)) {
-      std::cout << "Distance is NaN. Point is outside" << std::endl;
-      std::cout << "Point p: " << p.transpose() << std::endl;
-      std::cout << "Closest point: " << closest_point.transpose() << std::endl;
-      std::cout << "Nearest point 2D: " << nearest_point_2d.transpose()
-                << std::endl;
-      std::cout << "Grad: " << grad.transpose() << std::endl;
-      std::cout << "distance: " << distance << std::endl;
-      throw runtime_error("Distance is NaN");
-    }
-    return make_tuple(distance, grad, nearest_point_2d);
-  }
-}
-
-tuple<float, Eigen::VectorXf, Eigen::VectorXf>
-ESDF3D_CGAL(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
-            const Eigen::VectorXf &b) {
-  // Convert point and halfspace representation to CGAL types
-  Point_3 point = toCGALPoint3D(p);
-  std::vector<Plane_3> planes = toCGALPlanes3D(A, b);
-
-  // Check if p is inside the polytope
-  bool inside = isInsidePolytope(p, A, b);
-  float eps = 1e-6f;
-  if (inside) {
-    // If inside, compute the minimum distance to each hyperplane
-    // nearest point is necessarily on the boundary of the polytope
-    std::vector<float> distances;
-    std::vector<Eigen::VectorXf> closest_points;
-    for (const auto &plane : planes) {
-      Point_3 closest_point = plane.projection(point);
-      float dist = sqrt(CGAL::squared_distance(point, closest_point));
-      distances.push_back(dist);
-      Eigen::VectorXf cp(3);
-      cp << closest_point.x(), closest_point.y(), closest_point.z();
-      closest_points.push_back(cp);
-    }
-    auto minIt = std::min_element(distances.begin(), distances.end());
-    int minIndex = std::distance(distances.begin(), minIt);
-    float minDist = -distances[minIndex];
-    Eigen::VectorXf closest_point = closest_points[minIndex];
-    // Gradient computation (Gradient is a row vector)
-    Eigen::VectorXf grad = (p - closest_point).normalized();
-    return make_tuple(minDist, -grad, closest_point);
-  } else {
-    // If outside, then another strategy is needed since hyperplanes
-    // are infinite and nearest point may not lie on polytope boundary.
-    // In this case we rely on Uaibot distance computation
-    // First param is a 4x4 identity matrix
-    GeometricPrimitives polytope = GeometricPrimitives::create_convexpolytope(
-        Eigen::Matrix4f::Identity(), A, b);
-    Eigen::MatrixXf htm = Eigen::MatrixXf::Identity(4, 4);
-    htm.block<3, 1>(0, 3) = p;
-    GeometricPrimitives point_geom =
-        GeometricPrimitives::create_sphere(htm, eps);
-    PrimDistResult dist_res =
-        point_geom.dist_to(polytope, 0.0f, 0.0f, 1e-3f, 20, p * 0);
-    float distance = dist_res.dist;
-    Eigen::VectorXf closest_point = dist_res.proj_B;
-    Eigen::VectorXf grad = (p - closest_point).normalized();
-    return make_tuple(distance, grad, closest_point);
-  }
-}
-
-tuple<float, Eigen::VectorXf, Eigen::VectorXf>
-ESDF_CGAL(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
+ESDF(const Eigen::VectorXf &p, const Eigen::MatrixXf &A,
           const Eigen::VectorXf &b) {
   if (p.size() == 2) {
     // return ESDF2D_CGAL(p, A, b);

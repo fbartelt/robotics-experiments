@@ -77,7 +77,7 @@ def dist2set(q, obstacles, r=0.1, h=1e-2, method="ours"):
     # print(f"[DEBUG-PY] Received r={r}, h={h} in dist2set")
 
     for j, obs in enumerate(obstacles):
-        if method == "esdf":
+        if method.lower() == "esdf":
             dist_ij, grad, closest_pt = ESDF_CGAL(p_i, obs.A, obs.b.reshape(-1, 1))
         else:
             try:
@@ -91,9 +91,8 @@ def dist2set(q, obstacles, r=0.1, h=1e-2, method="ours"):
             except:
                 print(f"Failed signedDist at point {p_i.flatten()} for obstacle {j}")
                 raise ValueError("Signed distance computation failed.")
-        factor_ = 1.0
-        dists[j] = dist_ij * factor_
-        grads[:, j] = grad.reshape(-1) * factor_
+        dists[j] = dist_ij
+        grads[:, j] = grad.reshape(-1)
 
     if method == "esdf":
         id_min = np.argmin(dists)
@@ -241,47 +240,48 @@ A1 = np.array(
 
 # Room-like environment
 bounding_box = (-12.0, -10.0, 7.0, 10.0)
-q0 = np.array([-8.0, -4.0]).reshape(-1, 1)  # 1111
+q0 = np.array([-5.0, -6.0]).reshape(-1, 1)  # 1111
 qd = np.array([1.6, 5.0]).reshape(-1, 1)  # 1111
-qd = np.array([1.6, 8.0]).reshape(-1, 1)  # LImit CYcle
+qd = np.array([-1., 8.0]).reshape(-1, 1)  # LImit CYcle
 # qd = np.array([-10.6, 8.0]).reshape(-1, 1)  # Works
 # qd = np.array([-3.5, 8.0]).reshape(-1, 1)  # LImit CYcle
 # qd = np.array([-4.1, 8.0]).reshape(-1, 1)  # Works
 # qd = np.array([6.0, 2.0]).reshape(-1, 1)
 # qd = np.array([-3.0, 4.0]).reshape(-1, 1)
 
-left_wall = np.array([-5, 7.0, 5.0, 5.0])
+# left_wall = np.array([-5, 7.0, 5.0, 5.0])
+# o1 = Polytope(A1, left_wall)
+# top_wall = np.array([3.0, 7.0, 7.0, -5.0])
+# o2 = Polytope(A1, top_wall)
+# bottom_wall = np.array([-5.0, 12.0, -5.0, 8.0])
+# o3 = Polytope(A1, bottom_wall)
+# bottom_wall2 = np.array([7.0, 4.0, -5.0, 8.0])
+# o4 = Polytope(A1, bottom_wall2)
+right_wall = np.array([7.0, -1.0, 7.0, 5.0])
+left_wall = right_wall + A1 @ np.array([-10.0, 0.0])
 o1 = Polytope(A1, left_wall)
-top_wall = np.array([3.0, 7.0, 7.0, -5.0])
-o2 = Polytope(A1, top_wall)
-bottom_wall = np.array([-5.0, 12.0, -5.0, 8.0])
-o3 = Polytope(A1, bottom_wall)
-bottom_wall2 = np.array([7.0, 4.0, -5.0, 8.0])
-o4 = Polytope(A1, bottom_wall2)
-right_wall = np.array([7.0, -5.0, 7.0, 5.0])
-o5 = Polytope(A1, right_wall)
-obstacles = [
-    o1,
-    o2,
-    o3,
-    o4,
-    o5,
-]
-table = np.array([4.0, 4.0, 3.0, 3.0])
-o6 = Polytope(A1, table)
-# obstacles.append(o6)
-desk_base = np.array([-2.0, 4.0, 3.0, -1.5])
-for i in range(3):
-    for j in range(4):
-        displacement = np.array([i * 2.5, -j * 2.0])
-        desk_i = desk_base + A1 @ displacement
-        o_desk = Polytope(A1, desk_i)
-        obstacles.append(o_desk)
+o2 = Polytope(A1, right_wall)
+obstacles = [o1, o2]
+# o5 = Polytope(A1, right_wall)
+# obstacles = [
+#     o1,
+#     o2,
+#     o3,
+#     o4,
+#     o5,
+# ]
+# table = np.array([4.0, 4.0, 3.0, 3.0])
+# o6 = Polytope(A1, table)
+# # obstacles.append(o6)
+# desk_base = np.array([-2.0, 4.0, 3.0, -1.5])
+# for i in range(3):
+#     for j in range(4):
+#         displacement = np.array([i * 2.5, -j * 2.0])
+#         desk_i = desk_base + A1 @ displacement
+#         o_desk = Polytope(A1, desk_i)
+#         obstacles.append(o_desk)
 
-far_obj = desk_base + A1 @ np.array([20.0, -20.0])
-o7 = Polytope(A1, far_obj)
-
-obstacles = [o6]
+# obstacles = [o1, o2, o6]
 # Second order kinematic control for a point mass
 reached = False
 q = q0.copy()
@@ -294,20 +294,17 @@ max_iters = int(10.0 / dt) * 2.0
 iter = 0
 r = 1e-1
 h = 1e-2
-eta = 0.5   # * 25.0
-eps = 1e-3
-k = 2.0 * 1
+eta = 0.5 * 1# * 25.0
+eps = 1e-13
+k = 1.0
 gamma = dt
 method = "ours"
-# method = "esdf"
+method = "esdf"
 
 hist = [q.copy().T]
 hist_grad = [q.copy().T * 0]
 flags = [False]
 flag = False
-
-circ_rad = 2
-circ_center = np.array([-3.0, 2.0])
 
 while not reached:
     # Compute u using a second-order CBF
