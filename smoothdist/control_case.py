@@ -105,68 +105,6 @@ def dist2set(q, obstacles, r=0.1, h=1e-2, method="ours"):
     return min_dist, min_grad
 
 
-def cbf_2nd_test(q, q_dot, qd, circ_rad, circ_center, eps, k, eta, gamma=1e-3):
-    r"""
-    min ||dr/dq u + 2k dr/dq qdot + k^2r + qdot^T d^2r/dq^2 qdot||^2 + eps ||u||^2
-    s.t.
-        \ddot{B} \ge -2\eta\dot{B} - \eta^2 B
-    -->
-        min ||dr/dq u + 2k dr/dq qdot + k^2r + qdot^T d^2r/dq^2 qdot||^2 + eps ||u||^2
-    """
-    qd = qd.reshape(-1, 1)
-    q_dot = q_dot.reshape(-1, 1)
-    p_i = q.reshape(-1, 1)
-    r_task = p_i - qd  # 1 x N vector
-    drdq = np.eye(q.shape[0])
-    # d2rdq2 is a null tensor
-
-    # B(q) will be the distance to the obstacles
-    dist_vec = p_i - circ_center.reshape(-1, 1)
-    dist2center = np.linalg.norm(dist_vec)
-    B = dist2center - circ_rad
-    dBdq = dist_vec / (dist2center + 1e-6)
-    dot_B = (dBdq.T @ q_dot).item()
-    p_next = p_i + gamma * q_dot
-    p_prev = p_i - gamma * q_dot
-    dist_vec_prev = p_prev - circ_center.reshape(-1, 1)
-    dist_vec_next = p_next - circ_center.reshape(-1, 1)
-    dist2center_prev = np.linalg.norm(dist_vec_prev)
-    dist2center_next = np.linalg.norm(dist_vec_next)
-    dBdq_prev = dist_vec_prev / (dist2center_prev + 1e-6)
-    dBdq_next = dist_vec_next / (dist2center_next + 1e-6)
-    quad_term = (dBdq_next - dBdq_prev).T / (2 * gamma) @ q_dot
-
-    A = dBdq.T
-    b = -2 * eta * dot_B - eta**2 * B - quad_term
-
-    # Uaibot uses 1/2 u^T H u + f^T u s.t. Au >= b
-    # Functional
-    H = 2.0 * (eps * np.eye(q.shape[0])) + (drdq @ drdq.T)
-    f_transpose = (
-        2 * k * drdq.T @ q_dot
-        + k**2 * r_task  # + q_dot.T @ d2rdq2 @ q_dot # This is zero
-    ).T @ drdq.T
-    f_transpose = f_transpose.reshape(1, -1)
-
-    u = Utils.solve_qp(H, f_transpose, A, b)
-    u = np.array(u).reshape(-1, 1)
-    obj_test = u.T @ H @ u + f_transpose @ u
-    constraint_test = A @ u - b
-    flag = False
-
-    if constraint_test.flatten()[0] <= 0:
-        flag = True
-        # print(
-        #     f"Constraint violation: Au = {(A @ u).flatten()[0]}, b = {b.flatten()[0]}"
-        # )
-        # print(
-        #     f"At point {p_i.flatten()}. Current dB/dq: {dBdq.flatten()}. dot_B: {dot_B.flatten()[0]}, B: {B}, quad_term: {quad_term.flatten()[0]}. u: {u.flatten()}"
-        # )
-    # print(f"Objective: {obj_test.flatten()[0]}")
-    # print(f"Constraint (should be >=0): {constraint_test.flatten()[0]}")
-    return u, dBdq, flag
-
-
 def cbf_2nd(q, q_dot, qd, obstacles, eps, k, eta, r, h, method="ours", gamma=1e-3):
     r"""
     min ||dr/dq u + 2k dr/dq qdot + k^2r + qdot^T d^2r/dq^2 qdot||^2 + eps ||u||^2
@@ -239,17 +177,22 @@ A1 = np.array(
 )
 
 # Room-like environment
-bounding_box = (-12.0, -10.0, 7.0, 10.0)
+bounding_box = (-12.0, -10.0, 7.0, 20.0)
 q0 = np.array([-5.0, -6.0]).reshape(-1, 1)  # 1111
+q0 = np.array([0.0, -10.0]).reshape(-1, 1)  # 1111
 qd = np.array([1.6, 5.0]).reshape(-1, 1)  # 1111
-qd = np.array([-1., 8.0]).reshape(-1, 1)  # LImit CYcle
+qd = np.array([6.0, 7.0]).reshape(-1, 1)  # LImit CYcle
+qd = np.array([0., 17.0]).reshape(-1, 1)  # LImit CYcle
+
 # qd = np.array([-10.6, 8.0]).reshape(-1, 1)  # Works
 # qd = np.array([-3.5, 8.0]).reshape(-1, 1)  # LImit CYcle
 # qd = np.array([-4.1, 8.0]).reshape(-1, 1)  # Works
 # qd = np.array([6.0, 2.0]).reshape(-1, 1)
 # qd = np.array([-3.0, 4.0]).reshape(-1, 1)
 
-# left_wall = np.array([-5, 7.0, 5.0, 5.0])
+left_wall = np.array([-0.5, 7.0, 15.0, 5.0])
+bottom_wall = np.array([7.0, 4.0, -5.0, 8.0]) + A1 @ np.array([-2.0, 6.0])
+right_wall = left_wall + A1 @ np.array([7.5, 0.0])
 # o1 = Polytope(A1, left_wall)
 # top_wall = np.array([3.0, 7.0, 7.0, -5.0])
 # o2 = Polytope(A1, top_wall)
@@ -257,11 +200,10 @@ qd = np.array([-1., 8.0]).reshape(-1, 1)  # LImit CYcle
 # o3 = Polytope(A1, bottom_wall)
 # bottom_wall2 = np.array([7.0, 4.0, -5.0, 8.0])
 # o4 = Polytope(A1, bottom_wall2)
-right_wall = np.array([7.0, -1.0, 7.0, 5.0])
-left_wall = right_wall + A1 @ np.array([-10.0, 0.0])
 o1 = Polytope(A1, left_wall)
-o2 = Polytope(A1, right_wall)
-obstacles = [o1, o2]
+o2 = Polytope(A1, bottom_wall)
+o3 = Polytope(A1, right_wall)
+obstacles = [o1, o3]
 # o5 = Polytope(A1, right_wall)
 # obstacles = [
 #     o1,
@@ -294,15 +236,17 @@ max_iters = int(10.0 / dt) * 2.0
 iter = 0
 r = 1e-1
 h = 1e-2
-eta = 0.5 * 1# * 25.0
+eta = 0.5 * 10  # * 25.0
 eps = 1e-13
 k = 1.0
 gamma = dt
+# [JUMP]
 method = "ours"
 method = "esdf"
 
 hist = [q.copy().T]
 hist_grad = [q.copy().T * 0]
+u_hist = [q.copy().T * 0]
 flags = [False]
 flag = False
 
@@ -361,6 +305,7 @@ while not reached:
     hist.append(q.copy().T)
     hist_grad.append(grad.copy().T)
     flags.append(flag)
+    u_hist.append(u.copy().T)
     iter += 1
     if iter >= max_iters:
         print("Max iterations reached, stopping simulation.")
@@ -415,3 +360,35 @@ f(fig)
 #     add_vector_at_point(fig, p.flatten(), grad.flatten(), color="blue", name="Grad")
 
 fig.show()
+# %%
+norm_u = np.linalg.norm(np.array(u_hist).reshape(-1, 2), axis=1)
+go.Figure(
+    go.Scatter(
+        x=np.arange(len(norm_u)),
+        y=norm_u,
+        mode="lines",
+        line=dict(color="purple", width=2),
+        name="Control Norm",
+    )
+).show()
+
+# Show all 2 components of the control input
+u_hist_array = np.array(u_hist).reshape(-1, 2)
+# go.Figure(
+#     [
+#         go.Scatter(
+#             x=np.arange(len(u_hist_array)),
+#             y=u_hist_array[:, 0],
+#             mode="lines",
+#             line=dict(color="orange", width=2),
+#             name="Control u[0]",
+#         ),
+#         go.Scatter(
+#             x=np.arange(len(u_hist_array)),
+#             y=u_hist_array[:, 1],
+#             mode="lines",
+#             line=dict(color="cyan", width=2),
+#             name="Control u[1]",
+#         ),
+#     ]
+# ).show()
