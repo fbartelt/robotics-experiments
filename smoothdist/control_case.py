@@ -30,6 +30,7 @@ from path_planning import (
     add_path3d,
     animate_deformation_matplotlib,
     show_animation,
+    rrt_planner,
 )
 from uaibot.utils import Utils
 
@@ -176,68 +177,125 @@ A1 = np.array(
     ]
 )
 
-# Room-like environment
-bounding_box = (-12.0, -10.0, 7.0, 20.0)
-q0 = np.array([-5.0, -6.0]).reshape(-1, 1)  # 1111
-q0 = np.array([0.0, -10.0]).reshape(-1, 1)  # 1111
-qd = np.array([1.6, 5.0]).reshape(-1, 1)  # 1111
-qd = np.array([6.0, 7.0]).reshape(-1, 1)  # LImit CYcle
-qd = np.array([0., 17.0]).reshape(-1, 1)  # LImit CYcle
 
-# qd = np.array([-10.6, 8.0]).reshape(-1, 1)  # Works
-# qd = np.array([-3.5, 8.0]).reshape(-1, 1)  # LImit CYcle
-# qd = np.array([-4.1, 8.0]).reshape(-1, 1)  # Works
-# qd = np.array([6.0, 2.0]).reshape(-1, 1)
-# qd = np.array([-3.0, 4.0]).reshape(-1, 1)
+def create_map(
+    option,
+    q0=None,
+    qd=None,
+    table_center=np.array([2.0, 5.0]),
+    table_width=2.0,
+    table_height=1.0,
+    n_tables_y=4,
+    n_tables_x=5,
+    start_table_x=-3,
+    start_table_y=0,
+    L_width=2.0,
+    L_height=10.0,
+):
+    obstacles = []
 
-left_wall = np.array([-0.5, 7.0, 15.0, 5.0])
-bottom_wall = np.array([7.0, 4.0, -5.0, 8.0]) + A1 @ np.array([-2.0, 6.0])
-right_wall = left_wall + A1 @ np.array([7.5, 0.0])
-# o1 = Polytope(A1, left_wall)
-# top_wall = np.array([3.0, 7.0, 7.0, -5.0])
-# o2 = Polytope(A1, top_wall)
-# bottom_wall = np.array([-5.0, 12.0, -5.0, 8.0])
-# o3 = Polytope(A1, bottom_wall)
-# bottom_wall2 = np.array([7.0, 4.0, -5.0, 8.0])
-# o4 = Polytope(A1, bottom_wall2)
-o1 = Polytope(A1, left_wall)
-o2 = Polytope(A1, bottom_wall)
-o3 = Polytope(A1, right_wall)
-obstacles = [o1, o3]
-# o5 = Polytope(A1, right_wall)
-# obstacles = [
-#     o1,
-#     o2,
-#     o3,
-#     o4,
-#     o5,
-# ]
-# table = np.array([4.0, 4.0, 3.0, 3.0])
-# o6 = Polytope(A1, table)
-# # obstacles.append(o6)
-# desk_base = np.array([-2.0, 4.0, 3.0, -1.5])
-# for i in range(3):
-#     for j in range(4):
-#         displacement = np.array([i * 2.5, -j * 2.0])
-#         desk_i = desk_base + A1 @ displacement
-#         o_desk = Polytope(A1, desk_i)
-#         obstacles.append(o_desk)
+    if option == 1:
+        # Open space with some tables as obstacles
+        bounding_box = (-12.0, -10.0, 7.0, 20.0)
+        if q0 is None:
+            q0 = np.array([0.0, -10.0]).reshape(-1, 1)  # 1111
+        if qd is None:
+            qd = np.array([0.0, 17.0]).reshape(-1, 1)  # LImit CYcle
 
-# obstacles = [o1, o2, o6]
+        # create evenly distributed tables
+        end_table_x = start_table_x + n_tables_x
+        end_table_y = start_table_y + n_tables_y
+        for dx in range(start_table_x, end_table_x, 1):
+            for dy in range(start_table_y, end_table_y, 1):
+                center = table_center + np.array(
+                    [dx * (table_width + 1.5), dy * (table_height + 1.0)]
+                )
+                table = Polytope.create_rectangle(center, table_width, table_height)
+                obstacles.append(table)
+        waypoints = [qd]
+
+    elif option == 2:
+        # Create some L shaped obstacles. Collision-free path will require going around them.
+        obstacles = []
+        bounding_box = (-20.0, -20.0, 20.0, 20.0)
+        if q0 is None:
+            q0 = np.array([-15.0, -15.0]).reshape(-1, 1)
+        if qd is None:
+            qd = np.array([10.0, 15.0]).reshape(-1, 1)
+
+        # Upside down L shapes
+        for i in range(3):
+            center1 = np.array(
+                [bounding_box[0] + L_width / 2, bounding_box[1] + L_height / 2]
+            ) + np.array([i * (L_height - 2.0), i * (L_height + 0.0)])
+            L1_vertical = Polytope.create_rectangle(center1, L_width, L_height)
+            obstacles.append(L1_vertical)
+            # horizontal part
+            center2 = np.array(
+                [
+                    center1[0] + L_width / 2 + L_height / 2,
+                    center1[1] + L_height / 2 - L_width / 2,
+                ]
+            )
+            L1_horizontal = Polytope.create_rectangle(center2, L_height, L_width)
+            obstacles.append(L1_horizontal)
+
+        # Regular L shapes
+        for i in range(3):
+            center1 = np.array(
+                [bounding_box[0] + L_height + 3.0, bounding_box[1] + L_height / 2 - 3.0]
+            ) + np.array([i * (L_height - 2.0), i * (L_height + 0 * 2.0)])
+            L2_horizontal = Polytope.create_rectangle(center1, L_height, L_width)
+            obstacles.append(L2_horizontal)
+            # vertical part
+            center2 = np.array(
+                [
+                    center1[0] + L_height / 2 + L_width / 2,
+                    center1[1] - L_width / 2 + L_height / 2,
+                ]
+            )
+            L2_vertical = Polytope.create_rectangle(center2, L_width, L_height)
+            obstacles.append(L2_vertical)
+        waypoints = [
+            np.array([-5.0, -7.0]).reshape(-1, 1),
+            np.array([3.15, 3.15]).reshape(-1, 1),
+            np.array([11.7, 9.0]).reshape(-1, 1),
+            qd
+            ]
+
+    return bounding_box, q0, waypoints, obstacles
+
+
+option = 2
+parameters = {
+    "q0": None,
+    "qd": None,
+    "table_center": np.array([2.0, 5.0]),
+    "table_width": 2.0,
+    "table_height": 1.0,
+    "n_tables_y": 4,
+    "n_tables_x": 5,
+    "start_table_x": -3,
+    "start_table_y": 0,
+}
+bounding_box, q0, waypoints, obstacles = create_map(option, **parameters)
+
+# qd = np.array([-5, -7]).reshape(-1, 1)
 # Second order kinematic control for a point mass
 reached = False
 q = q0.copy()
 q_dot = np.zeros((2, 1))
 dt = 1e-3
 # 10 seconds max based on dt
-max_iters = int(10.0 / dt) * 2.0
+max_iters = int(10.0 / dt) * 4.0
 # max_iters = 1700
 # max_iters = 1
 iter = 0
-r = 1e-1
+r = 1e-1 * 5
 h = 1e-2
 eta = 0.5 * 10  # * 25.0
-eps = 1e-13
+# eps = 1e-13
+eps = 1e-3
 k = 1.0
 gamma = dt
 # [JUMP]
@@ -249,12 +307,17 @@ hist_grad = [q.copy().T * 0]
 u_hist = [q.copy().T * 0]
 flags = [False]
 flag = False
+waypoints = waypoints[::-1]  # Reverse waypoints to pop from the end
+qd = waypoints.pop()  # Start with the first waypoint as the goal
 
 while not reached:
     # Compute u using a second-order CBF
     if np.linalg.norm(q - qd) < 1e-2:
-        reached = True
-        print("Reached the goal!")
+        if len(waypoints) == 0:
+            reached = True
+            print("Reached the goal!")
+        else:
+            qd = waypoints.pop()
     if flag:
         pass
         # break
@@ -312,7 +375,7 @@ while not reached:
         break
 
 print(f"Number of iterations: {iter}, number of constraint violations: {sum(flags)}")
-# %%
+
 fig, cmap_data = create_level_sets(
     obstacles,
     r=r,

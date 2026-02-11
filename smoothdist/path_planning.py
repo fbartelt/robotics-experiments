@@ -856,3 +856,72 @@ def show_animation(animation, filename="anim.html"):
     path = Path(filename).absolute()
     animation.save(path, writer="html")
     webbrowser.open(f"file://{path}")
+
+
+### Helper functions for testing
+# RTT planner
+def rrt_planner(q0, qd, obstacles, step_size=0.5, max_iters=1000):
+    """Simple RRT planner for testing"""
+    tree = [q0]
+    path = np.array(tree)
+    for _ in range(max_iters):
+        rand_point = np.random.uniform(low=-10, high=10, size=q0.shape)
+        nearest = min(tree, key=lambda p: np.linalg.norm(p - rand_point))
+        direction = rand_point - nearest
+        if np.linalg.norm(direction) > step_size:
+            direction = (direction / np.linalg.norm(direction)) * step_size
+        new_point = nearest + direction
+
+        # Check collision
+        collision = False
+        for obs in obstacles:
+            dist, *_ = signedDist2Convex(
+                new_point.reshape(-1, 1),
+                obs.A,
+                obs.b.reshape(-1, 1),
+                r=1e-1,
+                eps=1e-2,
+            )
+            if dist < 0:
+                collision = True
+                break
+
+        if not collision:
+            tree.append(new_point)
+            path = np.array(tree)
+
+        # Check if we can connect to goal
+        if np.linalg.norm(new_point - qd) < step_size:
+            print("Connecting to goal...")
+            path = np.array(tree + [qd])
+
+    print(f"RRT path of length {len(path)} generated.")
+    return prune_path(path, obstacles, step_size)
+
+def prune_path(path, obstacles, step_size=0.5):
+    """Prune path by removing all unnecessary waypoints"""
+    pruned = [path[0]]
+    for i in range(1, len(path) - 1):
+        prune_candidate = path[i]
+        # Check if we can skip this point (check if the line connecting pruned[-1] and path[i+1] is collision-free)
+        collision = False
+        segment = np.linspace(pruned[-1], path[i + 1], num=100)
+        for point in segment:
+            for obs in obstacles:
+                dist, *_ = signedDist2Convex(
+                    point.reshape(-1, 1),
+                    obs.A,
+                    obs.b.reshape(-1, 1),
+                    r=1e-1,
+                    eps=1e-2,
+                )
+                if dist < 0:
+                    collision = True
+                    break
+            if collision:
+                break
+        if collision:
+            pruned.append(prune_candidate)
+    pruned.append(path[-1])
+    return np.array(pruned)
+

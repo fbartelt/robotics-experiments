@@ -286,6 +286,28 @@ class Polytope:
     def get_centroid(self):
         return self.get_polytope_centroid(self.vertices)
 
+    @staticmethod
+    def create_rectangle(center, width, height):
+        cx, cy = center
+        w2, h2 = width / 2, height / 2
+        A = np.array(
+            [
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+            ]
+        )
+        b = np.array(
+            [
+                cx + w2,
+                -cx + w2,
+                cy + h2,
+                -cy + h2,
+            ]
+        )
+        return Polytope(A, b)
+
 
 class NonConvexPolygon:
     """A class to represent a non-convex polygon defined by the union of
