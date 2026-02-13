@@ -1,4 +1,5 @@
 import time
+import random
 import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pc
@@ -860,68 +861,136 @@ def show_animation(animation, filename="anim.html"):
 
 ### Helper functions for testing
 # RTT planner
-def rrt_planner(q0, qd, obstacles, step_size=0.5, max_iters=1000):
-    """Simple RRT planner for testing"""
-    tree = [q0]
-    path = np.array(tree)
-    for _ in range(max_iters):
-        rand_point = np.random.uniform(low=-10, high=10, size=q0.shape)
-        nearest = min(tree, key=lambda p: np.linalg.norm(p - rand_point))
-        direction = rand_point - nearest
-        if np.linalg.norm(direction) > step_size:
-            direction = (direction / np.linalg.norm(direction)) * step_size
-        new_point = nearest + direction
-
-        # Check collision
-        collision = False
+def edge_in_collision(p1, p2, obstacles, num_checks=20, r=1e-1, eps=1e-2):
+    """
+    Check collision along the line segment between p1 and p2.
+    """
+    for i in range(num_checks + 1):
+        alpha = i / num_checks
+        p = (1 - alpha) * p1 + alpha * p2
         for obs in obstacles:
             dist, *_ = signedDist2Convex(
-                new_point.reshape(-1, 1),
+                p.reshape(-1, 1),
                 obs.A,
                 obs.b.reshape(-1, 1),
-                r=1e-1,
-                eps=1e-2,
+                r=r,
+                eps=eps,
             )
             if dist < 0:
-                collision = True
+                return True
+    return False
+
+def rrt_planner(
+    q0,
+    qd,
+    obstacles,
+    bounding_box,
+    step_size=0.2,
+    max_iters=5000,
+    prune_sample_size=20,
+    goal_sample_rate=0.05,
+    goal_tolerance=0.2,
+    r=1e-1,
+    eps=1e-2,
+    seed=42,
+):
+    """
+    Basic RRT planner in 2D.
+
+    Parameters:
+        q0 : np.array (2,)
+        qd : np.array (2,)
+        obstacles : list of Polytope
+        xlim : (xmin, xmax)
+        ylim : (ymin, ymax)
+    """
+
+    nodes = [np.array(q0)]
+    parents = [-1]
+    xlim = (bounding_box[0], bounding_box[2])
+    ylim = (bounding_box[1], bounding_box[3])
+    rng = np.random.default_rng(seed=seed)
+
+    for _ in range(max_iters):
+
+        # Goal bias sampling
+        if rng.random() < goal_sample_rate:
+            q_rand = np.array(qd)
+        else:
+            q_rand = np.array([
+                rng.uniform(*xlim),
+                rng.uniform(*ylim)
+            ])
+
+        # Find nearest node
+        distances = [np.linalg.norm(n - q_rand) for n in nodes]
+        nearest_idx = np.argmin(distances)
+        q_near = nodes[nearest_idx]
+
+        # Steer
+        direction = q_rand - q_near
+        norm = np.linalg.norm(direction)
+        if norm == 0:
+            continue
+        direction = direction / norm
+        q_new = q_near + step_size * direction
+
+        # Collision check
+        if not edge_in_collision(q_near, q_new, obstacles, r=r, eps=eps):
+            nodes.append(q_new)
+            parents.append(nearest_idx)
+
+            # Check goal
+            if np.linalg.norm(q_new - qd) < goal_tolerance:
+                nodes.append(np.array(qd))
+                parents.append(len(nodes) - 2)
+                print(f"RRT found a path to the goal in {_} iterations.")
                 break
 
-        if not collision:
-            tree.append(new_point)
-            path = np.array(tree)
+    # Reconstruct path
+    if np.linalg.norm(nodes[-1] - qd) >= goal_tolerance:
+        raise RuntimeError("RRT failed to find a path. Increase max_iters.")
+        return None
 
-        # Check if we can connect to goal
-        if np.linalg.norm(new_point - qd) < step_size:
-            print("Connecting to goal...")
-            path = np.array(tree + [qd])
+    path = []
+    idx = len(nodes) - 1
+    while idx != -1:
+        path.append(nodes[idx])
+        idx = parents[idx]
 
-    print(f"RRT path of length {len(path)} generated.")
-    return prune_path(path, obstacles, step_size)
+    # path.reverse()
+    path = [p.reshape(-1, 1) for p in path[::-1]]
+    path = prune_path(path, obstacles, num_points=prune_sample_size)
+    return path
 
-def prune_path(path, obstacles, step_size=0.5):
-    """Prune path by removing all unnecessary waypoints"""
+def prune_path(path, obstacles, num_points=30):
+    """
+    Remove unnecessary intermediate nodes via shortcutting.
+
+    Parameters:
+        path : list of np.array (2,)
+        obstacles : list of Polytope
+        num_points : number of interpolation samples per edge
+    """
+
+    if path is None or len(path) <= 2:
+        return path
+
     pruned = [path[0]]
-    for i in range(1, len(path) - 1):
-        prune_candidate = path[i]
-        # Check if we can skip this point (check if the line connecting pruned[-1] and path[i+1] is collision-free)
-        collision = False
-        segment = np.linspace(pruned[-1], path[i + 1], num=100)
-        for point in segment:
-            for obs in obstacles:
-                dist, *_ = signedDist2Convex(
-                    point.reshape(-1, 1),
-                    obs.A,
-                    obs.b.reshape(-1, 1),
-                    r=1e-1,
-                    eps=1e-2,
-                )
-                if dist < 0:
-                    collision = True
-                    break
-            if collision:
-                break
-        if collision:
-            pruned.append(prune_candidate)
-    pruned.append(path[-1])
-    return np.array(pruned)
+    i = 0
 
+    while i < len(path) - 1:
+        collision = False
+        j = len(path) - 1
+        while j > i + 1:
+            if not edge_in_collision(path[i], path[j], obstacles, num_checks=num_points):
+                pruned.append(path[j])
+                i = j
+                break
+            j -= 1
+        if j == i + 1:  # No shortcut found, keep the next node
+            pruned.append(path[i + 1])
+            i += 1
+    print(f"Pruned path from {len(path)} to {len(pruned)} nodes.")
+
+    return pruned

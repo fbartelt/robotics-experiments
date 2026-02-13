@@ -35,13 +35,13 @@ from path_planning import (
 from uaibot.utils import Utils
 
 
-def add_point(fig, p, color="black", name="point"):
+def add_point(fig, p, color="black", name="point", size=8, symbol="circle"):
     fig.add_trace(
         go.Scatter(
             x=[p[0]],
             y=[p[1]],
             mode="markers",
-            marker=dict(size=8, color=color),
+            marker=dict(size=size, color=color, symbol=symbol),
             name=name,
         )
     )
@@ -191,6 +191,8 @@ def create_map(
     start_table_y=0,
     L_width=2.0,
     L_height=10.0,
+    col_width=2.0,
+    col_height=None,
 ):
     obstacles = []
 
@@ -212,6 +214,7 @@ def create_map(
                 )
                 table = Polytope.create_rectangle(center, table_width, table_height)
                 obstacles.append(table)
+        # Normally works without waypoints
         waypoints = [qd]
 
     elif option == 2:
@@ -256,17 +259,52 @@ def create_map(
             )
             L2_vertical = Polytope.create_rectangle(center2, L_width, L_height)
             obstacles.append(L2_vertical)
-        waypoints = [
-            np.array([-5.0, -7.0]).reshape(-1, 1),
-            np.array([3.15, 3.15]).reshape(-1, 1),
-            np.array([11.7, 9.0]).reshape(-1, 1),
-            qd
-            ]
+        waypoints = rrt_planner(
+            q0.flatten(),
+            qd.flatten(),
+            obstacles,
+            bounding_box,
+            prune_sample_size=100,
+            seed=42,
+        )
+    elif option == 3:
+        # Warehouse-like environment 
+        obstacles = []
+        bounding_box = (-20.0, -20.0, 20.0, 20.0)
+        vertical_spacing = 6.0
+        horizontal_spacing = 6.0
+
+        if q0 is None:
+            q0 = np.array([-13.0, -18.0]).reshape(-1, 1)
+        if qd is None:
+            qd = np.array([17.0, -18.0]).reshape(-1, 1)
+        if col_height is None:
+            col_height = bounding_box[3] - bounding_box[1] - vertical_spacing  # Leave some margin at top and bottom
+        max_columns = int((bounding_box[2] - bounding_box[0]) / horizontal_spacing)
+        
+        for i in range(max_columns):
+            col_center = np.array(
+                [bounding_box[0] + horizontal_spacing / 2 + i * horizontal_spacing, 
+                 vertical_spacing * (-1) ** (i % 2 == 0)]
+            )
+            column = Polytope.create_rectangle(col_center, col_width, col_height)
+            obstacles.append(column)
+        waypoints = rrt_planner(
+            q0.flatten(),
+            qd.flatten(),
+            obstacles,
+            bounding_box,
+            prune_sample_size=100,
+            seed=42,
+            max_iters=20000,
+            step_size=0.4,
+        )
+
 
     return bounding_box, q0, waypoints, obstacles
 
 
-option = 2
+option = 3
 parameters = {
     "q0": None,
     "qd": None,
@@ -277,9 +315,13 @@ parameters = {
     "n_tables_x": 5,
     "start_table_x": -3,
     "start_table_y": 0,
+    "L_width": 2.0,
+    "L_height": 10.0,
 }
 bounding_box, q0, waypoints, obstacles = create_map(option, **parameters)
+print(f"Waypoints with len {len(waypoints)}: {[wp.flatten() for wp in waypoints]}")
 
+waypoints_bak = waypoints.copy()
 # qd = np.array([-5, -7]).reshape(-1, 1)
 # Second order kinematic control for a point mass
 reached = False
@@ -287,7 +329,7 @@ q = q0.copy()
 q_dot = np.zeros((2, 1))
 dt = 1e-3
 # 10 seconds max based on dt
-max_iters = int(10.0 / dt) * 4.0
+max_iters = int(10.0 / dt) * 10
 # max_iters = 1700
 # max_iters = 1
 iter = 0
@@ -300,7 +342,7 @@ k = 1.0
 gamma = dt
 # [JUMP]
 method = "ours"
-method = "esdf"
+# method = "esdf"
 
 hist = [q.copy().T]
 hist_grad = [q.copy().T * 0]
@@ -347,8 +389,9 @@ while not reached:
         method=method,
         gamma=gamma,
     )
-    if iter % 1000 == 0:
-        print(u)
+    norm_u = np.linalg.norm(u)
+    if norm_u > 100.0:
+        print(f"Warning: Large control input norm {norm_u} at iteration {iter}.")
     # except:
     #     print("QP failed, stopping simulation.")
     #     x, y = -7.98005, -17.97
@@ -393,7 +436,15 @@ fig, cmap_data = create_level_sets(
 print("Level sets created.")
 #
 add_point(fig, q0.flatten(), color="green", name="Start")
-add_point(fig, qd.flatten(), color="red", name="Goal")
+
+def add_waypoints(fig, waypoints):
+    for i, wp in enumerate(waypoints):
+        add_point(fig, wp.flatten(), color="red", size=10, symbol="x")
+
+
+add_waypoints(fig, waypoints_bak)
+add_point(fig, waypoints_bak[-1].flatten(), color="magenta", name="Goal")
+
 # Convert hist of points to a 2 x N path
 full_path = np.array(hist).reshape(-1, 2).T
 
