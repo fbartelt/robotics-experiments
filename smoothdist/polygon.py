@@ -287,6 +287,30 @@ class Polytope:
         return self.get_polytope_centroid(self.vertices)
 
     @staticmethod
+    def minkowski_sum(P, Q):
+        verts_P = P.vertices
+        verts_Q = Q.vertices
+        sums = np.array([p + q for p in verts_P for q in verts_Q])
+        # Compute convex hull to extract vertices
+        hull = ConvexHull(sums)
+        A = hull.equations[:, :-1]
+        b = -hull.equations[:, -1]
+        sumPoly = Polytope(A, b)
+        return sumPoly
+
+    @staticmethod
+    def minkowski_subtraction(P, Q):
+        verts_P = P.vertices
+        verts_Q = Q.vertices
+        sums = np.array([p - q for p in verts_P for q in verts_Q])
+        # Compute convex hull to extract vertices
+        hull = ConvexHull(sums)
+        A = hull.equations[:, :-1]
+        b = -hull.equations[:, -1]
+        sumPoly = Polytope(A, b)
+        return sumPoly
+
+    @staticmethod
     def create_rectangle(center, width, height):
         cx, cy = center
         w2, h2 = width / 2, height / 2
