@@ -215,7 +215,14 @@ def create_map(
                 table = Polytope.create_rectangle(center, table_width, table_height)
                 obstacles.append(table)
         # Normally works without waypoints
-        waypoints = [qd]
+        waypoints = rrt_planner(
+            q0.flatten(),
+            qd.flatten(),
+            obstacles,
+            bounding_box,
+            prune_sample_size=100,
+            seed=42,
+        )
 
     elif option == 2:
         # Create some L shaped obstacles. Collision-free path will require going around them.
@@ -268,7 +275,7 @@ def create_map(
             seed=42,
         )
     elif option == 3:
-        # Warehouse-like environment 
+        # Warehouse-like environment
         obstacles = []
         bounding_box = (-20.0, -20.0, 20.0, 20.0)
         vertical_spacing = 6.0
@@ -279,13 +286,17 @@ def create_map(
         if qd is None:
             qd = np.array([17.0, -18.0]).reshape(-1, 1)
         if col_height is None:
-            col_height = bounding_box[3] - bounding_box[1] - vertical_spacing  # Leave some margin at top and bottom
+            col_height = (
+                bounding_box[3] - bounding_box[1] - vertical_spacing
+            )  # Leave some margin at top and bottom
         max_columns = int((bounding_box[2] - bounding_box[0]) / horizontal_spacing)
-        
+
         for i in range(max_columns):
             col_center = np.array(
-                [bounding_box[0] + horizontal_spacing / 2 + i * horizontal_spacing, 
-                 vertical_spacing * (-1) ** (i % 2 == 0)]
+                [
+                    bounding_box[0] + horizontal_spacing / 2 + i * horizontal_spacing,
+                    vertical_spacing * (-1) ** (i % 2 == 0),
+                ]
             )
             column = Polytope.create_rectangle(col_center, col_width, col_height)
             obstacles.append(column)
@@ -299,22 +310,84 @@ def create_map(
             max_iters=20000,
             step_size=0.4,
         )
-
+    elif option == 4:
+        # Room-like environment
+        obstacles = []
+        bounding_box = (-2.5, -2.5, 2.5, 2.5)
+        if q0 is None:
+            q0 = np.array([-1.5, -2.1]).reshape(-1, 1)
+        if qd is None:
+            qd = np.array([1.5, 2.1]).reshape(-1, 1)
+        # q0 is before a doorway, qd is after the second doorway.
+        # room is surrounded by walls, with a table in the middle
+        wall_thickness = 0.5
+        left_wall = Polytope.create_rectangle(
+            np.array([bounding_box[0] + wall_thickness / 2, 0.0]),
+            wall_thickness,
+            bounding_box[3] - bounding_box[1],
+        )
+        right_wall = Polytope.create_rectangle(
+            np.array([bounding_box[2] - wall_thickness / 2, 0.0]),
+            wall_thickness,
+            bounding_box[3] - bounding_box[1],
+        )
+        # 2m opening as door
+        gap_width = 0.75
+        horizontal_walls_width = (
+            bounding_box[2] - bounding_box[0] - gap_width - 2 * wall_thickness
+        )
+        # Positioned to create a gap in the left wall for the door. There
+        # is no space between it and the right_wall
+        bottom_wall = Polytope.create_rectangle(
+            np.array(
+                [
+                    bounding_box[2] - wall_thickness - horizontal_walls_width / 2,
+                    bounding_box[1] + 1.5 * wall_thickness,
+                ]
+            ),
+            horizontal_walls_width,
+            wall_thickness,
+        )
+        top_wall = Polytope.create_rectangle(
+            np.array(
+                [
+                    bounding_box[0] + wall_thickness + horizontal_walls_width / 2,
+                    bounding_box[3] - 1.5 * wall_thickness,
+                ]
+            ),
+            bounding_box[2] - bounding_box[0] - gap_width - 2 * wall_thickness,
+            wall_thickness,
+        )
+        obstacles.extend([left_wall, right_wall, bottom_wall, top_wall])
+        # table in the middle
+        table = Polytope.create_rectangle(np.array([0.0, 0.0]), 2.0, 1.0)
+        obstacles.append(table)
+        waypoints = rrt_planner(
+            q0.flatten(),
+            qd.flatten(),
+            obstacles,
+            bounding_box,
+            prune_sample_size=100,
+            seed=69,
+            max_iters=40000,
+            step_size=0.2,
+        )
 
     return bounding_box, q0, waypoints, obstacles
 
 
-option = 3
+option = 1
 parameters = {
-    "q0": None,
+    # "q0": None,
+    "q0": np.array([-0.5, -10.0]).reshape(-1, 1),
     "qd": None,
-    "table_center": np.array([2.0, 5.0]),
+    "table_center": np.array([2.0, 0.0]), #np.array([2.0, 5.0]),
     "table_width": 2.0,
     "table_height": 1.0,
-    "n_tables_y": 4,
-    "n_tables_x": 5,
+    "n_tables_y": 10, #4
+    "n_tables_x": 6, #5
     "start_table_x": -3,
-    "start_table_y": 0,
+    "start_table_y": -2, #0
     "L_width": 2.0,
     "L_height": 10.0,
 }
@@ -324,12 +397,9 @@ print(f"Waypoints with len {len(waypoints)}: {[wp.flatten() for wp in waypoints]
 waypoints_bak = waypoints.copy()
 # qd = np.array([-5, -7]).reshape(-1, 1)
 # Second order kinematic control for a point mass
-reached = False
-q = q0.copy()
-q_dot = np.zeros((2, 1))
 dt = 1e-3
 # 10 seconds max based on dt
-max_iters = int(10.0 / dt) * 10
+max_iters = int(10.0 / dt) * 10.
 # max_iters = 1700
 # max_iters = 1
 iter = 0
@@ -337,94 +407,21 @@ r = 1e-1 * 5
 h = 1e-2
 eta = 0.5 * 10  # * 25.0
 # eps = 1e-13
-eps = 1e-3
-k = 1.0
+eps = 1e-2
+k = 5e-1
 gamma = dt
+
 # [JUMP]
-method = "ours"
+methods = ["ours", "esdf"]
+# method = "ours"
 # method = "esdf"
-
-hist = [q.copy().T]
-hist_grad = [q.copy().T * 0]
-u_hist = [q.copy().T * 0]
-flags = [False]
-flag = False
-waypoints = waypoints[::-1]  # Reverse waypoints to pop from the end
-qd = waypoints.pop()  # Start with the first waypoint as the goal
-
-while not reached:
-    # Compute u using a second-order CBF
-    if np.linalg.norm(q - qd) < 1e-2:
-        if len(waypoints) == 0:
-            reached = True
-            print("Reached the goal!")
-        else:
-            qd = waypoints.pop()
-    if flag:
-        pass
-        # break
-
-    # try:
-    # u, grad, flag = cbf_2nd_test(
-    #     q,
-    #     q_dot,
-    #     qd,
-    #     circ_rad=circ_rad,
-    #     circ_center=circ_center,
-    #     eps=eps,
-    #     k=k,
-    #     eta=eta,
-    #     gamma=gamma,
-    # )
-    u, grad, flag = cbf_2nd(
-        q,
-        q_dot,
-        qd,
-        obstacles,
-        eps=eps,
-        k=k,
-        eta=eta,
-        r=r,
-        h=h,
-        method=method,
-        gamma=gamma,
-    )
-    norm_u = np.linalg.norm(u)
-    if norm_u > 100.0:
-        print(f"Warning: Large control input norm {norm_u} at iteration {iter}.")
-    # except:
-    #     print("QP failed, stopping simulation.")
-    #     x, y = -7.98005, -17.97
-    #     x_bar, y_bar = -1/x, -1/y
-    #     r = 0.1
-    #     v1, g1 = smoothMin2ElementsWithGradient(x, y, r=r)
-    #     v1, g1
-    #     v, g = holderMeanWithGradient(-1 / x, -1 / y, r=0.1)
-    #     -1 / v, g
-    #     x_bar, y_bar
-    #
-    #     break
-    q += q_dot * dt
-    q_dot = q_dot + u * dt
-    # q_dot = -k * (q - qd)
-    # q_dot += u * dt
-    hist.append(q.copy().T)
-    hist_grad.append(grad.copy().T)
-    flags.append(flag)
-    u_hist.append(u.copy().T)
-    iter += 1
-    if iter >= max_iters:
-        print("Max iterations reached, stopping simulation.")
-        break
-
-print(f"Number of iterations: {iter}, number of constraint violations: {sum(flags)}")
 
 fig, cmap_data = create_level_sets(
     obstacles,
     r=r,
     h=h,
     kind="both",
-    method=method,
+    method="ours",
     bbox=bounding_box,
     n_points=20,
     n_contours=40,
@@ -434,58 +431,144 @@ fig, cmap_data = create_level_sets(
     return_cmap_data=True,
 )
 print("Level sets created.")
-#
-add_point(fig, q0.flatten(), color="green", name="Start")
+fig2 = go.Figure()
 
-def add_waypoints(fig, waypoints):
-    for i, wp in enumerate(waypoints):
-        add_point(fig, wp.flatten(), color="red", size=10, symbol="x")
+for method in methods:
+    reached = False
+    q = q0.copy()
+    q_dot = np.zeros((2, 1))
+    waypoints = waypoints_bak.copy()
+    iter = 0
+    reached = False
+
+    hist = [q.copy().T]
+    hist_grad = [q.copy().T * 0]
+    u_hist = [q.copy().T * 0]
+    flags = [False]
+    flag = False
+    waypoints = waypoints[::-1]  # Reverse waypoints to pop from the end
+    qd = waypoints.pop()  # Start with the first waypoint as the goal
+
+    while not reached:
+        # Compute u using a second-order CBF
+        if np.linalg.norm(q - qd) < 1e-2:
+            if len(waypoints) == 0:
+                reached = True
+                print("Reached the goal!")
+            else:
+                qd = waypoints.pop()
+        if flag:
+            pass
+            # break
+
+        # try:
+        # u, grad, flag = cbf_2nd_test(
+        #     q,
+        #     q_dot,
+        #     qd,
+        #     circ_rad=circ_rad,
+        #     circ_center=circ_center,
+        #     eps=eps,
+        #     k=k,
+        #     eta=eta,
+        #     gamma=gamma,
+        # )
+        u, grad, flag = cbf_2nd(
+            q,
+            q_dot,
+            qd,
+            obstacles,
+            eps=eps,
+            k=k,
+            eta=eta,
+            r=r,
+            h=h,
+            method=method,
+            gamma=gamma,
+        )
+        norm_u = np.linalg.norm(u)
+        if norm_u > 100.0:
+            print(f"Warning: Large control input norm {norm_u} at iteration {iter}.")
+        # except:
+        #     print("QP failed, stopping simulation.")
+        #     x, y = -7.98005, -17.97
+        #     x_bar, y_bar = -1/x, -1/y
+        #     r = 0.1
+        #     v1, g1 = smoothMin2ElementsWithGradient(x, y, r=r)
+        #     v1, g1
+        #     v, g = holderMeanWithGradient(-1 / x, -1 / y, r=0.1)
+        #     -1 / v, g
+        #     x_bar, y_bar
+        #
+        #     break
+        # Additive disturbance in acceleration
+        disturbance = np.array([1, 0]).reshape(-1, 1) * 10.0 * np.random.randn()
+        # disturbance = np.random.randn(2, 1) * norm_u * 1.0
+        u = u + disturbance
+        u = np.clip(u, -2.0, 2.0)  # Clip control input to prevent instability
+        q += q_dot * dt
+        q_dot = q_dot + u * dt
+        # q_dot = -k * (q - qd)
+        # q_dot += u * dt
+        hist.append(q.copy().T)
+        hist_grad.append(grad.copy().T)
+        flags.append(flag)
+        u_hist.append(u.copy().T)
+        iter += 1
+        if iter >= max_iters:
+            print("Max iterations reached, stopping simulation.")
+            break
+
+    print(f"Method: {method}\nNumber of iterations: {iter}, number of constraint violations: {sum(flags)}")
 
 
-add_waypoints(fig, waypoints_bak)
-add_point(fig, waypoints_bak[-1].flatten(), color="magenta", name="Goal")
+    # Only add this once
+    if method == "ours":
+        add_point(fig, q0.flatten(), color="green", name="Start")
+
+
+    def add_waypoints(fig, waypoints, color="red"):
+        for i, wp in enumerate(waypoints):
+            add_point(fig, wp.flatten(), color=color, size=10, symbol="x")
+
+
+    # Only add this once
+    if method == "ours":
+        add_waypoints(fig, waypoints_bak)
+        add_point(fig, waypoints_bak[-1].flatten(), color="magenta", name="Goal")
 
 # Convert hist of points to a 2 x N path
-full_path = np.array(hist).reshape(-1, 2).T
+    full_path = np.array(hist).reshape(-1, 2).T
 
+    color_plot = "black" if method == "ours" else "green"
+    def f(fig, color="black"):
+        fig.add_trace(
+            go.Scatter(
+                x=full_path[0, :],
+                y=full_path[1, :],
+                mode="lines",
+                line=dict(color=color, width=2),
+                name=method,
+                showlegend=True,
+            )
+        )
 
-def f(fig):
-    fig.add_trace(
+    f(fig, color=color_plot)
+
+    norm_u = np.linalg.norm(np.array(u_hist).reshape(-1, 2), axis=1)
+    fig2.add_trace(
         go.Scatter(
-            x=full_path[0, :],
-            y=full_path[1, :],
+            x=np.arange(len(norm_u)),
+            y=norm_u,
             mode="lines",
-            line=dict(color="black", width=2),
-            name="Trajectory",
+            line=dict(color=color_plot, width=2),
+            name=f"U norm ({method})",
         )
     )
 
-
-f(fig)
-
-# max_grads = 100
-# plot_idxs = np.linspace(0, len(hist) - 1, max_grads).astype(int)
-# for i, (p, grad_) in enumerate(zip(hist, hist_grad)):
-#     if i not in plot_idxs:
-#         continue
-#     norm_ = np.linalg.norm(grad_)
-#     norm_ = max(norm_, 1e-6)
-#     grad = grad_ / norm_ * min(norm_, 0.5)
-#     add_vector_at_point(fig, p.flatten(), grad.flatten(), color="blue", name="Grad")
-
 fig.show()
+fig2.show()
 # %%
-norm_u = np.linalg.norm(np.array(u_hist).reshape(-1, 2), axis=1)
-go.Figure(
-    go.Scatter(
-        x=np.arange(len(norm_u)),
-        y=norm_u,
-        mode="lines",
-        line=dict(color="purple", width=2),
-        name="Control Norm",
-    )
-).show()
-
 # Show all 2 components of the control input
 u_hist_array = np.array(u_hist).reshape(-1, 2)
 # go.Figure(
