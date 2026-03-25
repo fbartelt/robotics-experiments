@@ -308,7 +308,7 @@ class Polytope:
         A = hull.equations[:, :-1]
         b = -hull.equations[:, -1]
         sumPoly = Polytope(A, b)
-        return sumPoly
+        return sumPoly, len(hull.vertices)
 
     @staticmethod
     def create_rectangle(center, width, height):
