@@ -1,5 +1,7 @@
 # %%
 import webbrowser
+import os
+import itertools
 import uaibot as ub
 import numpy as np
 import scipy as sp
@@ -27,23 +29,6 @@ from smoothfunctions import (
     ESDF_CGAL,
 )
 
-# xs = np.linspace(-0.5, 0.5, 1000)
-# vals = []
-# r = 1e-1
-#
-# for x in xs:
-#     smin = smoothMinList(np.hstack([x, x**2, x**3]), r=r)
-#     smin2 = smoothMinList(np.hstack([np.exp(x), 2.0]), r=r)
-#     smax = smoothMaxList(np.array([smin, smin2]), r=r)
-#     vals.append(smax)
-#
-# fig = go.Figure()
-# fig.add_trace(go.Scatter(x=xs, y=vals))
-# fig.show()
-#
-#
-# # %%
-
 
 # open browser with html file (neovim workaround)
 def open_in_browser(filename: str):
@@ -66,55 +51,7 @@ def pR2htm(p, R):
     return H
 
 
-# Two Cubes
-side = 0.1
-A = np.array(
-    [
-        [1.0, 0, 0],
-        [-1.0, 0, 0],
-        [0, 1.0, 0],
-        [0, -1.0, 0],
-        [0, 0, 1.0],
-        [0, 0, -1.0],
-    ]
-)
-b = np.array([side, side, side, side, side, side])
-dx_ = 0.5
-displacement = np.array([-dx_, 0.0, 0]).reshape(-1, 1)
-P = Polytope(A=A, b=b)
-Q = Polytope(A=A, b=1.5 * b + (A @ displacement).ravel())
-PmQ, _ = Polytope.minkowski_subtraction(P, Q)
-
-# ubP = ConvexPolytope(htm=np.eye(4), A=P.A, b=P.b, color="red", opacity=0.8)
-# ubQ = ConvexPolytope(htm=np.eye(4), A=Q.A, b=Q.b, color="blue", opacity=0.8)
-side *= 2.0
-ubP = ub.Box(width=side, height=side, depth=side, color="red", opacity=0.8)
-ubQ = ub.Box(
-    width=1.5 * side,
-    height=1.5 * side,
-    depth=1.5 * side,
-    color="blue",
-    opacity=0.8,
-    htm=pR2htm(-displacement, np.eye(3)),
-)
-# ubsum = ConvexPolytope(A=PmQ.A, b=PmQ.b, color='green')
-sim = ub.Simulation()
-sim.add([ubP, ubQ])
-
-r = 1e-1
-h = 1e-2
-
-scale = 10
-dt = 1e-3
-T = 5.0  # s
-imax = int(T / dt)
-hist_dist = []
-hist_gradnorm = []
-hist_val = []
-hist_euc_dist = []
-rng = np.random.default_rng(seed=42)
-
-def dist_box2box(ubP, ubQ):
+def dist_box2box(ubP, ubQ, r):
     wx, wz, wy = ubP.width / 2, ubP.height / 2, ubP.depth / 2
     verts_P = []
     verts_P.append(
@@ -271,7 +208,7 @@ def dist_box2box(ubP, ubQ):
     # return dist, grad, (inner_mins, debugs, minkowski_verts, directions)
 
 
-def dist_set2set(P: Polytope, Q: Polytope):
+def dist_set2set(P: Polytope, Q: Polytope, r):
     """TEST: Compute the approximate distance:
     max_{d in D} min_{vp in P, vq in Q} d^T (vp - vq)"""
     verts_Q = Q.vertices
@@ -295,87 +232,241 @@ def dist_set2set(P: Polytope, Q: Polytope):
     return dist, grad, (inner_mins, debugs, minkowski_verts, directions)
 
 
-for i in range(imax):
-# for i in [1360]:
-    dx = i * dt / T
-    angle = 8 * np.pi * i * dt / T
-    translate = displacement.reshape(-1, 1) + np.array([dx, 0.0, 0.0]).reshape(-1, 1)
-    # translate = np.array([dx, 1.5*dx, 1e-1*dx]).reshape(-1, 1)
-    R = np.array(ub.Utils.rotx(angle) @ ub.Utils.roty(angle) @ ub.Utils.rotz(2*angle))[
-        :3, :3
-    ]
-    # R = np.array(ub.Utils.roty(angle))[:3, :3]
-    # R = np.eye(3)
+# Two Cubes
+side = 0.1
+# A = np.array(
+#     [
+#         [1.0, 0, 0],
+#         [-1.0, 0, 0],
+#         [0, 1.0, 0],
+#         [0, -1.0, 0],
+#         [0, 0, 1.0],
+#         [0, 0, -1.0],
+#     ]
+# )
+# b = np.array([side, side, side, side, side, side])
+# dx_ = 0.5
+# displacement = np.array([-dx_, 0.0, 0]).reshape(-1, 1)
+# P = Polytope(A=A, b=b)
+# Q = Polytope(A=A, b=1.5 * b + (A @ displacement).ravel())
+# PmQ, _ = Polytope.minkowski_subtraction(P, Q)
 
-    R2 = ub.Utils.trn([dx/2, 0, 0]) @ ub.Utils.rotx(4 * np.pi * i * dt / T)
-    ubP.add_ani_frame(time=i * dt, htm=R2)
-
-    # A_new = A @ R.T
-    # b_new = Q.b.reshape(-1, 1) + A_new @ translate
-    # Q_new = Polytope(A_new, b_new)
-    htm = pR2htm(R @ translate, R)
-    # htm = pR2htm(translate, np.eye(3)) @ pR2htm(np.zeros((3, 1)), R)
-    # htm = pR2htm(np.zeros((3, 1)), R) @ np.array(ub.Utils.trn(translate.ravel()))
-    htm_Q = np.array(ubQ.htm)
-    # print(R)
-    ubQ.add_ani_frame(time=i * dt, htm=htm)
-
-    # PmQ, *_ = Polytope.minkowski_subtraction(P, Q_new)
-    # ubPmQ = ConvexPolytope(A=PmQ.A, b=PmQ.b, color="green", opacity=0.5)
-    # sim.add([ubPmQ])
-
-    # dist, grad, (inner, debugs, verts, dirs) = dist_set2set(P, Q_new)#ubP, ubQ)
-    dist, grad, (inner, debugs, verts, dirs) = dist_box2box(ubP, ubQ)#ubP, ubQ)
-    idx = np.where(np.array(inner) > 0)[0]
-    # for v in verts:
-    #     sim.add(
-    #         ub.Ball(
-    #             radius=0.01, htm=pR2htm(v.reshape(-1, 1), np.eye(3)), color="purple"
-    #         )
-    #     )
-    # bad_direction = np.array(dirs)[idx]
-    # if bad_direction.ndim == 1:
-    #     sim.add(
-    #         ub.Arrow(
-    #             origin=np.zeros((3, 1)),
-    #             vector=bad_direction.reshape(-1, 1),
-    #             color="orange",
-    #         )
-    #     )
-    nearP, nearQ, euclidean_dist, *_ = ubP.compute_dist(ubQ)
-    nearP = np.array(nearP).reshape(-1, 1)
-    nearQ = np.array(nearQ).reshape(-1, 1)
-    # print(PmQ.A @ (nearP - nearQ) - PmQ.b.reshape(-1, 1))
-    # print(debug)
-    hist_dist.append(dist)
-    hist_euc_dist.append(euclidean_dist)
-    hist_gradnorm.append(np.linalg.norm(grad))
-    # hist_val.append(val)
-
-print(np.array(debugs)[idx])
-print(len(verts))
+# ubP = ConvexPolytope(htm=np.eye(4), A=P.A, b=P.b, color="red", opacity=0.8)
+# ubQ = ConvexPolytope(htm=np.eye(4), A=Q.A, b=Q.b, color="blue", opacity=0.8)
 
 
-def cfig(data):
-    if isinstance(data, np.ndarray):
-        data = [data]
-    fig = go.Figure()
-    for d in data:
-        fig.add_trace(go.Scatter(y=d))
-    return fig
+def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=False):
+    # Extract parameters with defaults
+    side = 0.2
+    widthP = params.get("widthP", side)
+    heightP = params.get("heightP", side)
+    depthP = params.get("depthP", side)
+    widthQ = params.get("widthQ", 1.5 * side)
+    heightQ = params.get("heightQ", 1.5 * side)
+    depthQ = params.get("depthQ", 1.5 * side)
+    init_pos_Q = np.array(params["init_pos_Q"]).reshape(-1, 1)
+    movement_Q = np.array(params.get("movement_Q", [1.0, 0.0, 0.0])).reshape(-1, 1)
+    rot_Q_scale = params.get("rot_Q_scale", 8.0)
+    rot_P_scale = params.get("rot_P_scale", 4.0)
+    trans_P_scale = params.get(
+        "trans_P_scale", 0.5
+    )  # ubP translates by (t/T)*trans_P_scale along x
+    # Create boxes (initial positions)
+    ubP = ub.Box(width=widthP, height=heightP, depth=depthP, color="red", opacity=0.8)
+    ubQ = ub.Box(
+        width=widthQ,
+        height=heightQ,
+        depth=depthQ,
+        color="blue",
+        opacity=0.8,
+        htm=pR2htm(init_pos_Q, np.eye(3)),
+    )
+    imax = int(T / dt)
+    hist_dist = []
+    hist_euc_dist = []
+    hist_gradnorm = []
+    warning_occurred = False
+    debug_entries = []
+    if return_uaibot_sim:
+        sim = ub.Simulation()
+        sim.add([ubP, ubQ])
+
+    for i in range(imax):
+        t = i * dt
+        frac = t / T
+
+        # ---- ubQ motion ----
+        pos_Q = init_pos_Q + movement_Q * frac
+        angle_Q = rot_Q_scale * np.pi * frac
+        R_Q = (
+            ub.Utils.rotx(angle_Q) @ ub.Utils.roty(angle_Q) @ ub.Utils.rotz(2 * angle_Q)
+        )
+        R_Q = R_Q[:3, :3]
+        htm_Q = pR2htm(R_Q @ pos_Q, R_Q)
+
+        # ---- ubP motion ----
+        trans_P = np.array([trans_P_scale * frac, 0.0, 0.0]).reshape(-1, 1)
+        angle_P = rot_P_scale * np.pi * frac
+        htm_P = ub.Utils.trn(trans_P) @ ub.Utils.rotx(angle_P)
+
+        ubP.add_ani_frame(time=t, htm=htm_P)
+        ubQ.add_ani_frame(time=t, htm=htm_Q)
+
+        # Compute distances
+        dist, grad, (inner, debugs, verts, dirs) = dist_box2box(
+            ubP, ubQ, r=r
+        )  # assumes function exists
+        nearP, nearQ, euclidean_dist, *_ = ubP.compute_dist(ubQ)
+
+        # Check warning condition
+        if euclidean_dist == 0.0 and dist > 0.0:
+            print(
+                f"Warning: {case_name} at t={t:.4f} (step {i}) – dist={dist:.4e}, euc_dist={euclidean_dist}"
+            )
+            warning_occurred = True
+            debug_entries.append((i, t, inner, debugs, verts, dirs))
+
+        hist_dist.append(dist)
+        hist_euc_dist.append(euclidean_dist)
+        hist_gradnorm.append(np.linalg.norm(grad))
+
+    # ---- Save plots ----
+    # Distance plot
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(y=hist_dist, name="Signed Distance"))
+    fig1.add_trace(go.Scatter(y=hist_euc_dist, name="Euclidean Distance"))
+    fig1.update_layout(
+        title=f"Distances – {case_name}",
+        xaxis_title="Time step",
+        yaxis_title="Distance",
+    )
+    fig1.write_image(f"figs/{case_name}_distances.png")
+
+    # # Gradient norm plot
+    # fig2 = go.Figure()
+    # fig2.add_trace(go.Scatter(y=hist_gradnorm, name='Gradient Norm'))
+    # fig2.update_layout(title=f"Gradient Norm – {case_name}",
+    #                    xaxis_title="Time step", yaxis_title="Norm")
+    # fig2.write_image(f"figs/{case_name}_gradnorm.png")
+
+    if return_uaibot_sim:
+        return warning_occurred, debug_entries, sim
+
+    return warning_occurred, debug_entries
 
 
-cfig([hist_dist, hist_euc_dist]).show()
-cfig([hist_gradnorm]).show()
+os.makedirs("figs", exist_ok=True)
+widthPs = [1e-3, 0.1, 0.2, 10.0]
+widthQs = [1e-3, 0.1, 0.2, 10.0]
+heightPs = [1e-3, 0.1, 0.2, 10.0]
+heightQs = [1e-3, 0.1, 0.2, 10.0]
+depthPs = [1e-3, 0.1, 0.2, 10.0]
+depthQs = [1e-3, 0.1, 0.2, 10.0]
+init_pos_Qs = [[-0.15, 0.0, 0.0], [-0.05, 0.02, 0.01], [-0.25, 0.05, 0.0], [0.0, 0.0, 0.0]]
+movement_Qs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.01], [1e-3, 1e-3, 1.0]]
+rot_Q_scales = [0.0, 2.0, 8.0]
+rot_P_scales = [0.0, 2.0, 8.0]
+trans_P_scales = [0.0, 0.5, 2.0]
+
+# Generate all combinations
+case_counter = 0
+warnings_summary = []
+log_file = "experiment_log.txt"
+
+for (
+    widthP,
+    widthQ,
+    heightP,
+    heightQ,
+    depthP,
+    depthQ,
+    init_pos_Q,
+    movement_Q,
+    rot_Q_scale,
+    rot_P_scale,
+    trans_P_scale,
+) in itertools.product(
+    widthPs,
+    widthQs,
+    heightPs,
+    heightQs,
+    depthPs,
+    depthQs,
+    init_pos_Qs,
+    movement_Qs,
+    rot_Q_scales,
+    rot_P_scales,
+    trans_P_scales,
+):
+    case_counter += 1
+    case_name = f"case_{case_counter}"
+    params = {
+        "widthP": widthP,
+        "heightP": heightP,
+        "depthP": depthP,
+        "widthQ": widthQ,
+        "heightQ": heightQ,
+        "depthQ": depthQ,
+        "init_pos_Q": init_pos_Q,
+        "movement_Q": movement_Q,
+        "rot_Q_scale": rot_Q_scale,
+        "rot_P_scale": rot_P_scale,
+        "trans_P_scale": trans_P_scale,
+    }
+    print(f"Running {case_name} with params: {params}")
+    with open(log_file, "a") as f:
+        f.write(f"{case_name}: {params}\n")
+    try:
+        warning_occurred, debug_entries = run_simulation(case_name, params)
+        if warning_occurred:
+            warnings_summary.append(case_name)
+            print(f"  -> WARNING detected in {case_name}")
+            with open(log_file, "a") as f:
+                f.write(f"  WARNING detected in {case_name}\n")
+        else:
+            print("  -> OK")
+        warnings_summary.append(case_name)
+    except Exception as e:
+        print(f"Error in {case_name}: {e}")
+        with open(log_file, "a") as f:
+            f.write(f"  ERROR in {case_name}: {e}\n")
+        # warnings_summary.append((case_name, f"Error: {e}"))
+
+# ----------------------------------------------------------------------
+# Summary
+# ----------------------------------------------------------------------
+print("\n" + "=" * 60)
+print("Simulation finished.")
+if warnings_summary:
+    print("Warnings occurred in the following cases:")
+    for name in warnings_summary:
+        print(f"  {name}")
+else:
+    print("No warnings occurred in any of the tested cases.")
+print("=" * 60)
+
+
+# def cfig(data):
+#     if isinstance(data, np.ndarray):
+#         data = [data]
+#     fig = go.Figure()
+#     for d in data:
+#         fig.add_trace(go.Scatter(y=d))
+#     return fig
+#
+#
+# cfig([hist_dist, hist_euc_dist]).show()
+# cfig([hist_gradnorm]).show()
+#
 
 # %%
-"""Visual"""
-# sim.add([ubsum])
-filename = "minkowski"
-sim.set_parameters(width=800, height=600, pixel_ratio=0.7)
-sim.save("./", f"{filename}")
-print("Saved")
-
-# print(dt * (final_time / sim_dt) / decimation / speedup)
-
-open_in_browser(f"./{filename}.html")
+# """Visual"""
+# # sim.add([ubsum])
+# filename = "minkowski"
+# sim.set_parameters(width=800, height=600, pixel_ratio=0.7)
+# sim.save("./", f"{filename}")
+# print("Saved")
+#
+# # print(dt * (final_time / sim_dt) / decimation / speedup)
+#
+# open_in_browser(f"./{filename}.html")
