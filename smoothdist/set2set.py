@@ -2,6 +2,7 @@
 import webbrowser
 import os
 import itertools
+import multiprocessing
 import uaibot as ub
 import numpy as np
 import scipy as sp
@@ -11,6 +12,7 @@ import plotly.express as px
 import plotly.colors as pc
 from polygon import Polytope
 from scipy.optimize import linprog
+from multiprocessing import Pool
 
 # from uaibot_cpp_bind import expSO3, SmapSO3, SmapSE3, expSE3, ECdistance
 from uaibot.simobjects.convexpolytope import ConvexPolytope
@@ -257,6 +259,7 @@ side = 0.1
 
 def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=False):
     # Extract parameters with defaults
+    log_file = "experiment_log2.txt"
     side = 0.2
     widthP = params.get("widthP", side)
     heightP = params.get("heightP", side)
@@ -324,7 +327,14 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
                 f"Warning: {case_name} at t={t:.4f} (step {i}) – dist={dist:.4e}, euc_dist={euclidean_dist}"
             )
             warning_occurred = True
-            debug_entries.append((i, t, inner, debugs, verts, dirs))
+
+            debug_entries.append(
+                (i, t, inner, debugs, verts, dirs, dist, euclidean_dist)
+            )
+            with open(log_file, "a") as f:
+                f.write(
+                    f"Warning: {case_name} at t={t:.4f} (step {i}) – dist={dist:.4e}, euc_dist={euclidean_dist}\n"
+                )
 
         hist_dist.append(dist)
         hist_euc_dist.append(euclidean_dist)
@@ -332,15 +342,15 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
 
     # ---- Save plots ----
     # Distance plot
-    fig1 = go.Figure()
-    fig1.add_trace(go.Scatter(y=hist_dist, name="Signed Distance"))
-    fig1.add_trace(go.Scatter(y=hist_euc_dist, name="Euclidean Distance"))
-    fig1.update_layout(
-        title=f"Distances – {case_name}",
-        xaxis_title="Time step",
-        yaxis_title="Distance",
-    )
-    fig1.write_image(f"figs/{case_name}_distances.png")
+    # fig1 = go.Figure()
+    # fig1.add_trace(go.Scatter(y=hist_dist, name="Signed Distance"))
+    # fig1.add_trace(go.Scatter(y=hist_euc_dist, name="Euclidean Distance"))
+    # fig1.update_layout(
+    #     title=f"Distances – {case_name}",
+    #     xaxis_title="Time step",
+    #     yaxis_title="Distance",
+    # )
+    # fig1.write_image(f"figs/{case_name}_distances.png")
 
     # # Gradient norm plot
     # fig2 = go.Figure()
@@ -355,96 +365,296 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
     return warning_occurred, debug_entries
 
 
-os.makedirs("figs", exist_ok=True)
-widthPs = [1e-3, 0.1, 0.2, 10.0]
-widthQs = [1e-3, 0.1, 0.2, 10.0]
-heightPs = [1e-3, 0.1, 0.2, 10.0]
-heightQs = [1e-3, 0.1, 0.2, 10.0]
-depthPs = [1e-3, 0.1, 0.2, 10.0]
-depthQs = [1e-3, 0.1, 0.2, 10.0]
-init_pos_Qs = [[-0.15, 0.0, 0.0], [-0.05, 0.02, 0.01], [-0.25, 0.05, 0.0], [0.0, 0.0, 0.0]]
-movement_Qs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.01], [1e-3, 1e-3, 1.0]]
-rot_Q_scales = [0.0, 2.0, 8.0]
-rot_P_scales = [0.0, 2.0, 8.0]
-trans_P_scales = [0.0, 0.5, 2.0]
+os.makedirs("figs2", exist_ok=True)
+# widthPs = [1e-3, 0.1, 0.2, 10.0]
+# widthQs = [1e-3, 0.1, 0.2, 10.0]
+# heightPs = [1e-3, 0.1, 0.2, 10.0]
+# heightQs = [1e-3, 0.1, 0.2, 10.0]
+# depthPs = [1e-3, 0.1, 0.2, 10.0]
+# depthQs = [1e-3, 0.1, 0.2, 10.0]
+# init_pos_Qs = [
+#     [-0.15, 0.0, 0.0],
+#     [-0.05, 0.02, 0.01],
+#     [-0.25, 0.05, 0.0],
+#     [0.0, 0.0, 0.0],
+# ]
+# movement_Qs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.01], [-1e-5, 1e-5, -1e-5]]
+# rot_Q_scales = [0.0, 2.0, 8.0]
+# rot_P_scales = [0.0, 2.0, 8.0]
+# trans_P_scales = [0.0, 0.5, 2.0]
+#
+# # Generate all combinations
+# case_counter = 0
+# warnings_summary = []
+# log_file = "experiment_log.txt"
 
-# Generate all combinations
-case_counter = 0
-warnings_summary = []
-log_file = "experiment_log.txt"
 
-for (
-    widthP,
-    widthQ,
-    heightP,
-    heightQ,
-    depthP,
-    depthQ,
-    init_pos_Q,
-    movement_Q,
-    rot_Q_scale,
-    rot_P_scale,
-    trans_P_scale,
-) in itertools.product(
-    widthPs,
-    widthQs,
-    heightPs,
-    heightQs,
-    depthPs,
-    depthQs,
-    init_pos_Qs,
-    movement_Qs,
-    rot_Q_scales,
-    rot_P_scales,
-    trans_P_scales,
-):
-    case_counter += 1
-    case_name = f"case_{case_counter}"
-    params = {
-        "widthP": widthP,
-        "heightP": heightP,
-        "depthP": depthP,
-        "widthQ": widthQ,
-        "heightQ": heightQ,
-        "depthQ": depthQ,
-        "init_pos_Q": init_pos_Q,
-        "movement_Q": movement_Q,
-        "rot_Q_scale": rot_Q_scale,
-        "rot_P_scale": rot_P_scale,
-        "trans_P_scale": trans_P_scale,
-    }
-    print(f"Running {case_name} with params: {params}")
-    with open(log_file, "a") as f:
-        f.write(f"{case_name}: {params}\n")
+def run_single_case(args):
+    """
+    Worker function that runs one simulation case.
+    Args:
+        args: tuple (index, params)
+    Returns:
+        dict containing:
+            index, case_name, params, warning_occurred, debug_entries, error
+    """
+    index, params = args
+    case_name = f"case_{index+1}"  # 1-based naming
+    # log_file = "experiment_log2.txt"
+
     try:
         warning_occurred, debug_entries = run_simulation(case_name, params)
-        if warning_occurred:
-            warnings_summary.append(case_name)
-            print(f"  -> WARNING detected in {case_name}")
-            with open(log_file, "a") as f:
-                f.write(f"  WARNING detected in {case_name}\n")
-        else:
-            print("  -> OK")
-        warnings_summary.append(case_name)
+        error = None
     except Exception as e:
-        print(f"Error in {case_name}: {e}")
-        with open(log_file, "a") as f:
-            f.write(f"  ERROR in {case_name}: {e}\n")
-        # warnings_summary.append((case_name, f"Error: {e}"))
+        warning_occurred = False
+        debug_entries = []
+        error = str(e)
 
-# ----------------------------------------------------------------------
-# Summary
-# ----------------------------------------------------------------------
-print("\n" + "=" * 60)
-print("Simulation finished.")
-if warnings_summary:
-    print("Warnings occurred in the following cases:")
-    for name in warnings_summary:
-        print(f"  {name}")
-else:
-    print("No warnings occurred in any of the tested cases.")
-print("=" * 60)
+    return {
+        "index": index,
+        "case_name": case_name,
+        "params": params,
+        "warning_occurred": warning_occurred,
+        "debug_entries": debug_entries,
+        "error": error,
+    }
 
+
+def main():
+    widthPs = [1e-3, 0.1, 10.0]
+    widthQs = [1e-3, 0.1, 10.0]
+    heightPs = [1e-3, 0.1, 10.0]
+    heightQs = [1e-3, 0.1, 10.0]
+    depthPs = [1e-3, 0.1, 10.0]
+    depthQs = [1e-3, 0.1, 10.0]
+    init_pos_Qs = [
+        [-0.15, 0.0, 0.0],
+        [-0.05, 0.02, 0.01],
+        [-0.25, 0.05, 0.0],
+        [0.0, 0.0, 0.0],
+    ]
+    movement_Qs = [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 1.0, 0.01],
+        [-1e-5, 1e-5, -1e-5],
+    ]
+    rot_Q_scales = [0.0, 2.0, 8.0]
+    rot_P_scales = [0.0, 2.0, 8.0]
+    trans_P_scales = [0.0, 0.5]  # , 2.0]
+
+    # Generate all combinations
+    case_counter = 0
+    warnings_summary = []
+    log_file = "experiment_log2.txt"
+
+    # Generate all parameter combinations as a list
+    param_combinations = list(
+        itertools.product(
+            widthPs,
+            widthQs,
+            heightPs,
+            heightQs,
+            depthPs,
+            depthQs,
+            init_pos_Qs,
+            movement_Qs,
+            rot_Q_scales,
+            rot_P_scales,
+            trans_P_scales,
+        )
+    )
+
+    total_cases = len(param_combinations)
+    print(f"Total cases to run: {total_cases}")
+    with open(log_file, "w") as f:
+        f.write(f"Total cases: {total_cases}\n\n")
+
+    # Prepare input for workers: (index, param_tuple)
+    # Each param_tuple is unpacked into the original parameter order
+    # inputs = [(i, params) for i, params in enumerate(param_combinations)]
+    inputs = []
+    for i, (
+        widthP,
+        widthQ,
+        heightP,
+        heightQ,
+        depthP,
+        depthQ,
+        init_pos_Q,
+        movement_Q,
+        rot_Q_scale,
+        rot_P_scale,
+        trans_P_scale,
+    ) in enumerate(param_combinations):
+        params = {
+            "widthP": widthP,
+            "heightP": heightP,
+            "depthP": depthP,
+            "widthQ": widthQ,
+            "heightQ": heightQ,
+            "depthQ": depthQ,
+            "init_pos_Q": init_pos_Q,
+            "movement_Q": movement_Q,
+            "rot_Q_scale": rot_Q_scale,
+            "rot_P_scale": rot_P_scale,
+            "trans_P_scale": trans_P_scale,
+        }
+        inputs.append((i, params))
+
+    # Determine number of CPUs
+    ncpus = multiprocessing.cpu_count()
+    print(f"Using {ncpus} CPU cores.")
+
+    # Create a pool of workers
+    with Pool(processes=ncpus) as pool:
+        # Use imap_unordered to get results as they complete
+        results = []
+        for result in pool.imap_unordered(run_single_case, inputs):
+            results.append(result)
+
+            # Print progress in real time (order may be mixed)
+            case_name = result["case_name"]
+            if result["error"]:
+                print(f"{case_name}: ERROR - {result['error']}")
+            elif result["warning_occurred"]:
+                print(f"{case_name}: WARNING detected")
+            else:
+                print(f"{case_name}: OK")
+
+    # Sort results by original index to preserve order in the log file
+    # results.sort(key=lambda x: x["index"])
+
+    # Write the log file in order
+    # with open(log_file, "w") as f:
+    #     for res in results:
+    #         case_name = res["case_name"]
+    #         params = res["params"]
+    #         warning_occurred = res["warning_occurred"]
+    #         debug_entries = res["debug_entries"]
+    #         error = res["error"]
+    #
+    #         f.write(f"{case_name}: {params}\n")
+    #         if error:
+    #             f.write(f"  ERROR in {case_name}: {error}\n")
+    #         elif warning_occurred:
+    #             for (
+    #                 i,
+    #                 t,
+    #                 inner,
+    #                 debugs,
+    #                 verts,
+    #                 dirs,
+    #                 dist,
+    #                 euclidean_dist,
+    #             ) in debug_entries:
+    #                 f.write(
+    #                     f"Warning: {case_name} at t={t:.4f} (step {i}) – dist={dist:.4e}, euc_dist={euclidean_dist}\n"
+    #                 )
+    # else: no warnings or errors, nothing extra
+
+    # Build warnings summary from sorted results
+    warnings_summary = [res["case_name"] for res in results if res["warning_occurred"]]
+
+    # Print final summary
+    print("\n" + "=" * 60)
+    print("Simulation finished.")
+    if warnings_summary:
+        print("Warnings occurred in the following cases:")
+        for name in warnings_summary:
+            print(f"  {name}")
+    else:
+        print("No warnings occurred in any of the tested cases.")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
+# for (
+#     widthP,
+#     widthQ,
+#     heightP,
+#     heightQ,
+#     depthP,
+#     depthQ,
+#     init_pos_Q,
+#     movement_Q,
+#     rot_Q_scale,
+#     rot_P_scale,
+#     trans_P_scale,
+# ) in itertools.product(
+#     widthPs,
+#     widthQs,
+#     heightPs,
+#     heightQs,
+#     depthPs,
+#     depthQs,
+#     init_pos_Qs,
+#     movement_Qs,
+#     rot_Q_scales,
+#     rot_P_scales,
+#     trans_P_scales,
+# ):
+#     case_counter += 1
+#     case_name = f"case_{case_counter}"
+#     params = {
+#         "widthP": widthP,
+#         "heightP": heightP,
+#         "depthP": depthP,
+#         "widthQ": widthQ,
+#         "heightQ": heightQ,
+#         "depthQ": depthQ,
+#         "init_pos_Q": init_pos_Q,
+#         "movement_Q": movement_Q,
+#         "rot_Q_scale": rot_Q_scale,
+#         "rot_P_scale": rot_P_scale,
+#         "trans_P_scale": trans_P_scale,
+#     }
+#     print(f"Running {case_name} with params: {params}")
+#     with open(log_file, "a") as f:
+#         f.write(f"{case_name}: {params}\n")
+#     try:
+#         warning_occurred, debug_entries = run_simulation(case_name, params)
+#         if warning_occurred:
+#             warnings_summary.append(case_name)
+#
+#             print(f"  -> WARNING detected in {case_name}")
+#             with open(log_file, "a") as f:
+#                 for (
+#                     i,
+#                     t,
+#                     inner,
+#                     debugs,
+#                     verts,
+#                     dirs,
+#                     dist,
+#                     euclidean_dist,
+#                 ) in debug_entries:
+#                     f.write(
+#                         f"Warning: {case_name} at t={t:.4f} (step {i}) – dist={dist:.4e}, euc_dist={euclidean_dist}\n"
+#                     )
+#         else:
+#             print("  -> OK")
+#         warnings_summary.append(case_name)
+#     except Exception as e:
+#         print(f"Error in {case_name}: {e}")
+#         with open(log_file, "a") as f:
+#             f.write(f"  ERROR in {case_name}: {e}\n")
+#         # warnings_summary.append((case_name, f"Error: {e}"))
+#
+# # ----------------------------------------------------------------------
+# # Summary
+# # ----------------------------------------------------------------------
+# print("\n" + "=" * 60)
+# print("Simulation finished.")
+# if warnings_summary:
+#     print("Warnings occurred in the following cases:")
+#     for name in warnings_summary:
+#         print(f"  {name}")
+# else:
+#     print("No warnings occurred in any of the tested cases.")
+# print("=" * 60)
+#
 
 # def cfig(data):
 #     if isinstance(data, np.ndarray):
