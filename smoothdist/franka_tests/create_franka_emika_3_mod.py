@@ -464,22 +464,40 @@ def open_in_browser(filename: str):
     webbrowser.open_new_tab(path.as_uri())
 
 
-sim = Simulation.create_sim_grid()
-# robot = ub.Robot.create_jaco()
-robot = create_franka_emika_3_mod(name="franka_emika_3_mod", color="silver", opacity=1)
-htm0 = Utils.trn([0.0, 0, 0.2])
-box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
-dsro = robot.signed_distance(box)
-sim.add(box)
-sim.add(robot)
-for link in robot.links:
-    for col_obj in link.col_objects:
-        try:
-            sim.add(col_obj)
-        except Exception as e:
-            print(col_obj)
-filename = "franka_emika_3_mod"
-path = "./"
-sim.save(path, f"{filename}")
-open_in_browser(f"{path}/{filename}.html")
-dsro.dist_vect
+if __name__ == "__main__":
+    sim = Simulation.create_sim_grid()
+    robot = create_franka_emika_3_mod(name="franka_emika_3_mod", color="silver", opacity=1)
+# jaco = ub.Robot.create_kinova_gen3()
+# res = jaco.compute_dist(box)
+# res.jac_dist_mat
+    sim.add(robot)
+
+    htm0 = Utils.trn([0.0, 0, 0.8])
+    box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
+    sim.add(box)
+
+    dsro = robot.signed_distance(box)
+# Each element is the signed distance between i-th link collision primitive and the box.
+    signed_distances = dsro.dist_vect
+    gradients = dsro.jac_dist_mat
+    print("Signed Distances:\n", np.array(signed_distances))
+    print("Analytical Gradients:\n", np.array(gradients))
+
+    for link in robot.links:
+        for col_obj in link.col_objects:
+            try:
+                sim.add(col_obj)
+            except Exception as e:
+                # Raises error because  <class 'uaibot.simobjects.box.Box'> does not equal uaibot.Box
+                # Due to monkey code in Utils
+                pass
+                # for c in col_obj:
+                #     print(type(c))
+                # # print(type(col_obj))
+                # print(col_obj)
+
+    filename = "franka_emika_3_mod"
+    path = "./"
+    sim.save(path, f"{filename}")
+    open_in_browser(f"{path}/{filename}.html")
+    dsro.dist_vect
