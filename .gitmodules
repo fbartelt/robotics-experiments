@@ -1,0 +1,6 @@
+[submodule "smoothdist/third_party/libccd"]
+	path = smoothdist/third_party/libccd
+	url = https://github.com/danfis/libccd.git
+[submodule "smoothdist/third_party/fcl"]
+	path = smoothdist/third_party/fcl
+	url = https://github.com/flexible-collision-library/fcl.git
