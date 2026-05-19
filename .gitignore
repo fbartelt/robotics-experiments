@@ -180,3 +180,8 @@ libraries-master/
 *.html
 *.mp4
 media/
+*.txt
+*.csv
+*.svg
+*jpg
+*.pdf_tex
