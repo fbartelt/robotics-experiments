@@ -262,6 +262,7 @@ if __name__ == "__main__":
     for solidA, solidB in itertools.combinations_with_replacement(platonic_solids, 2):
         # complexity measure
         v2 = vertices[solidA] ** 2 * vertices[solidB] ** 2
+
         # Set the pair-specific face counts
         base_params["n_faces1"] = faces[solidA]
         base_params["n_faces2"] = faces[solidB]
@@ -479,7 +480,14 @@ if __name__ == "__main__":
     # 3.  Layout
     # ---------------------------------------------------------------------------
     fig.update_xaxes(
-        title_text="Complexity  |V<sub>A</sub>|² + |V<sub>B</sub>|²",
+        type="log",
+        row=1,
+        col=1,
+    )
+
+    fig.update_xaxes(
+        title_text="Complexity  |V<sub>A</sub>|² &#215; |V<sub>B</sub>|²",
+        type="log",
         row=2,
         col=1,
     )
@@ -511,3 +519,4 @@ if __name__ == "__main__":
     )
 
     fig.show()
+    fig.write_image("runtime_comparison.svg", width=1200, height=800)
