@@ -14,7 +14,7 @@ from pathlib import Path
 ######################################################
 
 # Operation mode, mode = 0 (Euclidean) and mode = 1 (Our proposed distance)
-mode = 0
+mode = 1
 
 # Choose the parameters h, epsilon (eps) and sigma in the paper.
 # This is already pre-selected by the 'mode' variable, but you can change it if you want.
@@ -24,6 +24,8 @@ mode = 0
 # (in meters) and for auto collision delta_auto. They both should be different depending on the
 # smoothing parameter.
 
+is_conservative = True
+
 if mode == 0:
     h = 1e-6
     eps = 0
@@ -31,6 +33,7 @@ if mode == 0:
     delta_auto = 0.01
 else:
     h = 0.1
+    # h = 1e-2
     eps = 0.01
     delta_obs = 0.002
     delta_auto = 0.0001
@@ -103,18 +106,22 @@ tol = 2e-4
 sim_time = 0
 robot = create_franka_emika_3_mod()
 
-sim = ub.Simulation(background_color="lightblue")
+# sim = ub.Simulation(background_color="lightblue")
+sim = ub.Simulation()
 sim.add(robot)
 robot.add_ani_frame(0, q)
 
 for obs in obstacles:
     sim.add(obs)
 
+for i, link in enumerate(robot.links):
+    for j, (col_obj, _) in enumerate(link.col_objects):
+        sim.add(col_obj)
+
 frame_tg = ub.Frame(htm=htm_tg)
 sim.add(frame_tg)
 
 # Auxiliary functions
-
 
 def get_joint_config():
     # In a real application, this should be replaced by the
@@ -137,6 +144,7 @@ def compute_controller(_q):
 
     # Get the number of configurations
     n = np.shape(_q)[0]
+    dist = 0.0
 
     # Initialize matrices A and b
     mat_A = np.matrix(np.zeros((0, n)))
@@ -144,15 +152,23 @@ def compute_controller(_q):
 
     # Implement obstacle avoidance constraints and stack into A and b
     for obs in obstacles:
-        # dr = robot.compute_dist(
-        #     q=_q, obj=obs, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol
-        # )
-        dr = robot.signed_distance(obj=obs, q=_q, r=h)
+        if mode == 0:
+            dr = robot.compute_dist(
+                q=_q, obj=obs, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol
+            )
+        else:
+            # dr = robot.signed_distance(obj=obs, q=_q, r=h)
+            dr = robot.signed_distance(obj=obs, q=_q, gamma=h, is_conservative=is_conservative)
         mat_A = np.vstack((mat_A, dr.jac_dist_mat))
         mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_obs)))
 
+    dist = np.min(dr.dist_vect)
     # Implement auto-collision avoidance and stack into A and b
-    dr = robot.compute_dist_auto(q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol)
+    # if mode == 0:
+    if mode != 2:
+        dr = robot.compute_dist_auto(q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol)
+    else:
+        dr = robot.signed_distance_auto(q=_q, gamma=h, is_conservative=is_conservative)
     mat_A = np.vstack((mat_A, dr.jac_dist_mat))
     mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_auto)))
 
@@ -177,7 +193,7 @@ def compute_controller(_q):
         u = 0 * _q
         print("Unfeasible!")
 
-    return u
+    return u, dist
 
 
 def send_joint_velocity(_dotq):
@@ -190,23 +206,33 @@ def send_joint_velocity(_dotq):
     sim_time += dt
     robot.add_ani_frame(sim_time, robot.q + _dotq * dt)
 
+def progress_bar(i, imax, bar_length=20):
+    percent = i / imax
+    filled_length = int(np.ceil(bar_length * percent))
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+    print(f'\rProgress: |{bar}| {percent:.1%}', end='\r')
+    if i == imax:
+        print()  # Move to the next line on completion
 
 # Simulation
 hist_u = []
 hist_t = []
+hist_dist = []
 for i in range(round(t_max / dt)):
-    print("Percent: " + str(round(100 * sim_time / t_max)))
+    progress_bar(i, round(t_max / dt))
+    # print("\rPercent: " + str(round(100 * sim_time / t_max)))
     q = get_joint_config()
-    u = compute_controller(q)
+    u, dist = compute_controller(q)
     send_joint_velocity(u)
 
     hist_u.append(u)
+    hist_dist.append(dist)
     hist_t.append(sim_time)
 
 print("Done!")
 
 # Plot the control input of the last joint
-def nvim_plot(hist_t, hist_u):
+def nvim_plot(hist_t, hist_u, hist_dist=None):
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -221,10 +247,28 @@ def nvim_plot(hist_t, hist_u):
         xaxis_title="Time (s)",
         yaxis_title="Control input (rad/s)",
     )
-    return fig
+    fig.show()
+    if hist_dist is not None:
+        fig_dist = go.Figure()
+        fig_dist.add_trace(
+            go.Scatter(
+                x=hist_t,
+                y=hist_dist,
+                mode="lines",
+                name="Minimum distance to obstacles over time",
+            )
+        )
+        fig_dist.update_layout(
+            title="Minimum distance to obstacles over time",
+            xaxis_title="Time (s)",
+            yaxis_title="Distance (m)",
+        )
+        fig_dist.show()
+        return (fig, fig_dist)
+    else:
+        return fig
 
-fig = nvim_plot(hist_t, hist_u)
-fig.show()
+fig = nvim_plot(hist_t, hist_u, hist_dist)
 # plt.plot(hist_t, [u[-1, 0] for u in hist_u])
 # plt.show()
 
