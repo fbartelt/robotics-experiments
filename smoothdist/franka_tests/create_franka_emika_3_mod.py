@@ -5,7 +5,8 @@ from uaibot.utils import Utils
 from uaibot.graphics.meshmaterial import MeshMaterial
 from uaibot.graphics.model3d import Model3D
 
-from uaibot.simobjects.ball import Ball
+from uaibot import Box
+# from uaibot.simobjects.ball import Ball
 from uaibot.simobjects.box import Box
 from uaibot.simobjects.cylinder import Cylinder
 
@@ -70,13 +71,18 @@ def create_franka_emika_3_mod(
     # Collision model
     col_model = [[], [], [], [], [], [], []]
 
-    factor = 0.8
+    factor = 0.75
+    factor5 = 0.85
+    factor4 = 0.78
+    factor3 = 0.78
+    factor2 = 0.79
+    factor1 = 0.7
     col_model[0].append(
         Box(
             htm=Utils.trn([0, 0, 0]),
             name=name + "_C0_0",
-            width=0.08 * 2 * factor,
-            depth=0.08 * 2 * factor,
+            width=0.08 * 2 * factor1,
+            depth=0.08 * 2 * factor1,
             height=0.28,
             color="red",
             opacity=0.3,
@@ -87,8 +93,8 @@ def create_franka_emika_3_mod(
         Box(
             htm=Utils.trn([0, 0, 0.18]),
             name=name + "_C1_0",
-            width=0.07 * 2,
-            depth=0.07 * 2,
+            width=0.07 * 2 * factor2,
+            depth=0.07 * 2 * factor2,
             height=0.25,
             color="blue",
             opacity=0.3,
@@ -99,8 +105,8 @@ def create_franka_emika_3_mod(
         Box(
             htm=Utils.trn([0, 0, 0]),
             name=name + "_C2_0",
-            width=0.07 * 2,
-            depth=0.07 * 2,
+            width=0.07 * 2 * factor3,
+            depth=0.07 * 2 * factor3,
             height=0.24,
             color="green",
             opacity=0.3,
@@ -111,8 +117,8 @@ def create_franka_emika_3_mod(
         Box(
             htm=Utils.trn([0, 0, 0.13]),
             name=name + "_C3_0",
-            width=0.07 * 2,
-            depth=0.07 * 2,
+            width=0.07 * 2 * factor4,
+            depth=0.07 * 2 * factor4,
             height=0.20,
             color="yellow",
             opacity=0.3,
@@ -137,8 +143,8 @@ def create_franka_emika_3_mod(
         Box(
             htm=Utils.trn([0, 0, -0.03]),
             name=name + "_C4_1",
-            width=0.06 * 2,
-            depth=0.06 * 2,
+            width=0.06 * 2 * factor5,
+            depth=0.06 * 2 * factor5,
             height=0.22,
             color="magenta",
             opacity=0.3,
@@ -472,32 +478,22 @@ if __name__ == "__main__":
 # res.jac_dist_mat
     sim.add(robot)
 
-    htm0 = Utils.trn([0.0, 0, 0.8])
-    box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
-    sim.add(box)
-
-    dsro = robot.signed_distance(box)
-# Each element is the signed distance between i-th link collision primitive and the box.
-    signed_distances = dsro.dist_vect
-    gradients = dsro.jac_dist_mat
-    print("Signed Distances:\n", np.array(signed_distances))
-    print("Analytical Gradients:\n", np.array(gradients))
+    # htm0 = Utils.trn([0.0, 0, 0.8])
+    # box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
+    # sim.add(box)
+    # dsro = robot.signed_distance(box)
+    # Each element is the signed distance between i-th link collision primitive and the box.
+    # signed_distances = dsro.dist_vect
+    # gradients = dsro.jac_dist_mat
+    # print("Signed Distances:\n", np.array(signed_distances))
+    # print("Analytical Gradients:\n", np.array(gradients))
+    # dsro.dist_vect
 
     for link in robot.links:
-        for col_obj in link.col_objects:
-            try:
-                sim.add(col_obj)
-            except Exception as e:
-                # Raises error because  <class 'uaibot.simobjects.box.Box'> does not equal uaibot.Box
-                # Due to monkey code in Utils
-                pass
-                # for c in col_obj:
-                #     print(type(c))
-                # # print(type(col_obj))
-                # print(col_obj)
+        for col_obj, _ in link.col_objects:
+            sim.add(col_obj)
 
     filename = "franka_emika_3_mod"
     path = "./"
     sim.save(path, f"{filename}")
     open_in_browser(f"{path}/{filename}.html")
-    dsro.dist_vect
