@@ -1,17 +1,21 @@
 # %%
 import sys
 import os
+import pickle
 import itertools
 import numpy as np
 import uaibot as ub
 import plotly.graph_objects as go
 import webbrowser
 from time import time, perf_counter
+sys.path.insert(0, "/home/fbartelt/Projects/robotics-experiments/smoothdist")
 sys.path.insert(0, "/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist/")
 from euclidean_sdf import esdf, compute_vertices_and_faces
 from scipy.spatial import ConvexHull
 from pathlib import Path
 from plotly.subplots import make_subplots
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 
 
 def open_in_browser(filename: str):
@@ -223,6 +227,44 @@ def run_single(seed, params):
         )
     return (elapsed_time, dist)
 
+# ------------------------------
+# Worker function (must be picklable)
+# ------------------------------
+def process_seed(args):
+    """
+    args: (solidA, solidB, seed, base_params, faces, warmup, K, methods)
+    Returns: (solidA, solidB, v2, seed, dict_of_times) 
+    where dict_of_times has keys 'HDSDF', 'CHDSDF', 'SDF', 'GDF'
+    """
+    solidA, solidB, seed, base_params, faces, warmup, K, methods = args
+    
+    # Build pair-specific params
+    params_base = base_params.copy()
+    params_base["n_faces1"] = faces[solidA]
+    params_base["n_faces2"] = faces[solidB]
+    
+    times = {}
+    for m in methods:
+        params = params_base.copy()
+        params["mode"] = m
+        
+        # Warm-up
+        for _ in range(warmup):
+            run_single(seed, params)  # ignore return
+        
+        # Timed runs
+        total_time = 0.0
+        for _ in range(K):
+            elapsed, _ = run_single(seed, params)
+            total_time += elapsed
+        times[m] = total_time / K
+    
+    # Complexity measure
+    vertices = {"tetra":4, "cube":8, "octa":6, "dodeca":20, "icosa":12}
+    v2 = vertices[solidA]**2 * vertices[solidB]**2
+    
+    return (solidA, solidB, v2, seed, times)
+
 # %%
 if __name__ == "__main__":
     # ------------------------------
@@ -235,15 +277,13 @@ if __name__ == "__main__":
 
     N = 100  # configurations per pair
     K = 50  # timing runs per config/method
-    N = 10
-    K = 2
     warmup = 10  # warmup runs (discarded)
 
     methods = ["HDSDF", "CHDSDF", "SDF", "GDF"]  # order as needed
     # Base parameters (everything except what changes per pair/method)
     base_params = {
-        "translation_max": [2.0, 2.0, 2.0],
-        "translation_min": [-2.0, -2.0, -2.0],
+        "translation_max": [4.0, 4.0, 4.0],
+        "translation_min": [-4.0, -4.0, -4.0],
         "rotation_max": [2 * np.pi, 2 * np.pi, 2 * np.pi],
         "rotation_min": [0.0, 0.0, 0.0],
         "max_radius": 1.0,
@@ -256,67 +296,125 @@ if __name__ == "__main__":
     results_CHD_over_SDF = {}
     results_HD_over_GDF = {}
 
+    # Prepare all tasks
+    tasks = []
+    for solidA, solidB in itertools.combinations_with_replacement(platonic_solids, 2):
+        for seed in range(N):
+            tasks.append((solidA, solidB, seed, base_params, faces, warmup, K, methods))
+
+    # Use all CPU cores
+    num_workers = cpu_count()
+    print(f"Using {num_workers} workers for {len(tasks)} tasks...")
+    with Pool(processes=num_workers) as pool:
+        results = list(
+            tqdm(
+                pool.imap_unordered(process_seed, tasks),
+                total=len(tasks),
+                desc="Timing configurations",
+                    # pool.map(process_seed, tasks)
+            )
+        )
+
+    # Organize results per pair
+    pair_ratios = {}  # key: (solidA, solidB, v2) -> list of (ratios_hd_sdf, ratios_chd_sdf, ratios_hd_gdf)
+    for (solidA, solidB, v2, seed, times) in results:
+        key = (solidA, solidB, v2)
+        if key not in pair_ratios:
+            pair_ratios[key] = []
+        pair_ratios[key].append((
+            times["HDSDF"] / times["SDF"],
+            times["CHDSDF"] / times["SDF"],
+            times["HDSDF"] / times["GDF"]
+        ))
+
+    # Aggregate per pair
+    results_HD_over_SDF = {}
+    results_CHD_over_SDF = {}
+    results_HD_over_GDF = {}
+
+    def geom_mean_and_ci(data, n_bootstrap=10000, alpha=0.05):
+        data = np.array(data)
+        gm = np.exp(np.mean(np.log(data)))
+        rng = np.random.default_rng(42)
+        boot_means = []
+        for _ in range(n_bootstrap):
+            sample = rng.choice(data, size=len(data), replace=True)
+            boot_means.append(np.exp(np.mean(np.log(sample))))
+        boot_means = np.array(boot_means)
+        ci_lo = np.percentile(boot_means, 100 * alpha / 2)
+        ci_hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
+        return gm, ci_lo, ci_hi
+
+    for (solidA, solidB, v2), ratios in pair_ratios.items():
+        hd_sdf_ratios = [r[0] for r in ratios]
+        chd_sdf_ratios = [r[1] for r in ratios]
+        hd_gdf_ratios = [r[2] for r in ratios]
+
+        results_HD_over_SDF[v2] = geom_mean_and_ci(hd_sdf_ratios)
+        results_CHD_over_SDF[v2] = geom_mean_and_ci(chd_sdf_ratios)
+        results_HD_over_GDF[v2] = geom_mean_and_ci(hd_gdf_ratios)
+
     # ------------------------------
     # Main loops
     # ------------------------------
-    for solidA, solidB in itertools.combinations_with_replacement(platonic_solids, 2):
-        # complexity measure
-        v2 = vertices[solidA] ** 2 * vertices[solidB] ** 2
-
-        # Set the pair-specific face counts
-        base_params["n_faces1"] = faces[solidA]
-        base_params["n_faces2"] = faces[solidB]
-
-        ratios_hd_sdf = []
-        ratios_chd_sdf = []
-        ratios_hd_gdf = []
-
-        for seed in range(N):
-            # measure mean time per method for this config
-            times = {}
-            for m in methods:
-                print(f"Running {m} for pair ({solidA}, {solidB}), seed {seed}...")
-                # Build a fresh params dict for this method
-                params = base_params.copy()
-                params["mode"] = m
-                # warmup
-                for _ in range(warmup):
-                    elapsed_time, _ = run_single(seed, params)
-                # timed runs
-                total_time = 0.0
-                for _ in range(K):
-                    elapsed_time, _ = run_single(seed, params)
-                    total_time += elapsed_time
-                times[m] = total_time / K
-
-            # compute ratios for this config
-            ratios_hd_sdf.append(times["HDSDF"] / times["SDF"])
-            ratios_chd_sdf.append(times["CHDSDF"] / times["SDF"])
-            ratios_hd_gdf.append(times["HDSDF"] / times["GDF"])
+    # for solidA, solidB in itertools.combinations_with_replacement(platonic_solids, 2):
+    #     # complexity measure
+    #     v2 = vertices[solidA] ** 2 * vertices[solidB] ** 2
+    #
+    #     # Set the pair-specific face counts
+    #     base_params["n_faces1"] = faces[solidA]
+    #     base_params["n_faces2"] = faces[solidB]
+    #
+    #     ratios_hd_sdf = []
+    #     ratios_chd_sdf = []
+    #     ratios_hd_gdf = []
+    #
+    #     for seed in range(N):
+    #         # measure mean time per method for this config
+    #         times = {}
+    #         for m in methods:
+    #             print(f"Running {m} for pair ({solidA}, {solidB}), seed {seed}...")
+    #             # Build a fresh params dict for this method
+    #             params = base_params.copy()
+    #             params["mode"] = m
+    #             # warmup
+    #             for _ in range(warmup):
+    #                 elapsed_time, _ = run_single(seed, params)
+    #             # timed runs
+    #             total_time = 0.0
+    #             for _ in range(K):
+    #                 elapsed_time, _ = run_single(seed, params)
+    #                 total_time += elapsed_time
+    #             times[m] = total_time / K
+    #
+    #         # compute ratios for this config
+    #         ratios_hd_sdf.append(times["HDSDF"] / times["SDF"])
+    #         ratios_chd_sdf.append(times["CHDSDF"] / times["SDF"])
+    #         ratios_hd_gdf.append(times["HDSDF"] / times["GDF"])
 
         # aggregate over configurations: geometric mean and 95% CI via bootstrap
-        def geom_mean_and_ci(data, n_bootstrap=10000, alpha=0.05):
-            data = np.array(data)
-            gm = np.exp(np.mean(np.log(data)))
-            # bootstrap CI
-            boot_means = []
-            rng = np.random.default_rng(42)
-            for _ in range(n_bootstrap):
-                sample = rng.choice(data, size=len(data), replace=True)
-                boot_means.append(np.exp(np.mean(np.log(sample))))
-            boot_means = np.array(boot_means)
-            ci_lo = np.percentile(boot_means, 100 * alpha / 2)
-            ci_hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
-            return gm, ci_lo, ci_hi
-
-        gm_hd_sdf, lo_hd_sdf, hi_hd_sdf = geom_mean_and_ci(ratios_hd_sdf)
-        gm_chd_sdf, lo_chd_sdf, hi_chd_sdf = geom_mean_and_ci(ratios_chd_sdf)
-        gm_hd_gdf, lo_hd_gdf, hi_hd_gdf = geom_mean_and_ci(ratios_hd_gdf)
-
-        # store with complexity as key
-        results_HD_over_SDF[v2] = (gm_hd_sdf, lo_hd_sdf, hi_hd_sdf)
-        results_CHD_over_SDF[v2] = (gm_chd_sdf, lo_chd_sdf, hi_chd_sdf)
-        results_HD_over_GDF[v2] = (gm_hd_gdf, lo_hd_gdf, hi_hd_gdf)
+        # def geom_mean_and_ci(data, n_bootstrap=10000, alpha=0.05):
+        #     data = np.array(data)
+        #     gm = np.exp(np.mean(np.log(data)))
+        #     # bootstrap CI
+        #     boot_means = []
+        #     rng = np.random.default_rng(42)
+        #     for _ in range(n_bootstrap):
+        #         sample = rng.choice(data, size=len(data), replace=True)
+        #         boot_means.append(np.exp(np.mean(np.log(sample))))
+        #     boot_means = np.array(boot_means)
+        #     ci_lo = np.percentile(boot_means, 100 * alpha / 2)
+        #     ci_hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
+        #     return gm, ci_lo, ci_hi
+        #
+        # gm_hd_sdf, lo_hd_sdf, hi_hd_sdf = geom_mean_and_ci(ratios_hd_sdf)
+        # gm_chd_sdf, lo_chd_sdf, hi_chd_sdf = geom_mean_and_ci(ratios_chd_sdf)
+        # gm_hd_gdf, lo_hd_gdf, hi_hd_gdf = geom_mean_and_ci(ratios_hd_gdf)
+        #
+        # # store with complexity as key
+        # results_HD_over_SDF[v2] = (gm_hd_sdf, lo_hd_sdf, hi_hd_sdf)
+        # results_CHD_over_SDF[v2] = (gm_chd_sdf, lo_chd_sdf, hi_chd_sdf)
+        # results_HD_over_GDF[v2] = (gm_hd_gdf, lo_hd_gdf, hi_hd_gdf)
 
     # ---------------------------------------------------------------------------
     # 1.  Convert the result dictionaries into sorted arrays for plotting
@@ -352,17 +450,17 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     # 2.  Build a two‑panel figure (vertical subplots, shared x‑axis)
     # ---------------------------------------------------------------------------
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            "Slowdown relative to SDF",
-            "Slowdown of HD‑SDF relative to GDF",
-        ),
-    )
-
+    # fig = make_subplots(
+    #     rows=2,
+    #     cols=1,
+    #     shared_xaxes=True,
+    #     vertical_spacing=0.08,
+    #     subplot_titles=(
+    #         "Slowdown relative to SDF",
+    #         "Slowdown of HD‑SDF relative to GDF",
+    #     ),
+    # )
+    fig = go.Figure()
     # ----- Convenience: add a trace with its own confidence band -----
     def add_trace_with_band(
         fig, x, y, y_lo, y_hi, name, color, row, col, show_legend=True
@@ -378,8 +476,8 @@ if __name__ == "__main__":
                 line=dict(color=color),
                 showlegend=show_legend,
             ),
-            row=row,
-            col=col,
+            # row=row,
+            # col=col,
         )
         # Upper bound (invisible line, just used for filling)
         fig.add_trace(
@@ -392,8 +490,8 @@ if __name__ == "__main__":
                 line=dict(width=0),
                 showlegend=False,
             ),
-            row=row,
-            col=col,
+            # row=row,
+            # col=col,
         )
         # Lower bound – fills to the upper bound
         fig.add_trace(
@@ -408,8 +506,8 @@ if __name__ == "__main__":
                 fill="tonexty",
                 showlegend=False,
             ),
-            row=row,
-            col=col,
+            # row=row,
+            # col=col,
         )
 
     # ----- Panel (a): HD‑SDF / SDF  and  CHD‑SDF / SDF -----
@@ -438,17 +536,17 @@ if __name__ == "__main__":
     )
 
     # Parity line (y = 1)
-    fig.add_trace(
-        go.Scatter(
-            x=[min(x_vals), max(x_vals)],
-            y=[1, 1],
-            mode="lines",
-            line=dict(dash="dash", color="black", width=0.8),
-            showlegend=False,
-        ),
-        row=1,
-        col=1,
-    )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=[min(x_vals), max(x_vals)],
+    #         y=[1, 1],
+    #         mode="lines",
+    #         line=dict(dash="dash", color="black", width=0.8),
+    #         showlegend=False,
+    #     ),
+    #     row=1,
+    #     col=1,
+    # )
 
     # ----- Panel (b): HD‑SDF / GDF -----
     add_trace_with_band(
@@ -464,49 +562,49 @@ if __name__ == "__main__":
     )
 
     # Parity line (y = 1)
-    fig.add_trace(
-        go.Scatter(
-            x=[min(x_vals), max(x_vals)],
-            y=[1, 1],
-            mode="lines",
-            line=dict(dash="dash", color="black", width=0.8),
-            showlegend=False,
-        ),
-        row=2,
-        col=1,
-    )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=[min(x_vals), max(x_vals)],
+    #         y=[1, 1],
+    #         mode="lines",
+    #         line=dict(dash="dash", color="black", width=0.8),
+    #         showlegend=False,
+    #     ),
+    #     row=2,
+    #     col=1,
+    # )
 
     # ---------------------------------------------------------------------------
     # 3.  Layout
     # ---------------------------------------------------------------------------
-    fig.update_xaxes(
-        type="log",
-        row=1,
-        col=1,
-    )
+    # fig.update_xaxes(
+    #     type="log",
+    #     row=1,
+    #     col=1,
+    # )
 
     fig.update_xaxes(
         title_text="Complexity  |V<sub>A</sub>|² &#215; |V<sub>B</sub>|²",
         type="log",
-        row=2,
-        col=1,
+        # row=2,
+        # col=1,
     )
 
     fig.update_yaxes(
-        title_text="Time ratio (method / SDF)",
+        title_text="Time ratio",
         type="log",  # <-- remove this line if ratios stay small
-        row=1,
-        col=1,
+        # row=1,
+        # col=1,
     )
-    fig.update_yaxes(
-        title_text="Time ratio (HD‑SDF / GDF)",
-        type="log",  # <-- remove if not needed
-        row=2,
-        col=1,
-    )
+    # fig.update_yaxes(
+    #     title_text="Time ratio (HD‑SDF / GDF)",
+    #     type="log",  # <-- remove if not needed
+    #     row=2,
+    #     col=1,
+    # )
 
     fig.update_layout(
-        title=dict(text="Runtime comparison for Platonic‑solid pairs"),
+        # title=dict(text="Runtime comparison for Platonic‑solid pairs"),
         hovermode="x unified",
         legend=dict(
             orientation="h",
@@ -518,5 +616,8 @@ if __name__ == "__main__":
         template="plotly_white",
     )
 
-    fig.show()
-    fig.write_image("runtime_comparison.svg", width=1200, height=800)
+    # fig.show()
+    fig.write_image("runtime_comparison.pdf", width=1200, height=800)
+    with open("data2plot.pkl", "wb") as f:
+        pickle.dump((x_vals, hd_sdf_gm, hd_sdf_lo, hd_sdf_hi, chd_sdf_gm, chd_sdf_lo, chd_sdf_hi, hd_gdf_gm, hd_gdf_lo, hd_gdf_hi), f)
+        print("Figure saved as 'runtime_comparison.pdf' and data saved as 'data2plot.pkl'.")
