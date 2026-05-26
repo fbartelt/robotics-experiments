@@ -4,11 +4,6 @@ from franka_tests.create_franka_emika_3_mod import create_franka_emika_3_mod
 import plotly.graph_objects as go
 import webbrowser
 from pathlib import Path
-
-
-
-
-
 ######################################################
 # PARAMETERS
 ######################################################
@@ -24,7 +19,7 @@ mode = 1
 # (in meters) and for auto collision delta_auto. They both should be different depending on the
 # smoothing parameter.
 
-is_conservative = True
+is_conservative = False
 
 if mode == 0:
     h = 1e-6
@@ -34,8 +29,10 @@ if mode == 0:
 else:
     h = 0.1
     # h = 1e-2
+    gamma = 1
     eps = 0.01
-    delta_obs = 0.002
+    # delta_obs = 0.002
+    delta_obs = -1
     delta_auto = 0.0001
 
 
@@ -91,6 +88,7 @@ eta = 0.5
 
 # Maximum simulation time (seconds)
 t_max = 35
+# t_max = 1
 
 # Maximum number of iterations for the generalized Von Neumman's algorithm
 no_iter_max = 300
@@ -158,17 +156,19 @@ def compute_controller(_q):
             )
         else:
             # dr = robot.signed_distance(obj=obs, q=_q, r=h)
-            dr = robot.signed_distance(obj=obs, q=_q, gamma=h, is_conservative=is_conservative)
+            dr = robot.signed_distance(obj=obs, q=_q, gamma=gamma, is_conservative=is_conservative)
         mat_A = np.vstack((mat_A, dr.jac_dist_mat))
         mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_obs)))
 
+    dist_vect_d = dr.dist_vect
+    jac_mat_d = dr.jac_dist_mat
     dist = np.min(dr.dist_vect)
     # Implement auto-collision avoidance and stack into A and b
     # if mode == 0:
-    if mode != 2:
-        dr = robot.compute_dist_auto(q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol)
-    else:
-        dr = robot.signed_distance_auto(q=_q, gamma=h, is_conservative=is_conservative)
+    # if mode != 2:
+    dr = robot.compute_dist_auto(q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol)
+    # else:
+    #     dr = robot.signed_distance_auto(q=_q, gamma=h, is_conservative=is_conservative)
     mat_A = np.vstack((mat_A, dr.jac_dist_mat))
     mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_auto)))
 
@@ -192,6 +192,8 @@ def compute_controller(_q):
     except:
         u = 0 * _q
         print("Unfeasible!")
+        print(f"Distances: {dist_vect_d.ravel()}\nJacobian:\n{jac_mat_d}")
+        raise ValueError("QP problem is unfeasible")
 
     return u, dist
 
@@ -206,11 +208,11 @@ def send_joint_velocity(_dotq):
     sim_time += dt
     robot.add_ani_frame(sim_time, robot.q + _dotq * dt)
 
-def progress_bar(i, imax, bar_length=20):
+def progress_bar(i, imax, bar_length=20, msg="Progress"):
     percent = i / imax
     filled_length = int(np.ceil(bar_length * percent))
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    print(f'\rProgress: |{bar}| {percent:.1%}', end='\r')
+    print(f'\r{msg}: |{bar}| {percent:.1%}', end='\r')
     if i == imax:
         print()  # Move to the next line on completion
 
@@ -218,8 +220,9 @@ def progress_bar(i, imax, bar_length=20):
 hist_u = []
 hist_t = []
 hist_dist = []
+dist = 0.0
 for i in range(round(t_max / dt)):
-    progress_bar(i, round(t_max / dt))
+    progress_bar(i, round(t_max / dt), msg=f"Dist: {dist}")
     # print("\rPercent: " + str(round(100 * sim_time / t_max)))
     q = get_joint_config()
     u, dist = compute_controller(q)

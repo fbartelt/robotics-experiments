@@ -478,16 +478,16 @@ if __name__ == "__main__":
 # res.jac_dist_mat
     sim.add(robot)
 
-    # htm0 = Utils.trn([0.0, 0, 0.8])
-    # box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
-    # sim.add(box)
-    # dsro = robot.signed_distance(box)
+    htm0 = Utils.trn([0.0, 0, 0.8])
+    box = Box(htm=htm0, width=0.2, depth=0.2, height=0.2, color="orange", opacity=0.5)
+    sim.add(box)
+    dsro = robot.signed_distance(box, gamma=2, is_conservative=False, epsilon=1e-3)
     # Each element is the signed distance between i-th link collision primitive and the box.
-    # signed_distances = dsro.dist_vect
-    # gradients = dsro.jac_dist_mat
-    # print("Signed Distances:\n", np.array(signed_distances))
-    # print("Analytical Gradients:\n", np.array(gradients))
-    # dsro.dist_vect
+    signed_distances = dsro.dist_vect
+    gradients = dsro.jac_dist_mat
+    print("Signed Distances:\n", np.array(signed_distances))
+    print("Analytical Gradients:\n", np.array(gradients))
+    dsro.dist_vect
 
     for link in robot.links:
         for col_obj, _ in link.col_objects:
@@ -497,3 +497,4 @@ if __name__ == "__main__":
     path = "./"
     sim.save(path, f"{filename}")
     open_in_browser(f"{path}/{filename}.html")
+

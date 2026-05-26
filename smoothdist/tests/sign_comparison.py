@@ -1,6 +1,6 @@
 import numpy as np
 import uaibot as ub
-import uaibot_cpp_bind as ub_cpp
+# import uaibot_cpp_bind as ub_cpp
 import plotly.graph_objects as go
 import webbrowser
 import time
@@ -28,7 +28,7 @@ def open_in_browser(filename: str):
     webbrowser.open_new_tab(path.as_uri())
 
 
-def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=False):
+def run_simulation(case_name, params, T=5.0, dt=1e-3, gamma=2, return_uaibot_sim=False):
     # Extract parameters with defaults
     side = 0.2
     widthP = params.get("widthP", side)
@@ -73,12 +73,13 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
 
         # ---- ubQ motion ----
         pos_Q = init_pos_Q + movement_Q * frac
-        angle_Q = rot_Q_scale * np.pi * frac
-        R_Q = (
-            ub.Utils.rotx(angle_Q) @ ub.Utils.roty(angle_Q) @ ub.Utils.rotz(2 * angle_Q)
+        angle_Q = rot_Q_scale * np.pi * frac / 500
+        R_Q_htm = (
+            ub.Utils.rotz(angle_Q) @ ub.Utils.roty(angle_Q) #@ ub.Utils.rotz(2 * angle_Q)
         )
-        R_Q = R_Q[:3, :3]
+        R_Q = R_Q_htm[:3, :3]
         htm_Q = pR2htm(R_Q @ pos_Q, R_Q)
+        htm_Q = ubQ.htm @ R_Q_htm
 
         # ---- ubP motion ----
         trans_P = np.array([trans_P_scale * frac, 0.0, 0.0]).reshape(-1, 1)
@@ -90,12 +91,14 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
 
         # Compute distances
         t0 = time.time()
-        dist, *gradients = ubP.signed_distance(ubQ, gamma=r, is_conservative=True)
+        dist, *gradients = ubP.signed_distance(
+            ubQ, gamma=gamma, is_conservative=True, epsilon=1e-3
+        )
         t1 = time.time()
         times_dsdf.append(t1 - t0)
         t0 = time.time()
         dist_conserv, *grandients_conserv = ubP.signed_distance(
-            ubQ, gamma=r, is_conservative=False
+            ubQ, gamma=gamma, is_conservative=False, epsilon=1e-3
         )
         t1 = time.time()
         times_dsdf_conserv.append(t1 - t0)
@@ -155,17 +158,18 @@ def run_simulation(case_name, params, T=5.0, dt=1e-3, r=1e-1, return_uaibot_sim=
     if return_uaibot_sim:
         return sim
 
+
 widthP = 0.5
+heightP = 0.5#0.2
+depthP = 0.5#0.2
 widthQ = 0.1
-heightP = 0.2
 heightQ = 0.1
-depthP = 0.2
 depthQ = 0.1
-init_pos_Q = [-0.15, 0.0, 0.0]
+init_pos_Q = [-0.5, 0.0, 0.0]
 movement_Q = [1.0, 0.0, 0.0]
 rot_Q_scale = 2.0
-rot_P_scale = 4.0
-trans_P_scale = 0.5
+rot_P_scale = 4.0 * 0
+trans_P_scale = 0.5 * 0
 
 params = {
     "widthP": widthP,
@@ -181,7 +185,7 @@ params = {
     "trans_P_scale": trans_P_scale,
 }
 
-ub_sim = run_simulation("Comparison Case", params, return_uaibot_sim=True)
+ub_sim = run_simulation("Comparison Case", params, return_uaibot_sim=True, dt=1e-3, T=1.0)
 
 ub_sim.save("/tmp", "comparison_case")
 open_in_browser("/tmp/comparison_case.html")
