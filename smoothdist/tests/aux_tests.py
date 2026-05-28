@@ -21,6 +21,7 @@ import hashlib
 from collections import Counter
 import numpy as np
 
+
 def _array_fingerprint(arr):
     """Return a hashable tuple that uniquely represents the array's data."""
     # Ensure C-contiguous layout for consistent bytes
@@ -29,6 +30,7 @@ def _array_fingerprint(arr):
     digest = hashlib.sha256(data.tobytes()).digest()
     return (arr.shape, arr.dtype.str, digest)
 
+
 def lists_of_arrays_equal(list1, list2):
     """Check if two lists of arrays contain exactly the same multiset of arrays."""
     if len(list1) != len(list2):
@@ -36,6 +38,7 @@ def lists_of_arrays_equal(list1, list2):
     c1 = Counter(_array_fingerprint(a) for a in list1)
     c2 = Counter(_array_fingerprint(a) for a in list2)
     return c1 == c2
+
 
 def open_in_browser(filename: str):
     """
@@ -155,9 +158,38 @@ def create_platonic_solid(n_faces, radius=1.0, *args, **kwargs):
     # Now A has one row per distinct face
     # print(f"Created {n_faces}-face solid with {len(A)} unique planes (originally {len(hull.equations)})")
 
-    return ub.ConvexPolytope(A=A, b=b, *args, **kwargs)
+    # The default htm must be the identity. Otherwise, uaibot will compute
+    # one aligned with a vertex.
+    htm = kwargs.pop("htm", np.eye(4))
+    poly = ub.ConvexPolytope(A=A, b=b, htm=np.eye(4), *args, **kwargs)
+    poly.set_ani_frame(htm=htm)
+    print(f"htm: {htm}")
+    return poly
 
 
+# %%
+cube = create_platonic_solid(
+    6, np.sqrt(3) / 2, htm=ub.Utils.trn([0, 0, 0.5]), color="blue"
+)
+A = np.array(
+    [
+        [1.0, 0, 0],
+        [-1, 0, 0],
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, 1],
+        [0, 0, -1],
+    ]
+)
+b1 = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+poly = ub.ConvexPolytope(A=A, b=b1, opacity=0.5, htm=np.eye(4))
+# poly.set_ani_frame(htm=ub.Utils.trn([0, 0, 0.0]))
+sim = ub.Simulation.create_sim_grid([cube])
+sim.save("/tmp", "test")
+open_in_browser("/tmp/test.html")
+poly.A
+cube.A
+cube.htm
 # %%
 """INVESTIGATE: HD-SDF returns 0 (x) and CHD-SDF a negative (v)"""
 htm1 = ub.Utils.trn([0, 0, 0.0])
@@ -218,8 +250,7 @@ htm2 = ub.Utils.trn(trn2)
 lx, ly, lz = 1.0, 1.0, 1.0
 ubobj1 = ub.Box(htm=htm1, width=lx, depth=ly, height=lz, color="blue")
 a = 0.2
-lx, ly, lz = a, a, a
-ubobj2 = ub.Box(htm=htm2, width=lx, depth=ly, height=lz)
+ubobj2 = ub.Box(htm=htm2, width=a, depth=a, height=a)
 # Create the same cube with Ax <= b
 A = np.array(
     [
@@ -235,12 +266,13 @@ b1 = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 b2 = b1 * a
 # b2 = b1 - (A @ trn2.reshape(-1, 1)).ravel()
 
-ubpoly1 = ub.ConvexPolytope(A=A, b=b1, htm=htm1)
-ubpoly2 = ub.ConvexPolytope(A=A, b=b2, htm=htm2)
-# ubpoly1 = create_platonic_solid(6, radius=1.0, color='blue')
-# ubpoly2 = create_platonic_solid(6, radius=1.0, htm=htm2)
+# ubpoly1 = ub.ConvexPolytope(A=A, b=b1, htm=htm1)
+# ubpoly2 = ub.ConvexPolytope(A=A, b=b2, htm=htm2)
+ubpoly1 = create_platonic_solid(6, radius=lx * np.sqrt(3) / 2, color="blue")
+ubpoly2 = create_platonic_solid(6, radius=a * np.sqrt(3) / 2, htm=htm2)
 
 epsilon = 1e-3
+eps_edge = 1e-6
 gamma = 2
 
 dists = {"hd-sdf": [], "chd-sdf": [], "poly-hd": [], "poly-chd": []}
@@ -273,14 +305,16 @@ for i in range(imax):
 
     # verts1 = (htm @ np.hstack([vertices1, np.ones((vertices1.shape[0], 1))]).T).T[:, :-1]
     # ubpoly2_cpp = ub.Utils.obj_to_cpp(ubpoly2)
-    ubpoly2_cpp = ub_cpp.CPP_GeometricPrimitives.create_convexpolytope(ubpoly2.htm, A, b2)
+    ubpoly2_cpp = ub_cpp.CPP_GeometricPrimitives.create_convexpolytope(
+        ubpoly2.htm, A, b2
+    )
     ubbox1_cpp = ub.Utils.obj_to_cpp(ubobj1)
     ubbox2_cpp = ub.Utils.obj_to_cpp(ubobj2)
 
     vertices2 = np.array(ubpoly2_cpp.vertices_local)
-    verts2 = np.array(htm_curr @ np.hstack([vertices2, np.ones((vertices2.shape[0], 1))]).T).T[
-        :, :-1
-    ]
+    verts2 = np.array(
+        htm_curr @ np.hstack([vertices2, np.ones((vertices2.shape[0], 1))]).T
+    ).T[:, :-1]
     boxverts = np.array(ubobj2.get_vertices())
     if np.any(np.isnan(verts2)):
         print("NAN")
@@ -290,7 +324,9 @@ for i in range(imax):
 
     stp = False
     verts2_l = [np.round(np.array(v).astype(np.float32), 1) for v in verts2.tolist()]
-    boxverts_l = [np.round(np.array(v).astype(np.float32), 1) for v in boxverts.tolist()]
+    boxverts_l = [
+        np.round(np.array(v).astype(np.float32), 1) for v in boxverts.tolist()
+    ]
     # if not lists_of_arrays_equal(verts2_l, boxverts_l):
     #     print(verts2)
     #     print(boxverts)
@@ -301,21 +337,21 @@ for i in range(imax):
     #     print(ubpoly2_cpp.b)
     #     print(ubpoly2_cpp.A_local)
     #     print(ubpoly2_cpp.b_local)
-        # stp = True
+    # stp = True
     normals = ub_cpp.get_candidate_normals(ubpoly1_cpp, ubpoly2_cpp, False, 1e-6)
     normals2 = ub_cpp.get_candidate_normals(ubbox1_cpp, ubbox2_cpp, False, 1e-6)
-    if not lists_of_arrays_equal(normals[0], normals2[0]):
-        print("FACE NORMALS A do not match!!!")
-        print(normals[0], normals2[0])
-        stp = True
-    if not lists_of_arrays_equal(normals[1], normals2[1]):
-        print("FACE NORMALS B do not match!!!")
-        print(normals[1], normals2[1])
-        stp = True
-    if not lists_of_arrays_equal(normals[2], normals2[2]):
-        print("EDGE NORMALS do not match!!!")
-        print(np.array(normals[2]), np.array(normals2[2]))
-        stp = True
+    # if not lists_of_arrays_equal(normals[0], normals2[0]):
+    #     print("FACE NORMALS A do not match!!!")
+    #     print(normals[0], normals2[0])
+    #     stp = True
+    # if not lists_of_arrays_equal(normals[1], normals2[1]):
+    #     print("FACE NORMALS B do not match!!!")
+    #     print(normals[1], normals2[1])
+    #     stp = True
+    # if not lists_of_arrays_equal(normals[2], normals2[2]):
+    #     print("EDGE NORMALS do not match!!!")
+    #     print(np.array(normals[2]), np.array(normals2[2]))
+    #     stp = True
     # polyhdsdf, *_ = ub_cpp.holder_distance(
     #     vertices1, verts2, normals[0], normals[1], normals[2], gamma, True, epsilon
     # )
@@ -325,7 +361,11 @@ for i in range(imax):
     #     vertices1, verts2, normals_c[0], normals_c[1], normals_c[2], gamma, True, epsilon
     # )
     polychdsdf, *graidents = ubpoly1.signed_distance(
-        ubpoly2, gamma=gamma, epsilon=epsilon, is_conservative=True, eps_edge=1e-6,
+        ubpoly2,
+        gamma=gamma,
+        epsilon=epsilon,
+        is_conservative=True,
+        eps_edge=1e-6,
     )
     polyhdsdf, *graidents = ubpoly1.signed_distance(
         ubpoly2, gamma=gamma, epsilon=epsilon, is_conservative=False, eps_edge=1e-6
@@ -340,6 +380,7 @@ for i in range(imax):
     ubpoly2.add_ani_frame(time=i * dt, htm=htm_new_poly)
     if stp:
         break
+
 
 def dist_plot(hdsdf, chdsdf, polyhdsdf, polychdsdf):
     # Create plot
