@@ -185,3 +185,6 @@ media/
 *.svg
 *jpg
 *.pdf_tex
+*.so
+*.so.*
+*.a
