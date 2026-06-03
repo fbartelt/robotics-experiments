@@ -4,6 +4,22 @@ from franka_tests.create_franka_emika_3_mod import create_franka_emika_3_mod
 import plotly.graph_objects as go
 import webbrowser
 from pathlib import Path
+
+# Save  the simulation to see the results (open the html file control_sim.html that will
+# be generated in the same folder the script was ran)
+def open_in_browser(filename: str):
+    """
+    Opens an HTML file in the system's default web browser.
+    Works cross-platform (Linux, macOS, Windows).
+    """
+    path = Path(filename).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    # Convert to file:// URL and open
+    webbrowser.open_new_tab(path.as_uri())
+
+
 ######################################################
 # PARAMETERS
 ######################################################
@@ -29,16 +45,19 @@ if mode == 0:
 else:
     h = 0.1
     # h = 1e-2
-    gamma = 1
-    eps = 0.01
-    # delta_obs = 0.002
-    delta_obs = -1
-    delta_auto = 0.0001
+    gamma = 2
+    epsilon = 1e-3
+    delta_obs = 0.0
+    # This was the min distance to the expanded obstacles when 
+    # delta=0.0 with real obstacles, so it should work (-1.148586e-02)
+    delta_obs = -5.0e-2
+    delta_auto = -0.0001
+    eps = 0.0
 
 
 # Obstacles
-obstacles = []
-obstacles.append(
+real_obstacles = []
+real_obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, 0.16, 0.45]),
         width=0.35,
@@ -47,7 +66,7 @@ obstacles.append(
         color="magenta",
     )
 )
-obstacles.append(
+real_obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, -0.16, 0.45]),
         width=0.35,
@@ -56,7 +75,7 @@ obstacles.append(
         color="magenta",
     )
 )
-obstacles.append(
+real_obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, 0.00, 0.925]),
         width=0.35,
@@ -65,6 +84,44 @@ obstacles.append(
         color="magenta",
     )
 )
+
+# Agumented obstacles
+obstacles = []
+expand = 0.1 # equivalent to 0.05 * 3.0
+obstacles.append(
+    ub.Box(
+        htm=ub.Utils.trn([0.53, 0.16, 0.45]),
+        width=0.35 + expand,
+        depth=0.05 + expand,
+        height=0.90 + expand,
+        color="cyan",
+        opacity=0.7,
+    )
+)
+obstacles.append(
+    ub.Box(
+        htm=ub.Utils.trn([0.53, -0.16, 0.45]),
+        width=0.35 + expand,
+        depth=0.05 + expand,
+        height=0.90 * 1,
+        color="cyan",
+        opacity=0.7,
+    )
+)
+obstacles.append(
+    ub.Box(
+        htm=ub.Utils.trn([0.53, 0.00, 0.925]),
+        width=0.35 + expand,
+        depth=0.35 + expand,
+        height=0.05 + expand,
+        color="cyan",
+        opacity=0.7,
+    )
+)
+
+aux = obstacles
+obstacles = real_obstacles
+# aux = real_obstacles
 
 # Initial configuration (rad)
 q = np.matrix([[1.0582, -1.3811, 0.3629, -1.9647, -0.959, 1.4881, -0.1534]]).T
@@ -112,6 +169,9 @@ robot.add_ani_frame(0, q)
 for obs in obstacles:
     sim.add(obs)
 
+for obs in real_obstacles:
+    sim.add(obs)
+
 for i, link in enumerate(robot.links):
     for j, (col_obj, _) in enumerate(link.col_objects):
         sim.add(col_obj)
@@ -121,11 +181,15 @@ sim.add(frame_tg)
 
 # Auxiliary functions
 
+
 def get_joint_config():
     # In a real application, this should be replaced by the
     # function that measures the real joint position in the robot
     global robot
     return robot.q
+
+
+err = False
 
 
 def compute_controller(_q):
@@ -139,6 +203,7 @@ def compute_controller(_q):
     global obstacles
     global reg
     global no_iter_max
+    global err
 
     # Get the number of configurations
     n = np.shape(_q)[0]
@@ -156,19 +221,55 @@ def compute_controller(_q):
             )
         else:
             # dr = robot.signed_distance(obj=obs, q=_q, r=h)
-            dr = robot.signed_distance(obj=obs, q=_q, gamma=gamma, is_conservative=is_conservative)
+            dr = robot.signed_distance(
+                obj=obs,
+                q=_q,
+                gamma=gamma,
+                is_conservative=is_conservative,
+                epsilon=epsilon,
+                eps_edge=-1,
+            )
         mat_A = np.vstack((mat_A, dr.jac_dist_mat))
         mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_obs)))
 
+    for obs in real_obstacles:
+        # aux_dr = robot.signed_distance(
+        #         obj=obs,
+        #         q=_q,
+        #         gamma=gamma,
+        #         is_conservative=is_conservative,
+        #         epsilon=epsilon,
+        #         eps_edge=-1,
+        #     )
+        aux_dr = robot.compute_dist(
+            q=_q, obj=obs,
+        )
+        real_dist = np.min(aux_dr.dist_vect)
+
+    dist = np.min(dr.dist_vect)
     dist_vect_d = dr.dist_vect
     jac_mat_d = dr.jac_dist_mat
-    dist = np.min(dr.dist_vect)
     # Implement auto-collision avoidance and stack into A and b
-    # if mode == 0:
+    if mode == 0:
     # if mode != 2:
-    dr = robot.compute_dist_auto(q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol)
-    # else:
-    #     dr = robot.signed_distance_auto(q=_q, gamma=h, is_conservative=is_conservative)
+        dr = robot.compute_dist_auto(
+            q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol
+        )
+    else:
+        dr = robot.signed_distance_auto(
+            q=_q,
+            gamma=gamma,
+            is_conservative=is_conservative,
+            epsilon=epsilon,
+            eps_edge=-1,
+        )
+    auto_dist = np.min(dr.dist_vect)
+    # dr = robot.compute_dist_auto(
+    #     q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol
+    # )
+    dist_vect_auto_d = dr.dist_vect
+    jac_mat_auto_d = dr.jac_dist_mat
+
     mat_A = np.vstack((mat_A, dr.jac_dist_mat))
     mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_auto)))
 
@@ -189,14 +290,16 @@ def compute_controller(_q):
     # Compute the control input
     try:
         u = ub.Utils.solve_qp(mat_H, mat_f, mat_A, mat_b)
+        # print(jac_mat_d)
     except:
         u = 0 * _q
         print("Unfeasible!")
         print(f"Distances: {dist_vect_d.ravel()}\nJacobian:\n{jac_mat_d}")
+        print(f"Auto distances: {dist_vect_auto_d.ravel()}\nAutoJac:\n{jac_mat_auto_d}")
+        err = True
         raise ValueError("QP problem is unfeasible")
 
-    return u, dist
-
+    return u, (dist, auto_dist, real_dist)
 
 def send_joint_velocity(_dotq):
     # In a real application, this should be replaced by the
@@ -208,34 +311,41 @@ def send_joint_velocity(_dotq):
     sim_time += dt
     robot.add_ani_frame(sim_time, robot.q + _dotq * dt)
 
+
 def progress_bar(i, imax, bar_length=20, msg="Progress"):
     percent = i / imax
     filled_length = int(np.ceil(bar_length * percent))
-    bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    print(f'\r{msg}: |{bar}| {percent:.1%}', end='\r')
+    bar = "█" * filled_length + "-" * (bar_length - filled_length)
+    print(f"\r{msg}: |{bar}| {percent:.1%}", end="\r")
     if i == imax:
         print()  # Move to the next line on completion
+
 
 # Simulation
 hist_u = []
 hist_t = []
 hist_dist = []
+hist_real_dist = []
+hist_auto_dist = []
 dist = 0.0
 for i in range(round(t_max / dt)):
     progress_bar(i, round(t_max / dt), msg=f"Dist: {dist}")
     # print("\rPercent: " + str(round(100 * sim_time / t_max)))
     q = get_joint_config()
-    u, dist = compute_controller(q)
+    u, (dist, auto_dist, real_dist) = compute_controller(q)
     send_joint_velocity(u)
 
     hist_u.append(u)
     hist_dist.append(dist)
+    hist_real_dist.append(real_dist)
+    hist_auto_dist.append(auto_dist)
     hist_t.append(sim_time)
 
 print("Done!")
 
+
 # Plot the control input of the last joint
-def nvim_plot(hist_t, hist_u, hist_dist=None):
+def nvim_plot(hist_t, hist_u, hist_dist=None, hist_auto_dist=None, hist_real_dist=None):
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -251,6 +361,8 @@ def nvim_plot(hist_t, hist_u, hist_dist=None):
         yaxis_title="Control input (rad/s)",
     )
     fig.show()
+    ret = (fig, )
+
     if hist_dist is not None:
         fig_dist = go.Figure()
         fig_dist.add_trace(
@@ -258,39 +370,53 @@ def nvim_plot(hist_t, hist_u, hist_dist=None):
                 x=hist_t,
                 y=hist_dist,
                 mode="lines",
-                name="Minimum distance to obstacles over time",
+                name="Dist to Expanded",
             )
         )
+        if hist_real_dist is not None:
+            fig_dist.add_trace(
+                    go.Scatter(
+                        x=hist_t,
+                        y=hist_real_dist,
+                        mode="lines",
+                        name="Dist to Real",
+                    )
+                )
         fig_dist.update_layout(
             title="Minimum distance to obstacles over time",
             xaxis_title="Time (s)",
             yaxis_title="Distance (m)",
         )
         fig_dist.show()
-        return (fig, fig_dist)
-    else:
-        return fig
+        ret += (fig_dist,)
 
-fig = nvim_plot(hist_t, hist_u, hist_dist)
-# plt.plot(hist_t, [u[-1, 0] for u in hist_u])
-# plt.show()
+    if hist_auto_dist is not None:
+        fig_auto = go.Figure()
+        fig_auto.add_trace(
+            go.Scatter(
+                x=hist_t,
+                y=hist_auto_dist,
+                mode="lines",
+                name="Minimum distance to self over time",
+            )
+        )
+        fig_auto.update_layout(
+            title="Minimum distance to self over time",
+            xaxis_title="Time (s)",
+            yaxis_title="Distance (m)",
+        )
+        fig_auto.show()
+        ret += (fig_auto,)
+
+    return ret if len(ret) > 1 else ret[0]
 
 
-# Save  the simulation to see the results (open the html file control_sim.html that will
-# be generated in the same folder the script was ran)
-def open_in_browser(filename: str):
-    """
-    Opens an HTML file in the system's default web browser.
-    Works cross-platform (Linux, macOS, Windows).
-    """
-    path = Path(filename).expanduser().resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+if not err:
+    fig = nvim_plot(hist_t, hist_u, hist_dist, hist_auto_dist, hist_real_dist)
+    # plt.plot(hist_t, [u[-1, 0] for u in hist_u])
+    # plt.show()
+    print(f"Minimum distance to obstacles: {np.min(hist_dist):.6e}")
 
-    # Convert to file:// URL and open
-    webbrowser.open_new_tab(path.as_uri())
-
-
-file_name = f"control_sim_mode_{mode}"
-sim.save(file_name=file_name)
-open_in_browser(file_name + ".html")
+    file_name = f"control_sim_mode_{mode}"
+    sim.save(file_name=file_name)
+    open_in_browser(file_name + ".html")
