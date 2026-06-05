@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import webbrowser
 from pathlib import Path
 
+
 # Save  the simulation to see the results (open the html file control_sim.html that will
 # be generated in the same folder the script was ran)
 def open_in_browser(filename: str):
@@ -43,16 +44,13 @@ if mode == 0:
     delta_obs = 0.03
     delta_auto = 0.01
 else:
-    h = 0.1
-    # h = 1e-2
     gamma = 2
     epsilon = 1e-3
     delta_obs = 0.0
-    # This was the min distance to the expanded obstacles when 
+    # This was the min distance to the expanded obstacles when
     # delta=0.0 with real obstacles, so it should work (-1.148586e-02)
-    delta_obs = -5.0e-2
+    delta_obs = -8.0e-3
     delta_auto = -0.0001
-    eps = 0.0
 
 
 # Obstacles
@@ -87,7 +85,9 @@ real_obstacles.append(
 
 # Agumented obstacles
 obstacles = []
-expand = 0.1 # equivalent to 0.05 * 3.0
+expand = 0.1  # equivalent to 0.05 * 3.0
+# expand = 2e-2
+expand = 5e-2
 obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, 0.16, 0.45]),
@@ -103,7 +103,7 @@ obstacles.append(
         htm=ub.Utils.trn([0.53, -0.16, 0.45]),
         width=0.35 + expand,
         depth=0.05 + expand,
-        height=0.90 * 1,
+        height=0.90 + expand,
         color="cyan",
         opacity=0.7,
     )
@@ -119,9 +119,8 @@ obstacles.append(
     )
 )
 
-aux = obstacles
-obstacles = real_obstacles
-# aux = real_obstacles
+# aux = obstacles
+# obstacles = real_obstacles
 
 # Initial configuration (rad)
 q = np.matrix([[1.0582, -1.3811, 0.3629, -1.9647, -0.959, 1.4881, -0.1534]]).T
@@ -192,6 +191,21 @@ def get_joint_config():
 err = False
 
 
+def check_violation(A, b, u, obstacles):
+    constraints = np.array(A @ u - b).ravel()
+    violated = constraints == 0
+    violate_idxs = np.where(violated)[0]
+    if len(violate_idxs) > 0:
+        print("Violations:")
+        n_consts = len(constraints)
+        for idx in violate_idxs:
+            obstacle_num = idx % len(obstacles)
+            print(f"Constraint {idx+1}/{n_consts} violated: {constraints[idx]:.6e}")
+            print(f"Collision with obstacle {obstacle_num+1}\n")
+            print(f"Link model number: {idx // len(obstacles)}")
+
+
+
 def compute_controller(_q):
     # Compute the control input
     global robot
@@ -214,6 +228,7 @@ def compute_controller(_q):
     mat_b = np.matrix(np.zeros((0, 1)))
 
     # Implement obstacle avoidance constraints and stack into A and b
+    dist = np.inf
     for obs in obstacles:
         if mode == 0:
             dr = robot.compute_dist(
@@ -231,7 +246,12 @@ def compute_controller(_q):
             )
         mat_A = np.vstack((mat_A, dr.jac_dist_mat))
         mat_b = np.vstack((mat_b, -eta * (dr.dist_vect - delta_obs)))
+        dist = min(dist, np.min(dr.dist_vect))
 
+    mat_A_obs = mat_A.copy()
+    mat_b_obs = mat_b.copy()
+
+    real_dist = np.inf
     for obs in real_obstacles:
         # aux_dr = robot.signed_distance(
         #         obj=obs,
@@ -242,18 +262,18 @@ def compute_controller(_q):
         #         eps_edge=-1,
         #     )
         aux_dr = robot.compute_dist(
-            q=_q, obj=obs,
+            q=_q,
+            obj=obs,
         )
-        real_dist = np.min(aux_dr.dist_vect)
+        real_dist = min(real_dist, np.min(aux_dr.dist_vect))
 
-    dist = np.min(dr.dist_vect)
     dist_vect_d = dr.dist_vect
     jac_mat_d = dr.jac_dist_mat
     # Implement auto-collision avoidance and stack into A and b
     if mode == 0:
-    # if mode != 2:
+        # if mode != 2:
         dr = robot.compute_dist_auto(
-            q=_q, h=h, eps=eps, no_iter_max=no_iter_max, tol=tol
+            q=_q, h=0.1, eps=0.01, no_iter_max=no_iter_max, tol=tol
         )
     else:
         dr = robot.signed_distance_auto(
@@ -298,8 +318,10 @@ def compute_controller(_q):
         print(f"Auto distances: {dist_vect_auto_d.ravel()}\nAutoJac:\n{jac_mat_auto_d}")
         err = True
         raise ValueError("QP problem is unfeasible")
+    check_violation(mat_A_obs, mat_b_obs, u, obstacles)
 
     return u, (dist, auto_dist, real_dist)
+
 
 def send_joint_velocity(_dotq):
     # In a real application, this should be replaced by the
@@ -347,21 +369,30 @@ print("Done!")
 # Plot the control input of the last joint
 def nvim_plot(hist_t, hist_u, hist_dist=None, hist_auto_dist=None, hist_real_dist=None):
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=hist_t,
-            y=[u[-1, 0] for u in hist_u],
-            mode="lines",
-            name="Control input of the last joint",
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=hist_t,
+    #         y=[u[-1, 0] for u in hist_u],
+    #         mode="lines",
+    #         name="Control input of the last joint",
+    #     )
+    # )
+    for i in range(hist_u[0].shape[0]):
+        fig.add_trace(
+            go.Scatter(
+                x=hist_t,
+                y=[u[i, 0] for u in hist_u],
+                mode="lines",
+                name=f"u_{i+1}",
+            )
         )
-    )
     fig.update_layout(
         title="Control input of the last joint over time",
         xaxis_title="Time (s)",
         yaxis_title="Control input (rad/s)",
     )
     fig.show()
-    ret = (fig, )
+    ret = (fig,)
 
     if hist_dist is not None:
         fig_dist = go.Figure()
@@ -375,13 +406,13 @@ def nvim_plot(hist_t, hist_u, hist_dist=None, hist_auto_dist=None, hist_real_dis
         )
         if hist_real_dist is not None:
             fig_dist.add_trace(
-                    go.Scatter(
-                        x=hist_t,
-                        y=hist_real_dist,
-                        mode="lines",
-                        name="Dist to Real",
-                    )
+                go.Scatter(
+                    x=hist_t,
+                    y=hist_real_dist,
+                    mode="lines",
+                    name="Dist to Real",
                 )
+            )
         fig_dist.update_layout(
             title="Minimum distance to obstacles over time",
             xaxis_title="Time (s)",
