@@ -145,7 +145,7 @@ def create_franka_emika_3_mod(
             name=name + "_C4_1",
             width=0.06 * 2 * factor5,
             depth=0.06 * 2 * factor5,
-            height=0.22,
+            height=0.22 * 0.9,
             color="magenta",
             opacity=0.3,
         )
@@ -494,7 +494,7 @@ if __name__ == "__main__":
             sim.add(col_obj)
 
     filename = "franka_emika_3_mod"
-    path = "./"
+    path = "/tmp"
     sim.save(path, f"{filename}")
     open_in_browser(f"{path}/{filename}.html")
 
