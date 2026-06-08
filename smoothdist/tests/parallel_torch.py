@@ -1,14 +1,223 @@
 # %%
 import torch
 import time
+import itertools
 import numpy as np
 import uaibot as ub
 import torch.nn.functional as F
-from uaibot_cpp_bind import smooth_min, smooth_max
 import random as rnd
+from uaibot_cpp_bind import smooth_min, smooth_max
+from scipy.spatial import ConvexHull, HalfspaceIntersection
 
 
-# Correct
+def random_htm(
+    translation_max=[1.0, 1.0, 1.0],
+    translation_min=[-1.0, -1.0, -1.0],
+    rotation_max=[2 * np.pi, 2 * np.pi, 2 * np.pi],
+    rotation_min=[0.0, 0.0, 0.0],
+    rng=None,
+    seed=None,
+):
+    if rng is None:
+        if seed is not None:
+            rng = np.random.default_rng(seed)
+        else:
+            rng = np.random.default_rng()
+    translation = rng.uniform(translation_min, translation_max)
+    rotation = rng.uniform(rotation_min, rotation_max)
+    R = (
+        ub.Utils.rotx(rotation[0])
+        @ ub.Utils.roty(rotation[1])
+        @ ub.Utils.rotz(rotation[2])
+    )
+    htm = np.array(ub.Utils.trn(translation) @ R)
+    return htm
+
+
+def create_platonic_solid(n_faces, radius=1.0, *args, **kwargs):
+    """
+    Create a platonic solid with a given number of faces.
+
+    Parameters
+    ----------
+    n_faces : int
+        Number of faces. Supported: 4 (tetrahedron), 6 (cube), 8
+        (octahedron), 12 (dodecahedron), 20 (icosahedron).
+    radius : float, optional
+        Circumscribed sphere radius. Default is 1.0.
+    *args, **kwargs
+        Additional arguments passed to the ConvexPolytope constructor,
+        such as 'htm' for the homogeneous transformation matrix.
+
+    Returns
+    -------
+    ub.ConvexPolytope
+    """
+    phi = (1 + np.sqrt(5)) / 2  # golden ratio
+
+    # Canonical vertices with circumradius = 1 (local frame, center at origin)
+    match n_faces:
+        case 4:  # tetrahedron
+            v = np.array(
+                [[1.0, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]]
+            ) / np.sqrt(3)
+
+        case 6:  # cube
+            v = np.array(
+                [
+                    [-1.0, -1, -1],
+                    [-1, -1, 1],
+                    [-1, 1, -1],
+                    [-1, 1, 1],
+                    [1, -1, -1],
+                    [1, -1, 1],
+                    [1, 1, -1],
+                    [1, 1, 1],
+                ]
+            ) / np.sqrt(3)
+
+        case 8:  # octahedron
+            v = np.array(
+                [[1.0, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+            )  # already radius 1
+
+        case 12:  # dodecahedron
+            # all 20 vertices have norm √3 – scale to 1
+            verts = []
+            # (±1, ±1, ±1)
+            for x in (-1, 1):
+                for y in (-1, 1):
+                    for z in (-1, 1):
+                        verts.append([x, y, z])
+            # (0, ±φ, ±1/φ) and cyclic permutations
+            for a in (-phi, phi):
+                for b in (-1 / phi, 1 / phi):
+                    verts.append([0, a, b])
+                    verts.append([b, 0, a])
+                    verts.append([a, b, 0])
+            v = np.array(verts) / np.sqrt(3)
+
+        case 20:  # icosahedron
+            verts = []
+            norm_factor = np.sqrt(1 + phi**2)
+            # cyclic permutations of (0, ±1, ±φ)
+            for a in (-1, 1):
+                for b in (-phi, phi):
+                    verts.append([0, a, b])
+                    verts.append([b, 0, a])
+                    verts.append([a, b, 0])
+            v = np.array(verts) / norm_factor
+
+        case _:
+            raise ValueError(
+                f"Unsupported number of faces: {n_faces}. "
+                "Must be one of {4, 6, 8, 12, 20}."
+            )
+
+    # Apply radius scaling
+    v *= radius
+    # Uaibot already converts A, b to world frame using the htm, so we
+    # can just compute in local frame and let it handle the transformation.
+
+    # Compute half‑space representation (Ax ≤ b) from convex hull
+    hull = ConvexHull(v)
+    A = hull.equations[:, :3]  # outward normals
+    b = -hull.equations[:, 3]  # right‑hand side
+    eqs = hull.equations
+    # Normalize so that normal is unit (already unit if from Qhull) and offset sign consistent
+    # For outward normals, all offset signs should be positive? Not necessarily, but we can
+    # group by the plane parameters. Better: round to some tolerance.
+    unique_planes = {}
+    tolerance = 1e-10
+    for eq in eqs:
+        # round to tolerance to group identical planes
+        key = tuple(np.round(eq / np.linalg.norm(eq[:3]), decimals=10))
+        if key not in unique_planes:
+            unique_planes[key] = eq
+    A = np.array([v[:3] for v in unique_planes.values()])
+    b = -np.array([v[3] for v in unique_planes.values()])
+    # Now A has one row per distinct face
+    # print(f"Created {n_faces}-face solid with {len(A)} unique planes (originally {len(hull.equations)})")
+    htm = kwargs.pop("htm", np.eye(4))
+    ubobj = ub.ConvexPolytope(A=A, b=b, htm=np.eye(4), *args, **kwargs)
+    ubobj.set_ani_frame(htm=htm)
+    return ubobj, A, b
+
+
+def extract_comp_from_platonic(htm, A, b, rtol=1e-5):
+    """
+    Extract vertices, true edge directions, and face normals from a convex polyhedron.
+
+    Parameters
+    ----------
+    htm : np.ndarray (4,4)
+        Homogeneous transformation matrix (world frame).
+    A : np.ndarray (F,3)
+        Outward unit normals in local frame.
+    b : np.ndarray (F,)
+        Face offsets (distance from origin to plane) in local frame.
+    rtol : float
+        Relative tolerance for edge‑length equality.
+
+    Returns
+    -------
+    vertices : torch.Tensor (V, 3)
+        Vertices in world frame.
+    edges : torch.Tensor (E, 3)
+        Unit direction vectors of each undirected edge in world frame.
+    normals : torch.Tensor (F, 3)
+        Outward unit normals of each face in world frame.
+    """
+    # 1. Local vertices from half‑space intersection
+    halfspaces = np.hstack([A, -b.reshape(-1, 1)])
+    hs = HalfspaceIntersection(halfspaces, np.zeros(3))
+    local_verts = hs.intersections  # (V, 3)
+    local_verts = np.unique(local_verts.round(decimals=10), axis=0)
+
+    # 2. Find true edges by minimal positive distance (like C++ logic)
+    nv = local_verts.shape[0]
+    # all pairwise squared distances
+    diff = local_verts[:, None, :] - local_verts[None, :, :]  # (V, V, 3)
+    sq_dist = np.sum(diff * diff, axis=-1)  # (V, V)
+
+    # Ignore zero (self) and find minimal positive squared length
+    mask = sq_dist > 1e-12
+    if not mask.any():
+        raise ValueError("No edges found – degenerate vertices?")
+    edge_len_sq = np.min(sq_dist[mask])
+    tol = edge_len_sq * rtol
+
+    # Select all unordered pairs with that length
+    edge_set = set()
+    for i in range(nv):
+        for j in range(i + 1, nv):
+            if abs(sq_dist[i, j] - edge_len_sq) < tol:
+                edge_set.add((i, j))
+
+    edges_idx = np.array(list(edge_set))  # (E, 2)
+    # Edge direction vectors (unit) – shape (E, 3)
+    edge_vectors = local_verts[edges_idx[:, 1]] - local_verts[edges_idx[:, 0]]
+    edge_vectors /= np.linalg.norm(edge_vectors, axis=1, keepdims=True)
+    local_edges = edge_vectors
+
+    # 3. Face normals are already unit – shape (F, 3)
+    local_normals = A
+
+    # 4. Transform to world frame
+    R = htm[:3, :3]
+    t = htm[:3, 3]
+    world_vertices = (R @ local_verts.T).T + t  # (V, 3)
+    world_edges = (R @ local_edges.T).T  # (E, 3)
+    world_normals = (R @ local_normals.T).T  # (F, 3)
+
+    # 5. Return float32 tensors
+    return (
+        torch.tensor(world_vertices, dtype=torch.float32),
+        torch.tensor(world_edges, dtype=torch.float32),
+        torch.tensor(world_normals, dtype=torch.float32),
+    )
+
+
 def holder_min(x, g, dim=1, eps=1e-12):
     p = g + 1.0
     m = x.min(dim=dim, keepdim=True).values
@@ -36,7 +245,6 @@ def holder_min(x, g, dim=1, eps=1e-12):
     return out.squeeze(dim)
 
 
-# Correct
 def holder_max(x, g, dim=1, eps=1e-12):
     return -holder_min(-x, g, dim, eps)
 
@@ -67,10 +275,6 @@ def pairwise_difference(vertex_1, vertex_2):
         - vertex_2[None, :, None, :, :]  # (1,O2,1,V2,3)
     )  # (O1,O2,V1,V2,3)
 
-    print(f"Vertices1: {vertex_1.shape}")
-    print(f"Vertices2: {vertex_2.shape}")
-    print(f"result: {result.shape}")
-
     return result.reshape(O1, O2, V1 * V2, 3)  # (O1,O2,V1*V2,3)
 
 
@@ -90,38 +294,20 @@ def pairwise_direction_vertex_dot(direction, vertices):
     return result_flat.reshape(o1, o2, N, V)
 
 
-def phi(x, k):
-    # return x**3 / (x**2 + 1e-3)
-    print(f"k: {k}")
-    print(f"Phi received {x.shape}: {x}")
-    eps = 1e-6
-    # eps = 0.0
+def phi(x, k, eps=1e-3):
     abs_x_pow = torch.abs(x) ** k
     res = x * abs_x_pow / (abs_x_pow + eps)
-    # res = x * (abs(x)**k) / ((abs(x) ** k) + (1e-46))
-    # res = torch.where(torch.isnan(res), torch.zeros_like(res), res)  # nan -> 0
-    print(f"Phi computed {res.shape}: {res}")
     return res
 
 
-def group_direction_vertices(x, g, eps=1e-12):
+def group_direction_vertices(x, g, eps=1e-3):
     # Group vertices
-    print("minmax")
-    print(f"x: {x.shape}")
     x1 = holder_min(x, g, dim=3, eps=eps)  # (O1, O2, N)
-    print(f"x1: {x1.shape}")
-    # x1_comp = []
-    # for x_ in x[0, 0, :]:
-    #     x_array = x_.cpu().detach().numpy()
-    #     x1_comp.append(smooth_min(x_array.ravel(), r=g)[0])
-    # x1_comp = np.array(x1_comp)
-    # print(f"x1_comp: {x1_comp.shape}, {x1_comp}")
 
     # Group normals
-    x2 = holder_max(phi(x1, g), g, dim=2, eps=eps)  # (O1, O2)
-    print(f"x2: {x2.shape}")
+    x2 = holder_max(phi(x1, g, eps=eps), g, dim=2, eps=eps)  # (O1, O2)
 
-    return phi(x2, g)
+    return phi(x2, g, eps=eps)
 
 
 def pairwise_concat_objects(a, b):
@@ -141,37 +327,28 @@ def pairwise_concat_objects(a, b):
     return torch.cat([a_exp, b_exp], dim=2)
 
 
-def holder_dist(vertexA, edgesA, normalsA, vertexB, edgesB, normalsB, g):
-    print(f"Vertices A: {vertexA.shape}")
-    print(f"Vertices B: {vertexB.shape}")
-    print(f"Edges A: {edgesA.shape}")
-    print(f"Edges B: {edgesB.shape}")
-    edges_AB = pairwise_cross(edgesA, edgesB)
-    print(f"Edges shape: {edges_AB.shape}")
+def holder_dist(vertexA, edgesA, normalsA, vertexB, edgesB, normalsB, g, eps=1e-3):
+    edges_AB = pairwise_concat_objects(edgesA, edgesB)
     edges_AB = torch.cat([edges_AB, -edges_AB], dim=2)
-    print(f"Edges shape: {edges_AB.shape}")
     normals_AB = pairwise_concat_objects(normalsA, normalsB)
     vertices_AB = pairwise_difference(vertexA, vertexB)
-    print(f"Paiwwaise diff: {vertices_AB.shape}")
 
     direction_AB = torch.cat([edges_AB, normals_AB], dim=2)
 
-    print(f"Normals shape: {direction_AB.shape}")
     pnv = pairwise_direction_vertex_dot(direction_AB, vertices_AB)
-    print(f"PNV: {pnv.shape},")
 
-    dist = group_direction_vertices(pnv, g)
-    print(f"dist: {dist}")
+    dist = group_direction_vertices(pnv, g, eps=eps)
 
     return dist
 
 
 def extract_comp_from_box(htm, lx, ly, lz):
 
-    x = htm[0:3, 0]
-    y = htm[0:3, 1]
-    z = htm[0:3, 2]
-    s = htm[0:3, 3]
+    htm = np.array(htm)
+    x = htm[0:3, 0].reshape(3, 1)
+    y = htm[0:3, 1].reshape(3, 1)
+    z = htm[0:3, 2].reshape(3, 1)
+    s = htm[0:3, 3].reshape(3, 1)
 
     vertices = torch.tensor(
         np.hstack(
@@ -187,120 +364,88 @@ def extract_comp_from_box(htm, lx, ly, lz):
             ]
         ),
         dtype=torch.float32,
-    ).T.contiguous()  # (3, 8)
+    ).T.contiguous()  # (8, 3) after tranpose
 
     # Edge direction vectors – one per unique undirected edge line,
     # keeping the C++ Box convention: 6 oriented unit vectors (±X,±Y,±Z)
     edges = torch.tensor(
         np.hstack([x, x, x, x, y, y, y, y, z, z, z, z]), dtype=torch.float32
-    ).T.contiguous()  # shape (3,12)
-    # edges = edges / (edges.norm(dim=0, keepdim=True) + 1e-12)   # unit length
+    ).T.contiguous()  # shape (12,3) after transpose
 
     # Face normals: ±x, ±y, ±z (unit length)
     normals = torch.tensor(
         np.hstack([x, -x, y, -y, z, -z]), dtype=torch.float32
-    ).T.contiguous()  # shape (3,6)
-    # normals = normals / (normals.norm(dim=0, keepdim=True) + 1e-12)
+    ).T.contiguous()  # shape (6,3) after tranpose
 
-    # edges = np.hstack([+lx * x, -lx * x, +ly * y, -ly * y, +lz * z, -lz * z]).T
-    # normals = np.matrix(edges)
-    print(
-        f"Vertices shape {vertices.shape}, edges {edges.shape}, normals {normals.shape}"
-    )
-
+    # Normals and edges are already unit vectors
     return vertices, edges, normals
 
 
 # %%
-obsA = []
-obsB = []
 ubobj1, ubobj2 = None, None
+t_max = [2.0, 2.0, 2.0]
+t_min = ([-2.0, -2.0, -2.0],)
+r_max = [2 * np.pi, 2 * np.pi, 2 * np.pi]
+r_min = [0.0, 0.0, 0.0]
+max_radius = 1.0
+min_radius = 1e-3
+gamma = 2
+faces = [4, 6, 8, 12, 20]
+platonic_solids = {4: "tetra", 6: "cube", 8: "octa", 12: "dodeca", 20: "icosa"}
 
-for i in range(1):
-    # htm = ub.Utils.htm_rand([-2, -2, -2], [2, 2, 2])
-    htm = ub.Utils.trn([0, 0, 0.0])
-    lx = rnd.uniform(0.3, 0.5)
-    ly = rnd.uniform(0.3, 0.5)
-    lz = rnd.uniform(0.3, 0.5)
-    lx, ly, lz = 1.0, 1.0, 1.0
-    ubobj1 = ub.Box(htm=htm, width=lx, depth=ly, height=lz)
-    obsA.append(extract_comp_from_box(htm, lx, ly, lz))
-for j in range(1):
-    # htm = ub.Utils.htm_rand([-2, -2, -2], [2, 2, 2])
-    # htm = ub.Utils.rotx(np.pi/2)
-    htm = ub.Utils.trn([0.1, .1, .1]) @ ub.Utils.rotx(np.pi / 4) @ ub.Utils.roty(np.pi / 4) @ ub.Utils.rotz(np.pi / 4)
-    lx = rnd.uniform(0.3, 0.5)
-    ly = rnd.uniform(0.3, 0.5)
-    lz = rnd.uniform(0.3, 0.5)
-    lx, ly, lz = 1.0, 1.0, 1.0
-    ubobj2 = ub.Box(htm=htm, width=lx, depth=ly, height=lz)
-    obsB.append(extract_comp_from_box(htm, lx, ly, lz))
+epsilon = 1e-3
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+N = 100
+# n_facesA = 12
+# n_facesB = 12
+for n_facesA, n_facesB in itertools.combinations_with_replacement(faces, 2):
+    obsA = []
+    obsB = []
+    for i in range(N):
+        rng = np.random.default_rng(seed=i)  # different seed for each pair
+        htm = random_htm(t_max, t_min, r_max, r_min, rng)
+        radius = rng.uniform(min_radius, max_radius)
+        ubobj1, A, b = create_platonic_solid(n_facesA, radius, htm=htm)
+        obsA.append(extract_comp_from_platonic(htm, A, b))
 
-print(device)
+        htm = random_htm(t_max, t_min, r_max, r_min, rng)
+        radius = rng.uniform(min_radius, max_radius)
+        ubobj2, A, b = create_platonic_solid(n_facesB, radius, htm=htm)
+        obsB.append(extract_comp_from_platonic(htm, A, b))
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-vA = torch.tensor(np.array([x[0] for x in obsA])).to(device)
-eA = torch.tensor(np.array([x[1] for x in obsA])).to(device)
-nA = torch.tensor(np.array([x[2] for x in obsA])).to(device)
+    # print(device)
 
-vB = torch.tensor(np.array([x[0] for x in obsB])).to(device)
-eB = torch.tensor(np.array([x[1] for x in obsB])).to(device)
-nB = torch.tensor(np.array([x[2] for x in obsB])).to(device)
+    vA = torch.tensor(np.array([x[0] for x in obsA])).to(device)
+    eA = torch.tensor(np.array([x[1] for x in obsA])).to(device)
+    nA = torch.tensor(np.array([x[2] for x in obsA])).to(device)
 
-start = time.perf_counter()
+    vB = torch.tensor(np.array([x[0] for x in obsB])).to(device)
+    eB = torch.tensor(np.array([x[1] for x in obsB])).to(device)
+    nB = torch.tensor(np.array([x[2] for x in obsB])).to(device)
 
-# r = 0.1
-# gamma = (1 - r) / r
-gamma = 2.0
-r = 1 / (gamma + 1)
-# r = 0.1 = 1/(gamma + 1)
-# r*gamma + r = 1
-# gamma = (1 - r)/ro
-dist_torch = 0.0
+    # print(f"edges A shape: {eA.shape} edges B shape: {eB.shape}")
+    # print(f"normals A shape: {nA.shape} normals B shape: {nB.shape}")
 
-for i in range(1):
-    dist, *_ = ubobj1.signed_distance(
-        ubobj2, gamma=gamma, epsilon=1e-46, skip_gradient=True, is_conservative=False
+    gamma = 2.0
+    dist_torch = 0.0
+
+    # Warm-up (hide compilation & caching overhead)
+    for _ in range(10):
+        _ = holder_dist(vA, eA, nA, vB, eB, nB, gamma, eps=epsilon)
+    torch.cuda.synchronize()
+
+    start = time.perf_counter()
+    n_repeats = 50
+    for i in range(n_repeats):
+        dist_torch = holder_dist(vA, eA, nA, vB, eB, nB, gamma, eps=epsilon)
+    torch.cuda.synchronize()  # ensure all GPU work finished
+    elapsed = time.perf_counter() - start
+
+    avg_time_per_batch = elapsed / n_repeats
+    avg_time_per_pair = avg_time_per_batch / (N * N)
+    print(f"Batch size {N}: {avg_time_per_batch*1000:.6f} ms total")
+    print(
+        f"Per pair ({platonic_solids[n_facesA]} vs {platonic_solids[n_facesB]}): {avg_time_per_pair*1e6:.6f} µs"
     )
-    dist_torch = holder_dist(vA, eA, nA, vB, eB, nB, gamma)
-
-print(f"Torch distance: {dist_torch}\ndist: {dist}")
-
-ubobj1
-ubobj2
-end = time.perf_counter()
-
-print(f"Elapsed time: {(end-start)/50:.6f} seconds")
-
-# %%
-x = torch.tensor(
-    [
-        # first "batch" (index 0) of shape (2,3,4)
-        [
-            # row 0, depth 0: all positive, min=1
-            [
-                [1.0, 2.0, 3.0, 4.0],
-                # row 0, depth 1: contains zero, min=0
-                [5.0, 0.0, 6.0, 7.0],
-                # row 0, depth 2: negative min, min=-2
-                [8.0, -1.0, -2.0, 9.0],
-            ],
-            # row 1, depth 0: all positive, min=0.5
-            [
-                [0.5, 1.5, 2.5, 3.5],
-                # row 1, depth 1: contains zero, min=0
-                [0.0, 4.0, 5.0, 6.0],
-                # row 1, depth 2: negative min, min=-3
-                [1.0, -3.0, 2.0, 0.0],
-            ],
-        ]
-    ],
-    dtype=torch.float32,
-)
-x.shape
-res = holder_min(x, 2, dim=3, eps=1e-12)
-print(res.shape, res)
-res2 = holder_max(res, 2, dim=2, eps=1e-12)
-print(res2.shape, res2)
