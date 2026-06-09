@@ -19,7 +19,8 @@ from plotly.subplots import make_subplots
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 
-with open("data2plot.pkl", "rb") as f:
+base_file_name = ""
+with open(f"{base_file_name}_data2plot.pkl", "rb") as f:
     (
         x_vals,
         hd_sdf_gm,
@@ -196,5 +197,5 @@ fig.update_layout(
 )
 
 # fig.show()
-fig.write_image("runtime_comparison.pdf", width=1200, height=600)
+fig.write_image(f"{base_file_name}_runtime_comparison.pdf", width=1200, height=600)
 print("Plot saved as 'runtime_comparison.pdf'.")

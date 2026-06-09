@@ -161,7 +161,7 @@ def create_platonic_solid(n_faces, radius=1.0, *args, **kwargs):
     # Now A has one row per distinct face
     # print(f"Created {n_faces}-face solid with {len(A)} unique planes (originally {len(hull.equations)})")
     htm = kwargs.pop("htm", np.eye(4))
-    ubobj = ub.ConvexPolytope(A=A, b=b, *args, **kwargs)
+    ubobj = ub.ConvexPolytope(A=A, b=b, htm=np.eye(4), *args, **kwargs)
     ubobj.set_ani_frame(htm=htm)
     return ubobj
 
@@ -208,7 +208,8 @@ def compute_both_distances(seed, params):
     t_min = params["translation_min"]
     r_max = params["rotation_max"]
     r_min = params["rotation_min"]
-    radius = params["max_radius"]
+    min_radius = params["min_radius"]
+    max_radius = params["max_radius"]
     n_f1 = params["n_faces1"]
     n_f2 = params["n_faces2"]
     gamma = params["gamma"]
@@ -218,17 +219,25 @@ def compute_both_distances(seed, params):
     # ---- create the two polyhedra ----
     # htm1 = random_htm(t_max, t_min, r_max, r_min, rng)
     htm1 = np.eye(4)
-    # obj1 = create_platonic_solid(n_faces=n_f1, radius=radius, htm=htm1)
-    obj1 = ub.Box(width=radius, height=radius, depth=radius, htm=htm1)
     htm2 = random_htm(t_max, t_min, r_max, r_min, rng)
-    obj2 = ub.Box(width=radius, height=radius, depth=radius, htm=htm2)
-    # obj2 = create_platonic_solid(n_faces=n_f2, radius=radius, htm=htm2)
+    #----- Boxes case -------
+    # w1, h1, d1 = rng.uniform(min_radius, max_radius, (3,))
+    # obj1 = ub.Box(width=w1, height=h1, depth=d1, htm=htm1)
+    # w2, h2, d2 = rng.uniform(min_radius, max_radius, (3,))
+    # obj2 = ub.Box(width=w2, height=h2, depth=d2, htm=htm2)
+    #------ Platonic case -----
+    radius1 = rng.uniform(min_radius, max_radius)
+    n_f1 = rng.choice([4, 6, 8, 12, 20])
+    obj1 = create_platonic_solid(n_faces=n_f1, radius=radius1, htm=htm1)
+    n_f2 = rng.choice([4, 6, 8, 12, 20])
+    radius2 = rng.uniform(min_radius, max_radius)
+    obj2 = create_platonic_solid(n_faces=n_f2, radius=radius2, htm=htm2)
 
     # ---- SDF (exact) ----
-    # vertices1, faces1 = compute_vertices_and_faces(obj1.A, obj1.b)
-    # vertices2, faces2 = compute_vertices_and_faces(obj2.A, obj2.b)
-    vertices1, faces1 = get_box_verticesNplanes(obj1)
-    vertices2, faces2 = get_box_verticesNplanes(obj2)
+    vertices1, faces1 = compute_vertices_and_faces(obj1.A, obj1.b)
+    vertices2, faces2 = compute_vertices_and_faces(obj2.A, obj2.b)
+    # vertices1, faces1 = get_box_verticesNplanes(obj1)
+    # vertices2, faces2 = get_box_verticesNplanes(obj2)
     dist_sdf, _ = esdf(obj1, obj2, vertices1, vertices2, faces1, faces2)
     # esdf returns (distance, time_us); we only need distance
 
@@ -237,6 +246,7 @@ def compute_both_distances(seed, params):
         obj2,
         gamma=gamma,
         is_conservative=False,
+        # is_conservative=True,
         skip_gradient=skip_grad,
         epsilon=1e-6,
         eps_edge=eps_edge,
@@ -336,13 +346,15 @@ if __name__ == "__main__":
         "translation_min": [-2.0, -2.0, -2.0],
         "rotation_max": [2 * np.pi, 2 * np.pi, 2 * np.pi],
         "rotation_min": [0.0, 0.0, 0.0],
+        "min_radius": 1e-2,
         "max_radius": 1.0,
         "gamma": 2,
         "skip_gradients": True,
     }
 
     N = 500000  # configurations per pair (adjust as needed)
-    eps_edges = np.logspace(-8, 2, 10)
+    # eps_edges = np.logspace(-8, 2, 10)
+    eps_edges = [0.0] # Testing conservative only
     tolerances = np.logspace(-4, 1, 50)  # 0.0001 … 10.0
     num_workers = cpu_count()
 
