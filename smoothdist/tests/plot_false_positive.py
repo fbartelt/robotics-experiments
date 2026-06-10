@@ -30,8 +30,8 @@ def plot_fp_rate(tolerances, fp_rates, legend_labels, tol_zero_rate=None, title=
                 y=fp,
                 mode="lines+markers",
                 name=lbl,
-                line=dict(width=2.5),
-                marker=dict(size=6),
+                line=dict(width=2.5, color="rgb(31,119,180)"),
+                marker=dict(size=6, color="rgb(31,119,180)"),
                 showlegend=False,
             )
         )

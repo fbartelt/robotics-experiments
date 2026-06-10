@@ -395,7 +395,7 @@ platonic_solids = {4: "tetra", 6: "cube", 8: "octa", 12: "dodeca", 20: "icosa"}
 
 epsilon = 1e-3
 
-N = 100
+N = 90
 # n_facesA = 12
 # n_facesB = 12
 for n_facesA, n_facesB in itertools.combinations_with_replacement(faces, 2):

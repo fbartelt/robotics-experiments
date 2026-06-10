@@ -40,7 +40,7 @@ with open("data2plot.pkl", "rb") as f:
 # ----------------------------------------------------------------------
 # The dictionaries share the same keys
 all_keys = set(time_HD.keys())
-methods = ["HDSDF", "SDF", "GDF"]
+methods = ["HDSDF", "GDF", "SDF"]
 time_by_complexity = defaultdict(lambda: {m: [] for m in methods})
 
 for key in all_keys:
@@ -97,29 +97,29 @@ def add_trace_with_band_single(fig, x, y, y_lo, y_hi, name, color, show_legend=T
         )
     )
     # Upper bound (invisible)
-    fig.add_trace(
-        go.Scatter(
-            x=x,
-            y=y_hi,
-            mode="lines",
-            marker=dict(color="rgba(68,68,68,0)"),
-            line=dict(width=0),
-            showlegend=False,
-        )
-    )
-    # Lower bound with fill
-    fig.add_trace(
-        go.Scatter(
-            x=x,
-            y=y_lo,
-            mode="lines",
-            marker=dict(color="rgba(68,68,68,0)"),
-            line=dict(width=0),
-            fillcolor=color.replace("rgb", "rgba").replace(")", f",{band_opacity})"),
-            fill="tonexty",
-            showlegend=False,
-        )
-    )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=x,
+    #         y=y_hi,
+    #         mode="lines",
+    #         marker=dict(color="rgba(68,68,68,0)"),
+    #         line=dict(width=0),
+    #         showlegend=False,
+    #     )
+    # )
+    # # Lower bound with fill
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=x,
+    #         y=y_lo,
+    #         mode="lines",
+    #         marker=dict(color="rgba(68,68,68,0)"),
+    #         line=dict(width=0),
+    #         fillcolor=color.replace("rgb", "rgba").replace(")", f",{band_opacity})"),
+    #         fill="tonexty",
+    #         showlegend=False,
+    #     )
+    # )
 
 
 # Create figure
@@ -149,21 +149,21 @@ for m in methods:
 # ----------------------------------------------------
 # Optional GPU time (set to None if not available)
 time_GPU = {
-    ("tetra", "tetra"): 0.454422 * 1e-6,  # second
-    ("tetra", "cube"): 0.766345 * 1e-6,
-    ("tetra", "octa"): 0.629510 * 1e-6,
-    ("tetra", "dodeca"): 2.426670 * 1e-6,
-    ("tetra", "icosa"): 1.875779 * 1e-6,
-    ("cube", "cube"): 1.408164 * 1e-6,
-    ("cube", "octa"): 1.240184 * 1e-6,
-    ("cube", "dodeca"): 4.943016 * 1e-6,
-    ("cube", "icosa"): 3.458157 * 1e-6,
-    ("octa", "octa"): 1.126226 * 1e-6,
-    ("octa", "dodeca"): 4.085908 * 1e-6,
-    ("octa", "icosa"): 2.891865 * 1e-6,
-    ("dodeca", "dodeca"): 16.613784 * 1e-6,
-    ("dodeca", "icosa"): 10.302578 * 1e-6,
-    ("icosa", "icosa"): 7.177605 * 1e-6,
+    ("tetra", "tetra"): 0.271152 * 1e-6,  # second
+    ("tetra", "cube"): 0.589877 * 1e-6,
+    ("tetra", "octa"): 0.455624 * 1e-6,
+    ("tetra", "dodeca"): 1.937523 * 1e-6,
+    ("tetra", "icosa"): 1.414723 * 1e-6,
+    ("cube", "cube"): 1.125260 * 1e-6,
+    ("cube", "octa"): 0.961197 * 1e-6,
+    ("cube", "dodeca"): 4.269146 * 1e-6,
+    ("cube", "icosa"): 2.837297 * 1e-6,
+    ("octa", "octa"): 0.836318 * 1e-6,
+    ("octa", "dodeca"): 3.336631 * 1e-6,
+    ("octa", "icosa"): 2.245569 * 1e-6,
+    ("dodeca", "dodeca"): 14.834621 * 1e-6,
+    ("dodeca", "icosa"): 9.448666 * 1e-6,
+    ("icosa", "icosa"): 6.034575 * 1e-6,
 }
 vertices = {"tetra": 4, "cube": 8, "octa": 6, "dodeca": 20, "icosa": 12}
 
@@ -196,7 +196,7 @@ fig.add_trace(
 # Log axes
 fig.update_xaxes(
     type="log",
-    title_text=r"Complexity  $|\mathcal{V}(\mathcal{A})|^2|\mathcal{V}(\mathcal{B})| + |\mathcal{V}(\mathcal{A})||\mathcal{V}(\mathcal{B})|^2$",
+    title_text=r"$\Large|\mathcal{V}(\mathcal{A})|^2|\mathcal{V}(\mathcal{B})| + |\mathcal{V}(\mathcal{A})||\mathcal{V}(\mathcal{B})|^2$",
     showline=True,
     linewidth=1,
     linecolor="black",
