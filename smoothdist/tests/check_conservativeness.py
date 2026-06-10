@@ -248,7 +248,7 @@ def compute_both_distances(seed, params):
         is_conservative=False,
         # is_conservative=True,
         skip_gradient=skip_grad,
-        epsilon=1e-6,
+        epsilon=1e-4,
         eps_edge=eps_edge,
     )
 
@@ -309,6 +309,7 @@ def plot_fp_rate(tolerances, fp_rates, legend_labels, tol_zero_rate=None, title=
                 name=lbl,
                 line=dict(width=2.5),
                 marker=dict(size=6),
+                showlegend=False,
             )
         )
     if tol_zero_rate is not None:
@@ -426,7 +427,7 @@ if __name__ == "__main__":
     # ---- plot all curves together ----
     fig = plot_fp_rate(
         tolerances, fp_curves, legend_labels,
-        title=f"False‑positive rate vs. tolerance (cube–cube, varying ε, over {N} seeds)"
+        title=f"False‑positive rate vs. tolerance ({N} seeds)"
     )
     fig.write_image("eps_comparison.pdf")
     # fig.show()
