@@ -45,13 +45,12 @@ if mode == 0:
     delta_auto = 0.01
 else:
     gamma = 2
-    epsilon = 1e-6
+    epsilon = 9e-4 # 4e-4 is ok
     delta_obs = 0.0
     # This was the min distance to the expanded obstacles when
     # delta=0.0 with real obstacles, so it should work (-1.148586e-02)
     delta_obs = -5.0e-4 * 1e1
     delta_auto = -1e-4
-
 
 # Obstacles
 real_obstacles = []
