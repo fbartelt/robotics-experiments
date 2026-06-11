@@ -45,12 +45,12 @@ if mode == 0:
     delta_auto = 0.01
 else:
     gamma = 2
-    epsilon = 1e-3
+    epsilon = 1e-6
     delta_obs = 0.0
     # This was the min distance to the expanded obstacles when
     # delta=0.0 with real obstacles, so it should work (-1.148586e-02)
-    delta_obs = -8.0e-3
-    delta_auto = -0.0001
+    delta_obs = -5.0e-4 * 1e1
+    delta_auto = -1e-4
 
 
 # Obstacles
@@ -88,6 +88,7 @@ obstacles = []
 expand = 0.1  # equivalent to 0.05 * 3.0
 # expand = 2e-2
 expand = 5e-2
+
 obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, 0.16, 0.45]),
@@ -131,7 +132,7 @@ htm_tg = (
 )
 
 # Sampling time (seconds)
-dt = 0.01
+dt = 1e-2
 
 # Control matrix for the task function (1/second)
 K = np.diag([0.4, 0.4, 0.4, 0.4, 0.4, 0.4])
@@ -317,8 +318,10 @@ def compute_controller(_q):
         print(f"Distances: {dist_vect_d.ravel()}\nJacobian:\n{jac_mat_d}")
         print(f"Auto distances: {dist_vect_auto_d.ravel()}\nAutoJac:\n{jac_mat_auto_d}")
         err = True
+        check_violation(mat_A_obs, mat_b_obs, u, obstacles)
+        print(f"Distance constraints: {np.array(mat_A_obs @ u - mat_b_obs).ravel()}")
+        print(f"Constraints result: {np.array(mat_A @ u - mat_b).ravel()}")
         raise ValueError("QP problem is unfeasible")
-    check_violation(mat_A_obs, mat_b_obs, u, obstacles)
 
     return u, (dist, auto_dist, real_dist)
 
@@ -451,3 +454,5 @@ if not err:
     file_name = f"control_sim_mode_{mode}"
     sim.save(file_name=file_name)
     open_in_browser(file_name + ".html")
+else:
+    print("Sim failed")
