@@ -203,7 +203,7 @@ distances = []
 euclidean_distances = []
 V_square_history = []  # store transformed vertices for plotting
 t = []
-dt = 1e-2
+dt = 1e-3
 htm = np.array(htm_square)
 x0, y0 = htm[0, -1].item(), htm[1, -1].item()
 theta0 = np.acos((np.trace(htm[:3, :3]) - 1) / 2)
@@ -219,7 +219,7 @@ for i in tqdm(range(imax), total=imax):
     V_square_history.append(V_sq_t)
 
     dist, *_ = holder_distance_aux(
-        V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, 1e-3
+        V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=5e-3
     )
     esdf, *_ = signed_distance_2d(V_sq_t, V_pentagon, N_sq_t, normals_pentagon)
     distances.append(dist)
@@ -230,35 +230,333 @@ for i in tqdm(range(imax), total=imax):
 distances = np.array(distances)
 euclidean_distances = np.array(euclidean_distances)
 
-
-# ------------------------------------------------------------
-# 5. Plot 1: distance vs. time (static)
-# ------------------------------------------------------------
-def plot_dist(t, distances, euclidean_distances):
+# %%
+def make_sdf_figure_callout(
+    t,
+    euclidean_dist,
+    hd_sdf_dist,
+    V1_hist,
+    V2_hist,
+    sep_interval=None,
+    pen_interval=None,
+    post_interval=None,
+    interval_labels=None,
+    num_snapshots=6,
+    snapshot_scale=0.15,
+    poly1_color="rgba(31, 119, 180, 0.5)",
+    poly2_color="rgba(255, 127, 14, 0.5)",
+    line1_color="blue",
+    line2_color="orange",
+    font_size=20,
+):
+    """
+    Distance plot with callout boxes for up to three intervals.
+    Default labels: "Separation", "Penetration", "Post‑penetration".
+    Use `interval_labels` (list of 3 strings) to override.
+    """
     fig = go.Figure()
+
+    # ----- 1. Distance traces -----
     fig.add_trace(
         go.Scatter(
             x=t,
-            y=distances,
-            name="HD-SDF",
+            y=euclidean_dist,
             mode="lines",
-            line=dict(width=3),
+            name="Euclidean SDF",
+            line=dict(color="red", width=3),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=t,
-            y=euclidean_distances,
-            name="SDF",
+            y=hd_sdf_dist,
             mode="lines",
-            line=dict(width=3),
+            name="HD‑SDF",
+            line=dict(color="blue", width=3),
         )
+    )
+
+    # ----- 2. Data range -----
+    t_min, t_max = np.min(t), np.max(t)
+    t_range = t_max - t_min
+    min_dist = min(np.nanmin(euclidean_dist), np.nanmin(hd_sdf_dist))
+    max_dist = max(np.nanmax(euclidean_dist), np.nanmax(hd_sdf_dist))
+    dist_range = max_dist - min_dist
+
+    # ----- 3. Interval list with labels -----
+    default_labels = ["Separation", "Penetration", "Post‑penetration"]
+    intervals = []
+    for iv, lab in zip([sep_interval, pen_interval, post_interval], default_labels):
+        if iv is not None:
+            intervals.append((iv, lab))
+    if interval_labels is not None and len(interval_labels) >= len(intervals):
+        for i, lab in enumerate(interval_labels[: len(intervals)]):
+            intervals[i] = (intervals[i][0], lab)
+
+    n_intervals = len(intervals)
+    if n_intervals == 0:
+        # nothing to highlight – just return the simple distance plot
+        return fig
+
+    # ----- 4. Layout helpers for callout placement -----
+    margin_x = t_range * 0.02 * 0
+    # Callout box dimensions (scaled to data range)
+    # callout_height = dist_range * 0.5
+    callout_height = dist_range * 0.4
+    # Max width per box that still allows them to fit in the plot
+    max_total_width = t_range - 2 * margin_x
+    # If many intervals, reduce box width so that all fit with gaps
+    if n_intervals == 1:
+        callout_width = min(t_range * 0.35, max_total_width)
+        box_centers = [t_min + margin_x + callout_width / 2]
+    else:
+        callout_width = min(t_range * 0.35, max_total_width / n_intervals * 0.95)
+        gap = (max_total_width - n_intervals * callout_width) / (n_intervals + 1)
+        box_centers = []
+        x_start = t_min + margin_x + gap
+        for i in range(n_intervals):
+            box_centers.append(x_start + callout_width / 2 + i * (callout_width + gap))
+
+    # Vertical position: above the distance curves
+    top_padding = dist_range * 0.2
+    # box_y0 = max_dist + top_padding
+    box_y0 = max_dist + abs(max_dist) * 0.2
+    box_y1 = box_y0 + callout_height
+    y_axis_top = box_y1 + dist_range * 0.2
+    fig.update_yaxes(range=[min_dist - dist_range * 0.1, y_axis_top])
+
+    # ----- 6. Create a callout for one interval -----
+    def add_callout(interval, box_center, label):
+        box_x0 = box_center - callout_width / 2
+        box_x1 = box_center + callout_width / 2
+
+        i0 = np.where(t == interval[0])[0].item()
+        i1 = np.where(t == interval[1])[0].item()
+        max_dist_interval = max(
+            np.max(euclidean_distances[i0:i1]), np.max(distances[i0:i1])
+        )
+        y1 = max(0.01, max_dist_interval)
+        y1 = y1 + abs(y1) * 0.1
+        min_dist_interval = min(
+            np.min(euclidean_distances[i0:i1]), np.min(distances[i0:i1])
+        )
+        y0 = min(-0.01, min_dist_interval)
+        y0 = y0 - abs(y0) * 0.1
+
+        # a) Highlight rectangle covering full data y‑range
+        fig.add_shape(
+            type="rect",
+            x0=interval[0],
+            y0=y0,
+            x1=interval[1],
+            y1=y1,
+            line=dict(color="grey", width=1.5, dash="dot"),
+            fillcolor="lightgrey",
+            opacity=0.4,
+        )
+
+        # b) White background trace (sits behind the polygons)
+        rect_x = [box_x0, box_x1, box_x1, box_x0, box_x0]
+        rect_y = [box_y0, box_y0, box_y1, box_y1, box_y0]
+        fig.add_trace(
+            go.Scatter(
+                x=rect_x, y=rect_y,
+                fill="toself",
+                fillcolor="white",
+                mode="lines",
+                line=dict(width=1.5, color="grey"),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+        # # b) Callout box
+        # fig.add_shape(
+        #     type="rect",
+        #     x0=box_x0,
+        #     y0=box_y0,
+        #     x1=box_x1,
+        #     y1=box_y1,
+        #     line=dict(color="grey", width=1.5),
+        #     fillcolor="white",
+        #     opacity=1.0,
+        # )
+
+        # c) Dashed connecting lines
+        fig.add_shape(
+            type="line",
+            x0=interval[0],
+            y0=y1,
+            x1=box_x0,
+            y1=box_y0,
+            line=dict(color="grey", width=1, dash="dot"),
+        )
+        fig.add_shape(
+            type="line",
+            x0=interval[1],
+            y0=y1,
+            x1=box_x1,
+            y1=box_y0,
+            line=dict(color="grey", width=1, dash="dot"),
+        )
+
+        # d) Snapshots
+        i0 = np.argmin(np.abs(t - interval[0]))
+        i1 = np.argmin(np.abs(t - interval[1]))
+        if i1 <= i0:
+            i1 = i0 + 1
+        # snap_times = np.linspace(t[i0], t[i1], num_snapshots + 2)[1:-1]
+        snap_times = np.linspace(t[i0], t[i1], num_snapshots)
+
+        for k, ts in enumerate(snap_times):
+            idx = np.argmin(np.abs(t - ts))
+            V1 = np.asarray(V1_hist[idx])
+            V2 = np.asarray(V2_hist[idx])
+            combined = np.vstack([V1, V2])
+            centroid = combined.mean(axis=0) if len(combined) > 0 else np.array([0, 0])
+
+            # scale down
+            def transform(V):
+                return centroid + (V - centroid) * snapshot_scale
+
+            V1s = transform(V1)
+            V2s = transform(V2)
+
+            # place in box
+            target_x = box_x0 + (k + 0.5) * (box_x1 - box_x0) / num_snapshots
+            target_y = (box_y0 + box_y1) / 2
+            shift = np.array([target_x, target_y]) - centroid
+            V1t = V1s + shift
+            V2t = V2s + shift
+
+            # polygons
+            V1c = np.vstack([V1t, V1t[0]])
+            V2c = np.vstack([V2t, V2t[0]])
+            fig.add_trace(
+                go.Scatter(
+                    x=V1c[:, 0],
+                    y=V1c[:, 1],
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=poly1_color,
+                    line=dict(color=line1_color, width=1),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=V2c[:, 0],
+                    y=V2c[:, 1],
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=poly2_color,
+                    line=dict(color=line2_color, width=1),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
+            # Time label below snapshot
+            fig.add_annotation(
+                x=target_x,
+                y=box_y0 + callout_height * 0.2,
+                text=f"t = {ts:.2f}",
+                showarrow=False,
+                font=dict(size=int(3/4*font_size), color="black"),
+                xanchor="center",
+                yanchor="top",
+            )
+
+        # # e) Box label
+        # fig.add_annotation(
+        #     x=box_center, y=box_y1 + callout_height * 0.05,
+        #     text=label, showarrow=False,
+        #     font=dict(size=12, color="black"),
+        # )
+
+    # ----- 7. Place all callouts -----
+    for (interval, label), center in zip(intervals, box_centers):
+        add_callout(interval, center, label)
+
+    # ----- 8. Zero line and axes styling (unchanged) -----
+    fig.add_trace(
+        go.Scatter(
+            x=[t_min, t_max],
+            y=[0, 0],
+            mode="lines",
+            line=dict(width=1.5, dash="dash", color="black"),
+            showlegend=False,
+        )
+    )
+    fig.update_xaxes(
+        title_text="Time (seconds)",
+        showline=True,
+        linewidth=1,
+        linecolor="black",
+        mirror=True,
+        automargin=False,
+        title_standoff=15,
+    )
+    fig.update_yaxes(
+        title_text="Distance",
+        showline=True,
+        linewidth=1,
+        linecolor="black",
+        mirror=True,
+        automargin=False,
+        title_standoff=15,
+        range=[min_dist - dist_range * 0.1, box_y1 + abs(box_y1) * 0.01],
+        # Workaround for dashed zeroline
+        zeroline=True,
+        zerolinecolor="white",
+        zerolinewidth=1.5,
+    )
+    fig.add_shape(
+        type="rect",
+        xref="paper",
+        yref="paper",
+        x0=0,
+        y0=0,
+        x1=1,
+        y1=1,
+        line=dict(color="black", width=2),
+    )
+    fig.update_layout(
+        template="plotly_white",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=0.01,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.7)",
+        ),
+        font=dict(size=font_size),
+        margin=dict(l=90, r=10, t=10, b=90, pad=0),
     )
     return fig
 
 
-fig = plot_dist(t, distances, euclidean_distances)
+V_pentagon_hist_2d = [V_pentagon[:, :2] for _ in range(len(V_square_history))]
+V_square_hist_2d = [np.array([v[:2] for v in verts]) for verts in V_square_history]
+
+fig = make_sdf_figure_callout(
+    np.array(t),
+    euclidean_distances,
+    distances,  # your HD‑SDF
+    V_square_hist_2d,
+    V_pentagon_hist_2d,
+    sep_interval=(0.1, 0.668),  # e.g., seconds where squares are parallel
+    pen_interval=(2.25, 2.75),  # e.g., penetration with multiple nearest edges
+    post_interval=(4.335, 4.83),
+    num_snapshots=3,
+    snapshot_scale=0.18,
+)
+
 fig.show()
+fig.write_image("distance_comparison_example.pdf", width=1200, height=480)
 # %%
 # ------------------------------------------------------------
 # 6. Plot 2: movement snapshots
@@ -828,320 +1126,6 @@ fig = make_sdf_figure_callout(
     V_pentagon_hist_2d,
     sep_interval=(0.2, 0.75),  # e.g., seconds where squares are parallel
     pen_interval=(2.25, 2.75),  # e.g., penetration with multiple nearest edges
-    num_snapshots=3,
-    snapshot_scale=0.15,
-)
-
-fig.show()
-
-
-# %%
-"""aAAAAA"""
-import numpy as np
-import plotly.graph_objects as go
-
-
-def make_sdf_figure_callout(
-    t,
-    euclidean_dist,
-    hd_sdf_dist,
-    V1_hist,
-    V2_hist,
-    sep_interval=None,
-    pen_interval=None,
-    post_interval=None,
-    interval_labels=None,
-    num_snapshots=6,
-    snapshot_scale=0.15,
-    poly1_color="rgba(31, 119, 180, 0.5)",
-    poly2_color="rgba(255, 127, 14, 0.5)",
-    line1_color="blue",
-    line2_color="orange",
-):
-    """
-    Distance plot with callout boxes for up to three intervals.
-    Default labels: "Separation", "Penetration", "Post‑penetration".
-    Use `interval_labels` (list of 3 strings) to override.
-    """
-    fig = go.Figure()
-
-    # ----- 1. Distance traces -----
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=euclidean_dist,
-            mode="lines",
-            name="Euclidean SDF",
-            line=dict(color="red", width=3),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=hd_sdf_dist,
-            mode="lines",
-            name="HD‑SDF",
-            line=dict(color="blue", width=3),
-        )
-    )
-
-    # ----- 2. Data range -----
-    t_min, t_max = np.min(t), np.max(t)
-    t_range = t_max - t_min
-    min_dist = min(np.nanmin(euclidean_dist), np.nanmin(hd_sdf_dist))
-    max_dist = max(np.nanmax(euclidean_dist), np.nanmax(hd_sdf_dist))
-    dist_range = max_dist - min_dist
-
-    # ----- 3. Interval list with labels -----
-    default_labels = ["Separation", "Penetration", "Post‑penetration"]
-    intervals = []
-    for iv, lab in zip([sep_interval, pen_interval, post_interval], default_labels):
-        if iv is not None:
-            intervals.append((iv, lab))
-    if interval_labels is not None and len(interval_labels) >= len(intervals):
-        for i, lab in enumerate(interval_labels[: len(intervals)]):
-            intervals[i] = (intervals[i][0], lab)
-
-    n_intervals = len(intervals)
-    if n_intervals == 0:
-        # nothing to highlight – just return the simple distance plot
-        return fig
-
-    # ----- 4. Layout helpers for callout placement -----
-    margin_x = t_range * 0.02
-    # Callout box dimensions (scaled to data range)
-    callout_height = dist_range * 0.5
-    # Max width per box that still allows them to fit in the plot
-    max_total_width = t_range - 2 * margin_x
-    # If many intervals, reduce box width so that all fit with gaps
-    if n_intervals == 1:
-        callout_width = min(t_range * 0.35, max_total_width)
-        box_centers = [t_min + margin_x + callout_width / 2]
-    else:
-        callout_width = min(t_range * 0.35, max_total_width / n_intervals * 0.9)
-        gap = (max_total_width - n_intervals * callout_width) / (n_intervals + 1)
-        box_centers = []
-        x_start = t_min + margin_x + gap
-        for i in range(n_intervals):
-            box_centers.append(x_start + callout_width / 2 + i * (callout_width + gap))
-
-    # Vertical position: above the distance curves
-    top_padding = dist_range * 0.2
-    # box_y0 = max_dist + top_padding
-    box_y0 = max_dist + abs(max_dist) * 0.2
-    box_y1 = box_y0 + callout_height
-    y_axis_top = box_y1 + dist_range * 0.2
-    fig.update_yaxes(range=[min_dist - dist_range * 0.1, y_axis_top])
-
-    # ----- 6. Create a callout for one interval -----
-    def add_callout(interval, box_center, label):
-        box_x0 = box_center - callout_width / 2
-        box_x1 = box_center + callout_width / 2
-
-        i0 = np.where(t == interval[0])[0].item()
-        i1 = np.where(t == interval[1])[0].item()
-        max_dist_interval = max(
-            np.max(euclidean_distances[i0:i1]), np.max(distances[i0:i1])
-        )
-        y1 = max(0.01, max_dist_interval)
-        y1 = y1 + abs(y1) * 0.1
-        min_dist_interval = min(
-            np.min(euclidean_distances[i0:i1]), np.min(distances[i0:i1])
-        )
-        y0 = min(-0.01, min_dist_interval)
-        y0 = y0 - abs(y0) * 0.1
-
-        # a) Highlight rectangle covering full data y‑range
-        fig.add_shape(
-            type="rect",
-            x0=interval[0],
-            y0=y0,
-            x1=interval[1],
-            y1=y1,
-            line=dict(color="grey", width=1.5, dash="dot"),
-            fillcolor="lightgrey",
-            opacity=0.4,
-        )
-
-        # b) Callout box
-        fig.add_shape(
-            type="rect",
-            x0=box_x0,
-            y0=box_y0,
-            x1=box_x1,
-            y1=box_y1,
-            line=dict(color="grey", width=1.5),
-            fillcolor="white",
-            opacity=0.3,
-        )
-
-        # c) Dashed connecting lines
-        fig.add_shape(
-            type="line",
-            x0=interval[0],
-            y0=y1,
-            x1=box_x0,
-            y1=box_y0,
-            line=dict(color="grey", width=1, dash="dot"),
-        )
-        fig.add_shape(
-            type="line",
-            x0=interval[1],
-            y0=y1,
-            x1=box_x1,
-            y1=box_y0,
-            line=dict(color="grey", width=1, dash="dot"),
-        )
-
-        # d) Snapshots
-        i0 = np.argmin(np.abs(t - interval[0]))
-        i1 = np.argmin(np.abs(t - interval[1]))
-        if i1 <= i0:
-            i1 = i0 + 1
-        # snap_times = np.linspace(t[i0], t[i1], num_snapshots + 2)[1:-1]
-        snap_times = np.linspace(t[i0], t[i1], num_snapshots)
-
-        for k, ts in enumerate(snap_times):
-            idx = np.argmin(np.abs(t - ts))
-            V1 = np.asarray(V1_hist[idx])
-            V2 = np.asarray(V2_hist[idx])
-            combined = np.vstack([V1, V2])
-            centroid = combined.mean(axis=0) if len(combined) > 0 else np.array([0, 0])
-
-            # scale down
-            def transform(V):
-                return centroid + (V - centroid) * snapshot_scale
-
-            V1s = transform(V1)
-            V2s = transform(V2)
-
-            # place in box
-            target_x = box_x0 + (k + 0.5) * (box_x1 - box_x0) / num_snapshots
-            target_y = (box_y0 + box_y1) / 2
-            shift = np.array([target_x, target_y]) - centroid
-            V1t = V1s + shift
-            V2t = V2s + shift
-
-            # polygons
-            V1c = np.vstack([V1t, V1t[0]])
-            V2c = np.vstack([V2t, V2t[0]])
-            fig.add_trace(
-                go.Scatter(
-                    x=V1c[:, 0],
-                    y=V1c[:, 1],
-                    mode="lines",
-                    fill="toself",
-                    fillcolor=poly1_color,
-                    line=dict(color=line1_color, width=1),
-                    showlegend=False,
-                    hoverinfo="skip",
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=V2c[:, 0],
-                    y=V2c[:, 1],
-                    mode="lines",
-                    fill="toself",
-                    fillcolor=poly2_color,
-                    line=dict(color=line2_color, width=1),
-                    showlegend=False,
-                    hoverinfo="skip",
-                )
-            )
-
-            # Time label below snapshot
-            fig.add_annotation(
-                x=target_x,
-                y=box_y0 + callout_height * 0.08,
-                text=f"t = {ts:.2f}",
-                showarrow=False,
-                font=dict(size=10, color="black"),
-                xanchor="center",
-                yanchor="top",
-            )
-
-        # # e) Box label
-        # fig.add_annotation(
-        #     x=box_center, y=box_y1 + callout_height * 0.05,
-        #     text=label, showarrow=False,
-        #     font=dict(size=12, color="black"),
-        # )
-
-    # ----- 7. Place all callouts -----
-    for (interval, label), center in zip(intervals, box_centers):
-        add_callout(interval, center, label)
-
-    # ----- 8. Zero line and axes styling (unchanged) -----
-    fig.add_trace(
-        go.Scatter(
-            x=[t_min, t_max],
-            y=[0, 0],
-            mode="lines",
-            line=dict(width=1.5, dash="dash", color="black"),
-            showlegend=False,
-        )
-    )
-    fig.update_xaxes(
-        showline=True,
-        linewidth=1,
-        linecolor="black",
-        mirror=True,
-        automargin=False,
-        title_standoff=15,
-    )
-    fig.update_yaxes(
-        showline=True,
-        linewidth=1,
-        linecolor="black",
-        mirror=True,
-        automargin=False,
-        title_standoff=15,
-        range=[min_dist - dist_range * 0.1, y_axis_top],
-        # Workaround for dashed zeroline
-        zeroline=True,
-        zerolinecolor="white",
-        zerolinewidth=1.5,
-    )
-    fig.add_shape(
-        type="rect",
-        xref="paper",
-        yref="paper",
-        x0=0,
-        y0=0,
-        x1=1,
-        y1=1,
-        line=dict(color="black", width=2),
-    )
-    fig.update_layout(
-        template="plotly_white",
-        hovermode="x unified",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=0.01,
-            xanchor="left",
-            x=0.01,
-            bgcolor="rgba(255,255,255,0.7)",
-        ),
-        font=dict(size=20),
-        margin=dict(l=90, r=10, t=10, b=90, pad=0),
-    )
-    return fig
-
-
-V_pentagon_hist_2d = [V_pentagon[:, :2] for _ in range(len(V_square_history))]
-V_square_hist_2d = [np.array([v[:2] for v in verts]) for verts in V_square_history]
-
-fig = make_sdf_figure_callout(
-    np.array(t),
-    euclidean_distances,
-    distances,  # your HD‑SDF
-    V_square_hist_2d,
-    V_pentagon_hist_2d,
-    sep_interval=(0.1, 0.68),  # e.g., seconds where squares are parallel
-    pen_interval=(2.25, 2.75),  # e.g., penetration with multiple nearest edges
-    post_interval=(4.34, 4.83),
     num_snapshots=3,
     snapshot_scale=0.15,
 )
