@@ -111,6 +111,7 @@ def transform_vertices(V, htm):
 def holder_distance_aux(v1, v2, n1, n2, edges, gamma, skip, epsilon=1e-3):
     normals = np.vstack([n1, n2])
     minkowksi = [va - vb for va in v1 for vb in v2]
+    print(f"Minkowksi vertices: {minkowksi}")
     g_list = []
     h_list = []
 
@@ -119,12 +120,18 @@ def holder_distance_aux(v1, v2, n1, n2, edges, gamma, skip, epsilon=1e-3):
 
     for i, n in enumerate(normals):
         g_list.append([])
+        print(f"Dot products n{i}:")
         for v in minkowksi:
             gn = np.dot(n, v)
             g_list[i].append(gn)
+            print(f"n^T(v) = {n.ravel()}.T ({v.ravel()})")
+            print(gn, end=', ')
+        print()
         min_g, *_ = smooth_min(g_list[i], gamma)
         h_list.append(phi(min_g))
+        print(f"gn{i}={min_g}, phi(gn)={phi(min_g)}")
     dist, *_ = smooth_max(h_list, gamma)
+    print(f"dist={dist}, phi(dist)={phi(dist)}")
     dist = phi(dist)
     return dist, h_list, g_list
 
@@ -140,9 +147,10 @@ V_square = np.array(
 )
 # R = np.array(ub.Utils.rotz(np.pi / 4))[:3, :3]
 # V_square = V_square @ R.T
+V_square *= 0.3
 normals_square = normals_from_vertices(V_square)
 htm_square = np.array(ub.Utils.trn([-1.5 * 0, 0.0, 0.0]))
-htm_square = np.array(ub.Utils.trn([-1.5, 0.0, 0.0]))
+htm_square = np.array(ub.Utils.trn([-0.9, 0.0, 0.0]))
 # Pentagon centered at (0, 0) with radius 1
 s1 = np.sin(2 * np.pi / 5)
 s2 = np.sin(4 * np.pi / 5)
@@ -181,10 +189,13 @@ for n in normals_pentagon:
 # ------------------------------------------------------------
 dt = 1e-3
 T = 5.0
-imax = int(T / dt)
+# Velocities
 omega = (np.pi / 2) / (T / 4)  # 90° rotation mid-movement
 omega = np.pi * 2 * 3 / 4
 v = 3 / T
+
+T = 2.0 # Change to plot only half, but keep velocities
+imax = int(T / dt) + 1
 
 # ------------------------------------------------------------
 # 4. Compute signed distance at every time step
@@ -199,11 +210,14 @@ theta0 = np.acos((np.trace(htm[:3, :3]) - 1) / 2)
 
 for i in tqdm(range(imax), total=imax):
     V_sq_t = transform_vertices(V_square, htm)
-    N_sq_t = transform_vertices(normals_square, htm)
+    N_sq_t = normals_from_vertices(V_sq_t)
     V_square_history.append(V_sq_t)
 
-    dist, *_ = holder_distance_aux(
-        V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=5e-3
+    # dist, *_ = holder_distance_aux(
+    #     V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=5e-3
+    # )
+    dist, *_ = holder_distance(
+        V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=1e-3
     )
     esdf, *_ = signed_distance_2d(V_sq_t, V_pentagon, N_sq_t, normals_pentagon)
     distances.append(dist)
@@ -232,6 +246,8 @@ def make_sdf_figure_callout(
     line1_color="blue",
     line2_color="orange",
     font_size=20,
+    plot_width=1200,
+    plot_height=480,
 ):
     """
     Distance plot with callout boxes for up to three intervals.
@@ -239,6 +255,24 @@ def make_sdf_figure_callout(
     Use `interval_labels` (list of 3 strings) to override.
     """
     fig = go.Figure()
+
+    # ----- 2. Data range -----
+    t_min, t_max = np.min(t), np.max(t)
+    t_range = t_max - t_min
+    min_dist = min(np.nanmin(euclidean_dist), np.nanmin(hd_sdf_dist))
+    max_dist = max(np.nanmax(euclidean_dist), np.nanmax(hd_sdf_dist))
+    dist_range = max_dist - min_dist
+
+    # ----- 0. Zero line-----
+    fig.add_trace(
+        go.Scatter(
+            x=[t_min, t_max],
+            y=[0, 0],
+            mode="lines",
+            line=dict(width=1.5, dash="dash", color="black"),
+            showlegend=False,
+        )
+    )
 
     # ----- 1. Distance traces -----
     fig.add_trace(
@@ -259,13 +293,6 @@ def make_sdf_figure_callout(
             line=dict(color="blue", width=3),
         )
     )
-
-    # ----- 2. Data range -----
-    t_min, t_max = np.min(t), np.max(t)
-    t_range = t_max - t_min
-    min_dist = min(np.nanmin(euclidean_dist), np.nanmin(hd_sdf_dist))
-    max_dist = max(np.nanmax(euclidean_dist), np.nanmax(hd_sdf_dist))
-    dist_range = max_dist - min_dist
 
     # ----- 3. Interval list with labels -----
     default_labels = ["Separation", "Penetration", "Post‑penetration"]
@@ -294,7 +321,7 @@ def make_sdf_figure_callout(
         callout_width = min(t_range * 0.35, max_total_width)
         box_centers = [t_min + margin_x + callout_width / 2]
     else:
-        callout_width = min(t_range * 0.35, max_total_width / n_intervals * 0.95)
+        callout_width = min(t_range * 0.45, max_total_width / n_intervals * 0.95)
         gap = (max_total_width - n_intervals * callout_width) / (n_intervals + 1)
         box_centers = []
         x_start = t_min + margin_x + gap
@@ -307,7 +334,18 @@ def make_sdf_figure_callout(
     box_y0 = max_dist + abs(max_dist) * 0.2
     box_y1 = box_y0 + callout_height
     y_axis_top = box_y1 + dist_range * 0.2
-    fig.update_yaxes(range=[min_dist - dist_range * 0.1, y_axis_top])
+    # fig.update_yaxes(range=[min_dist - dist_range * 0.1, y_axis_top])
+
+    # Add y_range here in order to plot squares deformed into a square-looking shape,
+    # avoiding rectangle look
+    y_range = [min_dist - dist_range * 0.1, box_y1 + abs(box_y1) * 0.01]
+    x_range = [t[0], t[-1]]
+    xy_ratio = (x_range[1] - x_range[0]) / (y_range[1] - y_range[0])
+    y_span = y_range[1] - y_range[0]
+    x_span = x_range[1] - x_range[0]
+    y_correction = (plot_width * y_span) / (plot_height * x_span)
+    print(f"xrange: {x_range}, y_range: {y_range}")
+    print(f"xy_ratio: {xy_ratio}")
 
     # ----- 6. Create a callout for one interval -----
     def add_callout(interval, box_center, label):
@@ -319,12 +357,12 @@ def make_sdf_figure_callout(
         max_dist_interval = max(
             np.max(euclidean_distances[i0:i1]), np.max(distances[i0:i1])
         )
-        y1 = max(0.01, max_dist_interval)
+        y1 = max(0.01*0, max_dist_interval)
         y1 = y1 + abs(y1) * 0.1
         min_dist_interval = min(
             np.min(euclidean_distances[i0:i1]), np.min(distances[i0:i1])
         )
-        y0 = min(-0.01, min_dist_interval)
+        y0 = min(-0.01*0, min_dist_interval)
         y0 = y0 - abs(y0) * 0.1
 
         # a) Highlight rectangle covering full data y‑range
@@ -405,6 +443,10 @@ def make_sdf_figure_callout(
 
             V1s = transform(V1)
             V2s = transform(V2)
+            # 2. Aspect‑ratio correction to force visual squareness
+            #    stretch x‑coordinates around the centroid by xy_ratio
+            V1s[:, 1] = centroid[1] + (V1s[:, 1] - centroid[1]) * y_correction
+            V2s[:, 1] = centroid[1] + (V2s[:, 1] - centroid[1]) * y_correction
 
             # place in box
             target_x = box_x0 + (k + 0.5) * (box_x1 - box_x0) / num_snapshots
@@ -463,16 +505,7 @@ def make_sdf_figure_callout(
     for (interval, label), center in zip(intervals, box_centers):
         add_callout(interval, center, label)
 
-    # ----- 8. Zero line and axes styling (unchanged) -----
-    fig.add_trace(
-        go.Scatter(
-            x=[t_min, t_max],
-            y=[0, 0],
-            mode="lines",
-            line=dict(width=1.5, dash="dash", color="black"),
-            showlegend=False,
-        )
-    )
+    # ----- 8. Axes styling (unchanged) -----
     fig.update_xaxes(
         title_text="Time (seconds)",
         showline=True,
@@ -490,7 +523,7 @@ def make_sdf_figure_callout(
         mirror=True,
         automargin=False,
         title_standoff=15,
-        range=[min_dist - dist_range * 0.1, box_y1 + abs(box_y1) * 0.01],
+        range=y_range,
         # Workaround for dashed zeroline
         zeroline=True,
         zerolinecolor="white",
@@ -519,6 +552,8 @@ def make_sdf_figure_callout(
         ),
         font=dict(size=font_size),
         margin=dict(l=90, r=10, t=10, b=90, pad=0),
+        width=plot_width,
+        height=plot_height,
     )
     return fig
 
@@ -532,17 +567,19 @@ fig = make_sdf_figure_callout(
     distances,  # your HD‑SDF
     V_square_hist_2d,
     V_pentagon_hist_2d,
-    sep_interval=(0.1, 0.668),  # e.g., seconds where squares are parallel
-    pen_interval=(2.25, 2.75),  # e.g., penetration with multiple nearest edges
-    post_interval=(4.335, 4.83),
+    # sep_interval=(0, 0.1),  # debugging
+    # pen_interval=(0.5, 1.0), # debugging
+    sep_interval=(0.3, 0.668),  # e.g., seconds where squares are parallel
+    pen_interval=(1.332, 1.668),  # e.g., penetration with multiple nearest edges
+    # post_interval=(4.335, 4.83),
     # pen_interval=(2.25, 2.75),  # pentagon
     # post_interval=(4.25, 4.75), # pentagon
     num_snapshots=3,
-    snapshot_scale=0.18,
+    snapshot_scale=0.22,
 )
 
 fig.show()
-fig.write_image("distance_comparison_example.svg", width=1200, height=480)
+fig.write_image("distance_comparison_example_square.pdf", width=1200, height=480)
 # %%
 # ------------------------------------------------------------
 # 6. Plot 2: movement snapshots
