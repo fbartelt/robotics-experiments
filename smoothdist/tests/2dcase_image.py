@@ -125,7 +125,7 @@ def holder_distance_aux(v1, v2, n1, n2, edges, gamma, skip, epsilon=1e-3):
             gn = np.dot(n, v)
             g_list[i].append(gn)
             print(f"n^T(v) = {n.ravel()}.T ({v.ravel()})")
-            print(gn, end=', ')
+            print(gn, end=", ")
         print()
         min_g, *_ = smooth_min(g_list[i], gamma)
         h_list.append(phi(min_g))
@@ -194,7 +194,7 @@ omega = (np.pi / 2) / (T / 4)  # 90° rotation mid-movement
 omega = np.pi * 2 * 3 / 4
 v = 3 / T
 
-T = 2.0 # Change to plot only half, but keep velocities
+T = 2.0  # Change to plot only half, but keep velocities
 imax = int(T / dt) + 1
 
 # ------------------------------------------------------------
@@ -207,6 +207,12 @@ t = []
 htm = np.array(htm_square)
 x0, y0 = htm[0, -1].item(), htm[1, -1].item()
 theta0 = np.acos((np.trace(htm[:3, :3]) - 1) / 2)
+
+# For manim
+var_eps = np.linspace(1e-4, 1e-2, 50)
+var_gammas = np.linspace(1, 10, 10)
+dists_eps = { v : [] for v in var_eps}
+dists_gammas = { v : [] for v in var_gammas}
 
 for i in tqdm(range(imax), total=imax):
     V_sq_t = transform_vertices(V_square, htm)
@@ -225,8 +231,42 @@ for i in tqdm(range(imax), total=imax):
     t.append(i * dt)
     htm = make_htm_2d(v * dt * i + x0, 0.0 + y0, omega * dt * i + theta0)
 
+    # For manim
+    for eps_ in var_eps:
+        d_, *_ = holder_distance(
+            V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=eps_
+        )
+        dists_eps[eps_].append(d_)
+    for gamma_ in var_gammas:
+        d_, *_ = holder_distance(
+            V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], gamma_, True, epsilon=1e-3
+        )
+        dists_gammas[gamma_].append(d_)
+
+
 distances = np.array(distances)
 euclidean_distances = np.array(euclidean_distances)
+
+# For manim
+eps_keys   = np.array(var_eps)                         # shape (n_eps,)
+eps_values = np.array([dists_eps[v] for v in var_eps]) # shape (n_eps, imax)
+gamma_keys   = np.array(var_gammas)
+gamma_values = np.array([dists_gammas[v] for v in var_gammas])
+
+np.savez(
+    "./tests/anim_data.npz",
+    t=np.array(t),
+    V_square_history=np.array(V_square_history),  # shape (N_frames, 4, 3)
+    distances=distances,  # hdsdf
+    euclidean_distances=euclidean_distances,  # esdf
+    V_pentagon=V_pentagon,
+    # For manim
+    eps_keys=eps_keys,
+    eps_values=eps_values,
+    gamma_keys=gamma_keys,
+    gamma_values=gamma_values,
+)
+
 
 # %%
 def make_sdf_figure_callout(
@@ -357,12 +397,12 @@ def make_sdf_figure_callout(
         max_dist_interval = max(
             np.max(euclidean_distances[i0:i1]), np.max(distances[i0:i1])
         )
-        y1 = max(0.01*0, max_dist_interval)
+        y1 = max(0.01 * 0, max_dist_interval)
         y1 = y1 + abs(y1) * 0.1
         min_dist_interval = min(
             np.min(euclidean_distances[i0:i1]), np.min(distances[i0:i1])
         )
-        y0 = min(-0.01*0, min_dist_interval)
+        y0 = min(-0.01 * 0, min_dist_interval)
         y0 = y0 - abs(y0) * 0.1
 
         # a) Highlight rectangle covering full data y‑range
@@ -382,7 +422,8 @@ def make_sdf_figure_callout(
         rect_y = [box_y0, box_y0, box_y1, box_y1, box_y0]
         fig.add_trace(
             go.Scatter(
-                x=rect_x, y=rect_y,
+                x=rect_x,
+                y=rect_y,
                 fill="toself",
                 fillcolor="white",
                 mode="lines",
