@@ -1,4 +1,5 @@
 # %%
+import pickle
 from manim import *
 from textwrap import wrap
 import numpy as np
@@ -26,6 +27,16 @@ config["tex_template"] = TexTemplate(
     preamble=premable,
 )
 CHAR_LIM = 120
+
+esdf_data = "./experiment_data/mode_0/video_7_data/data.pickle"
+hdsdf_data = "./experiment_data/mode_1/video_1_data/data.pickle"
+
+with open(esdf_data, "rb") as f:
+    esdf = pickle.load(f)
+
+with open(hdsdf_data, "rb") as f:
+    hdsdf = pickle.load(f)
+
 
 
 def create_subtitle_box(text_lines):
@@ -69,7 +80,7 @@ def create_subtitle_box(text_lines):
     return subtitle_rect, subtitle_text
 
 
-class SquareDistanceScene(Scene):
+class SquareDistanceScene(MovingCameraScene):
     def construct(self):
         # ── load data ─────────────────────────────────────────────
         data = np.load("anim_data.npz")
@@ -211,11 +222,20 @@ class SquareDistanceScene(Scene):
             wrap(par, CHAR_LIM, subsequent_indent=" ")
         )
         # self.add(subtitle_rect, subtitle_text)
+        subtitle_text.set_opacity(0)
+        subtitle_rect.set_opacity(0)
+        subtitle_rect.set_z_index(-1)
+        self.add(subtitle_text, subtitle_rect)
         self.play(
-            FadeIn(subtitle_text),
-            FadeIn(subtitle_rect),
+            subtitle_rect.animate.set_opacity(1),
+            subtitle_text.animate.set_opacity(1),
             run_time=0.5,
         )
+        # self.play(
+        #     FadeIn(subtitle_text),
+        #     FadeIn(subtitle_rect),
+        #     run_time=0.5,
+        # )
         self.play(
             DrawBorderThenFill(pentagon),
             DrawBorderThenFill(square),
@@ -236,7 +256,9 @@ class SquareDistanceScene(Scene):
         )
         self.wait(1)
 
+        # ---------------------------------------------------------
         # ── phase 2: morph HD‑SDF (ε, then γ) ────────────────────
+        # ---------------------------------------------------------
         # Remove Phase‑1 updaters
         hd_line.clear_updaters()
         euc_line.clear_updaters()
@@ -423,3 +445,384 @@ class SquareDistanceScene(Scene):
         self.play(gamma_tracker.animate.set_value(1), run_time=2)
         self.play(gamma_tracker.animate.set_value(5), run_time=6)
         self.wait(1)
+
+        # ---------------------------------------------------------
+        # ── phase 3: Real‑world experiment (split‑screen) ────────
+        # ---------------------------------------------------------
+        # 1.  Clean up previous phase (shapes, graph, parameter labels)
+        self.play(
+            FadeOut(axes),
+            FadeOut(hd_line),
+            FadeOut(euc_line),
+            FadeOut(dist_label),
+            FadeOut(time_label),
+            FadeOut(eps_label_group),
+            FadeOut(gamma_label_group),
+            FadeOut(legend),
+            FadeOut(eq)
+        )
+        self.remove(subtitle_text, subtitle_rect)
+
+        # 3.  Build the optimization problem (common formulation)
+        eq_font_size = 30
+        opt = MathTex(
+            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\"
+            r"\text{s.t.:} & \\&\begin{aligned}"
+            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
+            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
+            r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\"
+            r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\"
+            r"\end{aligned}",
+            tex_template=config["tex_template"],
+            font_size=eq_font_size,
+        )
+        opt.to_corner(UL, buff=0.3)  # left side of the screen
+        self.play(Write(opt), run_time=3)
+
+        # 4.  Create two “case” rectangles on the right
+        case_rect_w = config.frame_width * 0.45
+        case_rect_h = config.frame_height * 0.35
+        euc_rect = Rectangle(
+            width=case_rect_w,
+            height=case_rect_h,
+            color=GREY,
+            stroke_width=1,
+            fill_opacity=0.1,
+        )
+        hd_rect = Rectangle(
+            width=case_rect_w,
+            height=case_rect_h,
+            color=GREY,
+            stroke_width=1,
+            fill_opacity=0.1,
+        )
+        # Stack them vertically on the right side
+        VGroup(euc_rect, hd_rect).arrange(DOWN, buff=0.5)
+        VGroup(euc_rect, hd_rect).to_edge(RIGHT, buff=0.3).shift(UP * 0.5)
+        euc_label = Tex("$\Delta=$ Euclidean distance", font_size=24).next_to(euc_rect, UP, buff=0.1)
+        hd_label = Tex("$\Delta=$ HD‑SDF", font_size=24).next_to(hd_rect, UP, buff=0.1)
+
+        self.play(
+            Create(euc_rect),
+            Create(hd_rect),
+            Write(euc_label),
+            Write(hd_label),
+            run_time=2,
+        )
+
+        # 5.  Populate common numeric values (λ, K, η…)
+        opt_numeric = MathTex(
+            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + 0.4\,I\,r(q)\right\|^2 + 0.01\|u\|^2 \\",
+            r"\text{s.t.:} & \\",
+            r"&\begin{aligned}",
+            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\",
+            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\",
+            r"u &\ge -0.5(q - q_{\text{min}}) \\",
+            r"-u &\ge -0.5(q_{\text{max}} - q)",
+            r"\end{aligned}",
+            tex_template=config["tex_template"],
+            font_size=eq_font_size,
+        )
+        opt_numeric.move_to(opt)
+        self.play(TransformMatchingTex(opt, opt_numeric), run_time=3)
+        self.wait(0.5)
+
+        # 6.  Show the Euclidean‑case specific parameters
+        euc_params = MathTex(
+            r"\delta_{\text{obs}} &= 0.05\\ \delta_{\text{auto}} &= 0.05", font_size=24
+        )
+        euc_params.move_to(euc_rect.get_center() + UP * 0.3)
+        self.play(Write(euc_params), run_time=1.5)
+        self.wait(0.5)
+
+        # ── subtitle: “First, the Euclidean baseline” ────────────
+        sub_rect, sub_text = create_subtitle_box(
+            ["Euclidean baseline: positive safety margins, real obstacle geometry."]
+        )
+        self.add(sub_rect, sub_text)
+
+        # 7.  Zoom into the Euclidean case rectangle
+        # Save current camera state
+        orig_frame_center = self.camera.frame.get_center()
+        orig_frame_width = self.camera.frame.get_width()
+        target_area = euc_rect
+        self.play(
+            self.camera.frame.animate.scale(0.45).move_to(target_area.get_center()),
+            run_time=1.5,
+        )
+        self.wait(0.3)
+
+        # Remove the subtitle (it's now off‑screen) and add a new one
+        self.remove(sub_rect, sub_text)
+        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
+            ["Experiment: robot avoids obstacles using Euclidean SDF."]
+        )
+        self.add(sub_rect_zoom, sub_text_zoom)
+
+
+        # ----------------------- LOAD DATa --------------------------
+        hdsdf_time_ = hdsdf["timestamp"]
+        t0 = hdsdf_time_[0]
+        hdsdf_time = np.array([t - t0 for t in hdsdf_time_])
+        hdsdf_u = np.array(hdsdf["hist_dq"]).reshape(-1, 7)
+
+        esdf_time_ = esdf["timestamp"]
+        t0 = esdf_time_[0]
+        esdf_time = np.array([t - t0 for t in esdf_time_])
+        esdf_u = np.array(esdf["hist_dq"]).reshape(-1, 7)
+
+        # ── Placeholder for experiment video ────────────────────
+        video_ph = Rectangle(
+            width=case_rect_w * 0.8,
+            height=case_rect_h * 0.8,
+            color=GREY,
+            stroke_width=1,
+            fill_opacity=0.2,
+        )
+        video_ph_label = Text("Experiment\nvideo", font_size=20, color=GREY)
+        video_ph_label.move_to(video_ph)
+        video_ph.move_to(target_area.get_center()).shift(UP * 0.1)
+
+        # ── Placeholder control graph (growing line) ────────────
+        graph_placeholder_axes = Axes(
+            x_range=[0, 5, 1],
+            y_range=[-1, 1, 0.5],
+            x_length=case_rect_w * 0.6,
+            y_length=case_rect_h * 0.3,
+            tips=False,
+        ).next_to(video_ph, DOWN, buff=0.2)
+
+        # Dummy control curve (you will replace with real data)
+        dummy_t = np.linspace(0, 5, 100)
+        dummy_ctrl = np.sin(dummy_t) * 0.5
+        ctrl_line = axes.plot_line_graph(
+            dummy_t[:1],
+            dummy_ctrl[:1],
+            line_color=BLUE,
+            add_vertex_dots=False,
+            stroke_width=2,
+        )
+        graph_placeholder_axes.add(ctrl_line)
+
+        def update_ctrl(mob):
+            # gradually reveal the whole curve
+            mob.clear_updaters()
+            mob.become(
+                axes.plot_line_graph(
+                    dummy_t,
+                    dummy_ctrl,
+                    line_color=BLUE,
+                    add_vertex_dots=False,
+                    stroke_width=2,
+                )
+            )
+
+        ctrl_line.add_updater(update_ctrl)
+
+        self.play(
+            Create(video_ph),
+            Write(video_ph_label),
+            Create(graph_placeholder_axes),
+            run_time=2,
+        )
+        self.wait(5)  # simulate the experiment duration
+        self.play(FadeOut(video_ph), FadeOut(video_ph_label))
+
+        # 8.  Zoom back out to the split screen
+        self.play(
+            self.camera.frame.animate.scale(1 / 0.45).move_to(orig_frame_center),
+            run_time=1.5,
+        )
+        self.remove(sub_rect_zoom, sub_text_zoom)
+        # Restore original subtitle area? We'll add new ones later.
+        # Remove the placeholder graph axes as they are no longer needed
+        self.remove(graph_placeholder_axes, ctrl_line)
+
+        # 9.  Now populate the HD‑SDF case parameters
+        hd_params = MathTex(
+            r"\delta_{\text{obs}} = -0.01,\; \delta_{\text{auto}} = -0.01",
+            r"\text{(expanded obstacles)}",
+            font_size=24,
+        )
+        hd_params.move_to(hd_rect.get_center() + UP * 0.3)
+        self.play(Write(hd_params), run_time=1.5)
+
+        sub_rect2, sub_text2 = create_subtitle_box(
+            ["HD‑SDF: negative safety margins, virtually expanded obstacles."]
+        )
+        self.add(sub_rect2, sub_text2)
+
+        # 10. Zoom into HD‑SDF case
+        self.play(
+            self.camera.frame.animate.scale(0.45).move_to(hd_rect.get_center()),
+            run_time=1.5,
+        )
+        self.remove(sub_rect2, sub_text2)
+        sub_rect_zoom2, sub_text_zoom2 = create_subtitle_box(
+            ["Experiment: robot avoids obstacles using HD‑SDF."]
+        )
+        self.add(sub_rect_zoom2, sub_text_zoom2)
+
+        # Placeholder video and graph (similar to above)
+        video_ph2 = video_ph.copy().move_to(hd_rect.get_center()).shift(UP * 0.1)
+        video_ph_label2 = video_ph_label.copy().move_to(video_ph2)
+        graph_placeholder_axes2 = graph_placeholder_axes.copy().next_to(
+            video_ph2, DOWN, buff=0.2
+        )
+        dummy_ctrl2 = np.sin(dummy_t) * 0.8  # slightly different for contrast
+        ctrl_line2 = axes.plot_line_graph(
+            dummy_t[:1],
+            dummy_ctrl2[:1],
+            line_color=RED,
+            add_vertex_dots=False,
+            stroke_width=2,
+        )
+        graph_placeholder_axes2.add(ctrl_line2)
+
+        def update_ctrl2(mob):
+            mob.clear_updaters()
+            mob.become(
+                axes.plot_line_graph(
+                    dummy_t,
+                    dummy_ctrl2,
+                    line_color=RED,
+                    add_vertex_dots=False,
+                    stroke_width=2,
+                )
+            )
+
+        ctrl_line2.add_updater(update_ctrl2)
+
+        self.play(
+            Create(video_ph2),
+            Write(video_ph_label2),
+            Create(graph_placeholder_axes2),
+            run_time=2,
+        )
+        self.wait(5)
+        self.play(FadeOut(video_ph2), FadeOut(video_ph_label2))
+
+        # 11. Zoom out again
+        self.play(
+            self.camera.frame.animate.scale(1 / 0.45).move_to(orig_frame_center),
+            run_time=1.5,
+        )
+        self.remove(sub_rect_zoom2, sub_text_zoom2)
+        self.remove(graph_placeholder_axes2, ctrl_line2)
+
+        # 12. Final comparison: remove the optimization equation,
+        #     expand both control graphs to fill the screen side‑by‑side
+        self.play(FadeOut(opt_numeric), FadeOut(eq))
+        # Remove case rectangles and labels
+        self.play(
+            FadeOut(euc_rect),
+            FadeOut(hd_rect),
+            FadeOut(euc_label),
+            FadeOut(hd_label),
+            FadeOut(euc_params),
+            FadeOut(hd_params),
+        )
+
+        # Create two large axes: one for Euclidean, one for HD‑SDF
+        big_axes_euc = Axes(
+            x_range=[0, 5, 1],
+            y_range=[-1, 1, 0.5],
+            x_length=config.frame_width * 0.45,
+            y_length=config.frame_height * 0.8,
+            tips=False,
+        ).to_edge(LEFT, buff=0.5)
+        big_axes_hd = Axes(
+            x_range=[0, 5, 1],
+            y_range=[-1, 1, 0.5],
+            x_length=config.frame_width * 0.45,
+            y_length=config.frame_height * 0.8,
+            tips=False,
+        ).to_edge(RIGHT, buff=0.5)
+
+        euc_curve = axes.plot_line_graph(
+            dummy_t, dummy_ctrl, line_color=BLUE, add_vertex_dots=False, stroke_width=3
+        )
+        hd_curve = axes.plot_line_graph(
+            dummy_t, dummy_ctrl2, line_color=RED, add_vertex_dots=False, stroke_width=3
+        )
+        euc_label_final = Tex("Euclidean", font_size=24).next_to(
+            big_axes_euc, UP, buff=0.1
+        )
+        hd_label_final = Tex("HD‑SDF", font_size=24).next_to(big_axes_hd, UP, buff=0.1)
+
+        self.play(
+            Create(big_axes_euc),
+            Create(big_axes_hd),
+            Write(euc_label_final),
+            Write(hd_label_final),
+            run_time=2,
+        )
+        self.play(Create(euc_curve), Create(hd_curve), run_time=3)
+        self.wait(2)
+
+        # Keep the final comparison visible for a moment
+
+        # # ---------------------------------------------------------
+        # # ── phase 3: morph HD‑SDF (ε, then γ) ────────────────────
+        # # ---------------------------------------------------------
+        #
+        # self.remove(subtitle_text)
+        # par = (
+        #     "While the non-differentiable points of the Euclidean distance "
+        #     "might seem harmless, a real-world experiment demonstrates "
+        #     "why that's not the case."
+        # )
+        # subtitle_rect, subtitle_text = create_subtitle_box(
+        #     wrap(par, CHAR_LIM, subsequent_indent=" ")
+        # )
+        # self.add(subtitle_text)
+        #
+        # # Fade out graph, shapes, parameter labels – keep only the distance equation
+        # self.play(
+        #     FadeOut(axes),
+        #     FadeOut(hd_line),
+        #     FadeOut(euc_line),
+        #     FadeOut(dist_label),
+        #     FadeOut(time_label),
+        #     FadeOut(eps_label_group),
+        #     FadeOut(gamma_label_group),
+        # )
+        # # Move distance eq to top-left
+        # self.play(eq.animate.scale(0.7).to_corner(UR))
+        #
+        # eq_font_size = 32
+        # opt = MathTex(
+        #     r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\"
+        #     r"\text{s.t.:} & \\&\begin{aligned}"
+        #     r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
+        #     r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
+        #     r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\"
+        #     r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\"
+        #     r"\end{aligned}",
+        #     tex_template=config["tex_template"],
+        #     font_size=eq_font_size,
+        # )
+        # self.play(Write(opt), run_time=1)
+        # delta_parts = VGroup()
+        # for part in opt:
+        #     if "Delta" in part.get_tex_string():
+        #         delta_parts.add(part)
+        # if delta_parts:
+        #     self.play(Circumscribe(delta_parts, color=YELLOW, fade_out=True))
+        # # Draw an arrow from delta_parts to the distance equation
+        # arrow = Arrow(delta_parts.get_center(), eq.get_center(), color=YELLOW)
+        # self.play(Create(arrow))
+        #
+        # opt_numeric = MathTex(
+        #     r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + 0.4Ir(q)\right\|^2 + 0.01\|u\|^2 \\"
+        #     r"\text{s.t.:} & \\&\begin{aligned}"
+        #     r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
+        #     r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
+        #     r"u &\ge -0.5(q - q_{\text{min}}) \\"
+        #     r"-u &\ge -0.5(q_{\text{max}} - q) \\"
+        #     r"\end{aligned}",
+        #     tex_template=config["tex_template"],
+        #     font_size=eq_font_size,
+        # )
+        # opt_numeric.move_to(opt)
+        # self.play(TransformMatchingShapes(opt, opt_numeric), run_time=3)
