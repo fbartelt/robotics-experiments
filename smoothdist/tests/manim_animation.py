@@ -28,8 +28,9 @@ config["tex_template"] = TexTemplate(
 )
 CHAR_LIM = 120
 
-esdf_data = "./experiment_data/mode_0/video_7_data/data.pickle"
-hdsdf_data = "./experiment_data/mode_1/video_1_data/data.pickle"
+base_path = "/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist"
+esdf_data = f"{base_path}/experiment_data/mode_0/video_7_data/data.pickle"
+hdsdf_data = f"{base_path}/experiment_data/mode_1/video_1_data/data.pickle"
 
 with open(esdf_data, "rb") as f:
     esdf = pickle.load(f)
@@ -37,9 +38,32 @@ with open(esdf_data, "rb") as f:
 with open(hdsdf_data, "rb") as f:
     hdsdf = pickle.load(f)
 
+# ----------------------- Real control data (Euclidean) -----------------------
+hdsdf_time_ = hdsdf["timestamp"]
+t0 = hdsdf_time_[0]
+hdsdf_time = np.array([t - t0 for t in hdsdf_time_])
+hdsdf_u = np.array(hdsdf["hist_dq"]).reshape(-1, 7)
+
+esdf_time_ = esdf["timestamp"]
+t0 = esdf_time_[0]
+esdf_time = np.array([t - t0 for t in esdf_time_])
+esdf_u = np.array(esdf["hist_dq"]).reshape(-1, 7)
 
 
-def create_subtitle_box(text_lines):
+SUBTITLE_HEIGHT = 1.0
+
+
+def create_subtitle_box(
+    text_lines,
+    corner_radius=0.2,
+    width=config.frame_width - 0.5,
+    height=SUBTITLE_HEIGHT,
+    fill_color="#3A3A3A",
+    fill_opacity=0.6,
+    stroke_width=0,
+    font_size=24,
+    text_color=WHITE,
+):
     """Return (subtitle_rect, subtitle_text).
     text_lines: list of strings, e.g. ["Hello world", "Math: a^2+b^2=c^2"]
     Plain text lines are wrapped in \\text{} so they stay upright;
@@ -47,12 +71,12 @@ def create_subtitle_box(text_lines):
     """
     # ── Background rectangle ─────────────────────────────────
     subtitle_rect = RoundedRectangle(
-        corner_radius=0.2,
-        width=config.frame_width - 0.5,
-        height=1.0,
-        fill_color="#3A3A3A",
-        fill_opacity=0.6,
-        stroke_width=0,
+        corner_radius=corner_radius,
+        width=width,
+        height=height,
+        fill_color=fill_color,
+        fill_opacity=fill_opacity,
+        stroke_width=stroke_width,
     )
     subtitle_rect.to_edge(DOWN, buff=0.2)
 
@@ -71,8 +95,8 @@ def create_subtitle_box(text_lines):
 
     subtitle_text = Tex(
         full_tex,
-        font_size=24,  # no scaling needed – just pick a visible size
-        color=WHITE,
+        font_size=font_size,  # no scaling needed – just pick a visible size
+        color=text_color,
         tex_template=config["tex_template"],  # use your custom preamble if needed
     )
     subtitle_text.move_to(subtitle_rect)
@@ -80,7 +104,7 @@ def create_subtitle_box(text_lines):
     return subtitle_rect, subtitle_text
 
 
-class SquareDistanceScene(MovingCameraScene):
+class SquareDistanceScene(Scene):
     def construct(self):
         # ── load data ─────────────────────────────────────────────
         data = np.load("anim_data.npz")
@@ -446,9 +470,6 @@ class SquareDistanceScene(MovingCameraScene):
         self.play(gamma_tracker.animate.set_value(5), run_time=6)
         self.wait(1)
 
-        # ---------------------------------------------------------
-        # ── phase 3: Real‑world experiment (split‑screen) ────────
-        # ---------------------------------------------------------
         # 1.  Clean up previous phase (shapes, graph, parameter labels)
         self.play(
             FadeOut(axes),
@@ -459,19 +480,32 @@ class SquareDistanceScene(MovingCameraScene):
             FadeOut(eps_label_group),
             FadeOut(gamma_label_group),
             FadeOut(legend),
-            FadeOut(eq)
+            FadeOut(eq),
         )
         self.remove(subtitle_text, subtitle_rect)
 
+
+class ExperimentScene(MovingCameraScene):
+    def construct(self):
+        # ---------------------------------------------------------
+        # ── phase 3: Real‑world experiment (split‑screen) ────────
+        # ---------------------------------------------------------
         # 3.  Build the optimization problem (common formulation)
+        par = (
+            "We use a QP formulation for pose regulation with CBF constraints for"
+            r" each distance case $\Delta$ (Euclidean or HD-SDF)."
+        )
+        sub_rect, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_rect, sub_text)
+
         eq_font_size = 30
         opt = MathTex(
-            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\"
-            r"\text{s.t.:} & \\&\begin{aligned}"
-            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
-            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
-            r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\"
-            r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\"
+            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\",
+            r"\text{s.t.:} & \\&\begin{aligned}",
+            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q)  u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\",
+            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q)  u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\",
+            r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\",
+            r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\",
             r"\end{aligned}",
             tex_template=config["tex_template"],
             font_size=eq_font_size,
@@ -479,9 +513,18 @@ class SquareDistanceScene(MovingCameraScene):
         opt.to_corner(UL, buff=0.3)  # left side of the screen
         self.play(Write(opt), run_time=3)
 
+        self.remove(sub_text)
+        par = (
+            r" Each distance $\Delta$ is used to avoid collision with obstacles"
+            r" and auto collision. And each case uses a different safety margin $\delta$."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
         # 4.  Create two “case” rectangles on the right
-        case_rect_w = config.frame_width * 0.45
-        case_rect_h = config.frame_height * 0.35
+        rect_ratio = 0.45
+        case_rect_w = config.frame_width * 0.5
+        case_rect_h = (config.frame_height - SUBTITLE_HEIGHT) * 0.4
         euc_rect = Rectangle(
             width=case_rect_w,
             height=case_rect_h,
@@ -499,330 +542,548 @@ class SquareDistanceScene(MovingCameraScene):
         # Stack them vertically on the right side
         VGroup(euc_rect, hd_rect).arrange(DOWN, buff=0.5)
         VGroup(euc_rect, hd_rect).to_edge(RIGHT, buff=0.3).shift(UP * 0.5)
-        euc_label = Tex("$\Delta=$ Euclidean distance", font_size=24).next_to(euc_rect, UP, buff=0.1)
+        euc_label = Tex("$\Delta=$ Euclidean distance", font_size=24).next_to(
+            euc_rect, UP, buff=0.1
+        )
         hd_label = Tex("$\Delta=$ HD‑SDF", font_size=24).next_to(hd_rect, UP, buff=0.1)
 
         self.play(
+            Circumscribe(opt[2:4]),
             Create(euc_rect),
             Create(hd_rect),
             Write(euc_label),
             Write(hd_label),
             run_time=2,
         )
+        self.wait(2)
 
         # 5.  Populate common numeric values (λ, K, η…)
         opt_numeric = MathTex(
-            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + 0.4\,I\,r(q)\right\|^2 + 0.01\|u\|^2 \\",
+            r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + 0.4Ir(q)\right\|^2 + 0.01\|u\|^2 \\",
             r"\text{s.t.:} & \\",
             r"&\begin{aligned}",
-            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\",
-            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\",
+            r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q)  u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - ",
+            r"\delta_{\text{obs}}",
+            r"\bigr) \\",
+            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q)  u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - ",
+            r"\delta_{\text{auto}}",
+            r"\bigr) \\",
             r"u &\ge -0.5(q - q_{\text{min}}) \\",
             r"-u &\ge -0.5(q_{\text{max}} - q)",
             r"\end{aligned}",
             tex_template=config["tex_template"],
             font_size=eq_font_size,
         )
+
+        self.remove(sub_text)
+        par = (
+            r"Joint limits $(q_{\text{min}}, q_{text{max}})$ are shared "
+            r"between each case. As well as control and CBF tuning parameters."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
         opt_numeric.move_to(opt)
-        self.play(TransformMatchingTex(opt, opt_numeric), run_time=3)
-        self.wait(0.5)
+        self.play(
+            LaggedStart(
+                Circumscribe(opt[4:]),
+                TransformMatchingShapes(opt, opt_numeric),
+                lag_ratio=0.25,
+                run_time=3,
+            ),
+            # TransformMatchingTex(Group(opt, variables), opt_numeric, lag_ratio=0.5),
+        )
+        self.wait(2)
 
         # 6.  Show the Euclidean‑case specific parameters
         euc_params = MathTex(
             r"\delta_{\text{obs}} &= 0.05\\ \delta_{\text{auto}} &= 0.05", font_size=24
         )
         euc_params.move_to(euc_rect.get_center() + UP * 0.3)
-        self.play(Write(euc_params), run_time=1.5)
+
+        self.remove(sub_text)
+        par = r"In particular, the Euclidean case is setup as follows"
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        self.play(
+            Indicate(opt_numeric[4]),
+            Indicate(opt_numeric[7]),
+            Write(euc_params),
+            run_time=1.5,
+        )
         self.wait(0.5)
 
         # ── subtitle: “First, the Euclidean baseline” ────────────
-        sub_rect, sub_text = create_subtitle_box(
-            ["Euclidean baseline: positive safety margins, real obstacle geometry."]
-        )
-        self.add(sub_rect, sub_text)
+        self.remove(sub_text)
 
         # 7.  Zoom into the Euclidean case rectangle
         # Save current camera state
         orig_frame_center = self.camera.frame.get_center()
         orig_frame_width = self.camera.frame.get_width()
+        orig_frame = self.camera.frame
+        self.camera.frame.save_state()
+
         target_area = euc_rect
         self.play(
-            self.camera.frame.animate.scale(0.45).move_to(target_area.get_center()),
+            FadeOut(euc_params),
+            self.camera.frame.animate.replace(euc_rect, stretch=True),
+            # self.camera.auto_zoom(euc_rect, margin=0.0, animate=True),
             run_time=1.5,
         )
         self.wait(0.3)
 
         # Remove the subtitle (it's now off‑screen) and add a new one
-        self.remove(sub_rect, sub_text)
-        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
-            ["Experiment: robot avoids obstacles using Euclidean SDF."]
+        self.remove(sub_text)
+        # subtitle box sized for the zoomed‑in frame
+        zoomed_width = self.camera.frame.get_width()
+
+        sub_rect_height = 0.2
+        sub_rect_font_size = 10
+        sub_rect_width = zoomed_width * 0.95
+        sub_rect_up_ratio = 0.01
+
+        par = (
+            "Although the pose converges, the control input "
+            "(configuration velocities) exhibit very high frequency"
+            " oscillations."
         )
+        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 8),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_rect_zoom.set_z_index(-1)
+        sub_text_zoom.set_z_index(2)
+        sub_rect_zoom.match_y(euc_rect, DOWN).match_x(euc_rect).shift(
+            UP * sub_rect_up_ratio
+        )
+        sub_text_zoom.move_to(sub_rect_zoom)
         self.add(sub_rect_zoom, sub_text_zoom)
 
-
-        # ----------------------- LOAD DATa --------------------------
-        hdsdf_time_ = hdsdf["timestamp"]
-        t0 = hdsdf_time_[0]
-        hdsdf_time = np.array([t - t0 for t in hdsdf_time_])
-        hdsdf_u = np.array(hdsdf["hist_dq"]).reshape(-1, 7)
-
-        esdf_time_ = esdf["timestamp"]
-        t0 = esdf_time_[0]
-        esdf_time = np.array([t - t0 for t in esdf_time_])
-        esdf_u = np.array(esdf["hist_dq"]).reshape(-1, 7)
-
-        # ── Placeholder for experiment video ────────────────────
-        video_ph = Rectangle(
-            width=case_rect_w * 0.8,
-            height=case_rect_h * 0.8,
-            color=GREY,
-            stroke_width=1,
-            fill_opacity=0.2,
+        # Graph axes (bottom half)
+        y_data = np.round(esdf_u, 2)
+        y_min_val = y_data.min()
+        y_max_val = y_data.max()
+        margin = (
+            0.1 * (y_max_val - y_min_val) if (y_max_val - y_min_val) > 1e-6 else 0.1
         )
-        video_ph_label = Text("Experiment\nvideo", font_size=20, color=GREY)
-        video_ph_label.move_to(video_ph)
-        video_ph.move_to(target_area.get_center()).shift(UP * 0.1)
+        x_min, x_max = esdf_time.min(), esdf_time.max()
+        mini_graph_height = 0.9 * (case_rect_h - sub_rect_height) / 2
 
-        # ── Placeholder control graph (growing line) ────────────
-        graph_placeholder_axes = Axes(
-            x_range=[0, 5, 1],
-            y_range=[-1, 1, 0.5],
-            x_length=case_rect_w * 0.6,
-            y_length=case_rect_h * 0.3,
+        graph_axes = Axes(
+            x_range=[x_min, x_max, max((x_max - x_min) / 4, 0.1)],
+            y_range=[
+                y_min_val - margin,
+                y_max_val + margin,
+                max((y_max_val - y_min_val) / 5, 0.05),
+            ],
+            x_length=case_rect_w * 0.8,
+            y_length=mini_graph_height,
             tips=False,
-        ).next_to(video_ph, DOWN, buff=0.2)
-
-        # Dummy control curve (you will replace with real data)
-        dummy_t = np.linspace(0, 5, 100)
-        dummy_ctrl = np.sin(dummy_t) * 0.5
-        ctrl_line = axes.plot_line_graph(
-            dummy_t[:1],
-            dummy_ctrl[:1],
-            line_color=BLUE,
-            add_vertex_dots=False,
-            stroke_width=2,
+            axis_config={
+                "include_numbers": True,
+                "font_size": 12,
+                "tick_size": 0.05,
+                "stroke_width": 1,
+            },
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
         )
-        graph_placeholder_axes.add(ctrl_line)
+        graph_axes.next_to(sub_rect_zoom, UP, buff=0.1, aligned_edge=DOWN)
 
-        def update_ctrl(mob):
-            # gradually reveal the whole curve
-            mob.clear_updaters()
-            mob.become(
-                axes.plot_line_graph(
-                    dummy_t,
-                    dummy_ctrl,
-                    line_color=BLUE,
-                    add_vertex_dots=False,
-                    stroke_width=2,
-                )
+        # 7 coloured curves (one per joint)
+        colors = [RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK]
+        curves = VGroup()
+        for j in range(7):
+            curve = graph_axes.plot_line_graph(
+                esdf_time,
+                esdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=1,
             )
+            curves.add(curve)
 
-        ctrl_line.add_updater(update_ctrl)
+        # Legend: \dot{q}_i inside the graph area
+        legend_items = VGroup()
+        for j in range(7):
+            item = MathTex(
+                f"\\dot{{q}}_{{{j+1}}}", color=colors[j], font_size=sub_rect_font_size
+            )
+            legend_items.add(item)
+        # Legend repositioned to top‑right corner of the small graph
+        legend_items.arrange(RIGHT, buff=0.08)
+        top_right_point = graph_axes.coords_to_point(esdf_time.max(), esdf_u.max())
+        legend_items.next_to(top_right_point, UL, buff=0.05)
+
+        # Ensure everything fits inside the zoomed rectangle
+        # (the axes are already inside because they were placed relative to video_ph)
 
         self.play(
-            Create(video_ph),
-            Write(video_ph_label),
-            Create(graph_placeholder_axes),
+            Create(graph_axes),
+            Write(legend_items),
             run_time=2,
         )
-        self.wait(5)  # simulate the experiment duration
-        self.play(FadeOut(video_ph), FadeOut(video_ph_label))
+
+        self.play(*(Create(obj) for obj in curves), run_time=5)
+
+        self.remove(sub_text_zoom)
+        par = (
+            "In slowmotion it is visible that this behavior introduces "
+            "vibrations. This is caused by the rapidly swtiching witness points."
+        )
+        _, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 8),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_rect_zoom.match_y(euc_rect, DOWN).match_x(euc_rect).shift(
+            UP * sub_rect_up_ratio
+        )
+        sub_text_zoom.move_to(sub_rect_zoom)
+        self.add(sub_text_zoom)
+        self.wait(2)
+
+        # 7b.  Prepare the "small" version that will sit inside the rectangle
+        # after we zoom out.  Create new axes / curves with dimensions
+        # that match the original rectangle size.
+        small_x_length = case_rect_w * 0.85
+        small_y_length = case_rect_h * 0.9  # leave room for the subtitle
+
+        rect_graph_font_size = 20
+        graph_axes_small = Axes(
+            x_range=graph_axes.x_range.copy(),
+            y_range=graph_axes.y_range.copy(),
+            x_length=small_x_length,
+            y_length=small_y_length,
+            tips=False,
+            axis_config={"include_numbers": True, "font_size": rect_graph_font_size},
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+        )
+        graph_axes_small.move_to(euc_rect.get_center())
+
+        # Build the 7 curves in the small axes
+        curves_small = VGroup()
+        for j in range(7):
+            curve_s = graph_axes_small.plot_line_graph(
+                esdf_time,
+                esdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=2,
+            )
+            curves_small.add(curve_s)
+
+        # Legend repositioned to top‑right corner of the small graph
+        legend_items_small = VGroup()
+        for j in range(7):
+            item = MathTex(
+                f"\\dot{{q}}_{{{j+1}}}", color=colors[j], font_size=rect_graph_font_size
+            )
+            legend_items_small.add(item)
+        # Legend repositioned to top‑right corner of the small graph
+        legend_items_small.arrange(RIGHT, buff=0.08)
+        top_right_point = graph_axes_small.coords_to_point(
+            esdf_time.max(), np.max(esdf_u)
+        )
+        legend_items_small.next_to(top_right_point, UL, buff=0.05)
+
+        # 7c.  Transition: morph the zoomed‑in elements into the small ones,
+        # remove the zoom‑specific subtitle, then zoom the camera back.
+        self.play(
+            ReplacementTransform(graph_axes, graph_axes_small),
+            *[ReplacementTransform(curves[j], curves_small[j]) for j in range(7)],
+            ReplacementTransform(legend_items, legend_items_small),
+            # legend_items.animate.move_to(legend_items),
+            ShrinkToCenter(sub_rect_zoom),
+            run_time=1.5,
+        )
+        self.remove(
+            graph_axes, curves, sub_text_zoom, sub_rect_zoom
+        )  # old mobjects gone
+        self.add(graph_axes_small, curves_small)  # keep the small ones
+
+        # ----------------------- HDSDF CASE BEGIN----------------------
 
         # 8.  Zoom back out to the split screen
         self.play(
-            self.camera.frame.animate.scale(1 / 0.45).move_to(orig_frame_center),
+            Restore(self.camera.frame),
             run_time=1.5,
         )
-        self.remove(sub_rect_zoom, sub_text_zoom)
-        # Restore original subtitle area? We'll add new ones later.
-        # Remove the placeholder graph axes as they are no longer needed
-        self.remove(graph_placeholder_axes, ctrl_line)
 
         # 9.  Now populate the HD‑SDF case parameters
+        par = r"Our HD-SDF solves precisely the former issue."
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
         hd_params = MathTex(
-            r"\delta_{\text{obs}} = -0.01,\; \delta_{\text{auto}} = -0.01",
-            r"\text{(expanded obstacles)}",
+            r"\delta_{\text{obs}} &= -5\times 10^{-1} \\ \delta_{\text{auto}} &= -1\times 10^{-4}",
             font_size=24,
         )
         hd_params.move_to(hd_rect.get_center() + UP * 0.3)
         self.play(Write(hd_params), run_time=1.5)
 
-        sub_rect2, sub_text2 = create_subtitle_box(
-            ["HD‑SDF: negative safety margins, virtually expanded obstacles."]
-        )
-        self.add(sub_rect2, sub_text2)
-
-        # 10. Zoom into HD‑SDF case
+        target_area = hd_rect
+        self.remove(sub_text)
         self.play(
-            self.camera.frame.animate.scale(0.45).move_to(hd_rect.get_center()),
-            run_time=1.5,
-        )
-        self.remove(sub_rect2, sub_text2)
-        sub_rect_zoom2, sub_text_zoom2 = create_subtitle_box(
-            ["Experiment: robot avoids obstacles using HD‑SDF."]
-        )
-        self.add(sub_rect_zoom2, sub_text_zoom2)
-
-        # Placeholder video and graph (similar to above)
-        video_ph2 = video_ph.copy().move_to(hd_rect.get_center()).shift(UP * 0.1)
-        video_ph_label2 = video_ph_label.copy().move_to(video_ph2)
-        graph_placeholder_axes2 = graph_placeholder_axes.copy().next_to(
-            video_ph2, DOWN, buff=0.2
-        )
-        dummy_ctrl2 = np.sin(dummy_t) * 0.8  # slightly different for contrast
-        ctrl_line2 = axes.plot_line_graph(
-            dummy_t[:1],
-            dummy_ctrl2[:1],
-            line_color=RED,
-            add_vertex_dots=False,
-            stroke_width=2,
-        )
-        graph_placeholder_axes2.add(ctrl_line2)
-
-        def update_ctrl2(mob):
-            mob.clear_updaters()
-            mob.become(
-                axes.plot_line_graph(
-                    dummy_t,
-                    dummy_ctrl2,
-                    line_color=RED,
-                    add_vertex_dots=False,
-                    stroke_width=2,
-                )
-            )
-
-        ctrl_line2.add_updater(update_ctrl2)
-
-        self.play(
-            Create(video_ph2),
-            Write(video_ph_label2),
-            Create(graph_placeholder_axes2),
-            run_time=2,
-        )
-        self.wait(5)
-        self.play(FadeOut(video_ph2), FadeOut(video_ph_label2))
-
-        # 11. Zoom out again
-        self.play(
-            self.camera.frame.animate.scale(1 / 0.45).move_to(orig_frame_center),
-            run_time=1.5,
-        )
-        self.remove(sub_rect_zoom2, sub_text_zoom2)
-        self.remove(graph_placeholder_axes2, ctrl_line2)
-
-        # 12. Final comparison: remove the optimization equation,
-        #     expand both control graphs to fill the screen side‑by‑side
-        self.play(FadeOut(opt_numeric), FadeOut(eq))
-        # Remove case rectangles and labels
-        self.play(
-            FadeOut(euc_rect),
-            FadeOut(hd_rect),
-            FadeOut(euc_label),
-            FadeOut(hd_label),
-            FadeOut(euc_params),
             FadeOut(hd_params),
+            self.camera.frame.animate.replace(hd_rect, stretch=True),
+            run_time=1.5,
         )
+        self.wait(0.3)
 
-        # Create two large axes: one for Euclidean, one for HD‑SDF
-        big_axes_euc = Axes(
-            x_range=[0, 5, 1],
-            y_range=[-1, 1, 0.5],
-            x_length=config.frame_width * 0.45,
-            y_length=config.frame_height * 0.8,
-            tips=False,
-        ).to_edge(LEFT, buff=0.5)
-        big_axes_hd = Axes(
-            x_range=[0, 5, 1],
-            y_range=[-1, 1, 0.5],
-            x_length=config.frame_width * 0.45,
-            y_length=config.frame_height * 0.8,
-            tips=False,
-        ).to_edge(RIGHT, buff=0.5)
+        par = (
+            "The safety margin is negative as we virtually expand the "
+            "obstacles. Thus we allow penetration on these."
+        )
+        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 8),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_rect_zoom.set_z_index(-1)
+        sub_text_zoom.set_z_index(2)
+        sub_rect_zoom.match_y(hd_rect, DOWN).match_x(hd_rect).shift(
+            UP * sub_rect_up_ratio
+        )
+        sub_text_zoom.move_to(sub_rect_zoom)
+        self.add(sub_rect_zoom, sub_text_zoom)
 
-        euc_curve = axes.plot_line_graph(
-            dummy_t, dummy_ctrl, line_color=BLUE, add_vertex_dots=False, stroke_width=3
+        # Graph axes (bottom half)
+        y_data = np.round(hdsdf_u, 2)
+        y_min_val = y_data.min()
+        y_max_val = y_data.max()
+        margin = (
+            0.1 * (y_max_val - y_min_val) if (y_max_val - y_min_val) > 1e-6 else 0.1
         )
-        hd_curve = axes.plot_line_graph(
-            dummy_t, dummy_ctrl2, line_color=RED, add_vertex_dots=False, stroke_width=3
+        x_min, x_max = hdsdf_time.min(), hdsdf_time.max()
+
+        graph_axes = Axes(
+            x_range=[x_min, x_max, max((x_max - x_min) / 4, 0.1)],
+            y_range=[
+                y_min_val - margin,
+                y_max_val + margin,
+                max((y_max_val - y_min_val) / 5, 0.05),
+            ],
+            x_length=case_rect_w * 0.8,
+            y_length=mini_graph_height,
+            tips=False,
+            axis_config={
+                "include_numbers": True,
+                "font_size": 12,
+                "tick_size": 0.05,
+                "stroke_width": 1,
+            },
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
         )
-        euc_label_final = Tex("Euclidean", font_size=24).next_to(
-            big_axes_euc, UP, buff=0.1
-        )
-        hd_label_final = Tex("HD‑SDF", font_size=24).next_to(big_axes_hd, UP, buff=0.1)
+        graph_axes.next_to(sub_rect_zoom, UP, buff=0.1, aligned_edge=DOWN)
+
+        # 7 coloured curves (one per joint)
+        colors = [RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK]
+        curves = VGroup()
+        for j in range(7):
+            curve = graph_axes.plot_line_graph(
+                hdsdf_time,
+                hdsdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=1,
+            )
+            curves.add(curve)
+
+        legend_items = VGroup()
+        for j in range(7):
+            item = MathTex(
+                f"\\dot{{q}}_{{{j+1}}}", color=colors[j], font_size=sub_rect_font_size
+            )
+            legend_items.add(item)
+
+        legend_items.arrange(RIGHT, buff=0.08)
+        top_right_point = graph_axes.coords_to_point(hdsdf_time.max(), hdsdf_u.max())
+        legend_items.next_to(top_right_point, UL, buff=0.05)
 
         self.play(
-            Create(big_axes_euc),
-            Create(big_axes_hd),
-            Write(euc_label_final),
-            Write(hd_label_final),
+            Create(graph_axes),
+            Write(legend_items),
             run_time=2,
         )
-        self.play(Create(euc_curve), Create(hd_curve), run_time=3)
-        self.wait(2)
 
-        # Keep the final comparison visible for a moment
+        self.remove(sub_text_zoom)
+        par = "As the control input is much smoother, no vibration is observed."
+        _, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 8),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_text_zoom.set_z_index(2)
+        sub_rect_zoom.match_y(hd_rect, DOWN).match_x(hd_rect).shift(
+            UP * sub_rect_up_ratio
+        )
+        sub_text_zoom.move_to(sub_rect_zoom)
+        self.add(sub_text_zoom)
 
-        # # ---------------------------------------------------------
-        # # ── phase 3: morph HD‑SDF (ε, then γ) ────────────────────
-        # # ---------------------------------------------------------
-        #
-        # self.remove(subtitle_text)
-        # par = (
-        #     "While the non-differentiable points of the Euclidean distance "
-        #     "might seem harmless, a real-world experiment demonstrates "
-        #     "why that's not the case."
-        # )
-        # subtitle_rect, subtitle_text = create_subtitle_box(
-        #     wrap(par, CHAR_LIM, subsequent_indent=" ")
-        # )
-        # self.add(subtitle_text)
-        #
-        # # Fade out graph, shapes, parameter labels – keep only the distance equation
-        # self.play(
-        #     FadeOut(axes),
-        #     FadeOut(hd_line),
-        #     FadeOut(euc_line),
-        #     FadeOut(dist_label),
-        #     FadeOut(time_label),
-        #     FadeOut(eps_label_group),
-        #     FadeOut(gamma_label_group),
-        # )
-        # # Move distance eq to top-left
-        # self.play(eq.animate.scale(0.7).to_corner(UR))
-        #
-        # eq_font_size = 32
-        # opt = MathTex(
-        #     r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\"
-        #     r"\text{s.t.:} & \\&\begin{aligned}"
-        #     r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
-        #     r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
-        #     r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\"
-        #     r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\"
-        #     r"\end{aligned}",
-        #     tex_template=config["tex_template"],
-        #     font_size=eq_font_size,
-        # )
-        # self.play(Write(opt), run_time=1)
-        # delta_parts = VGroup()
-        # for part in opt:
-        #     if "Delta" in part.get_tex_string():
-        #         delta_parts.add(part)
-        # if delta_parts:
-        #     self.play(Circumscribe(delta_parts, color=YELLOW, fade_out=True))
-        # # Draw an arrow from delta_parts to the distance equation
-        # arrow = Arrow(delta_parts.get_center(), eq.get_center(), color=YELLOW)
-        # self.play(Create(arrow))
-        #
-        # opt_numeric = MathTex(
-        #     r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + 0.4Ir(q)\right\|^2 + 0.01\|u\|^2 \\"
-        #     r"\text{s.t.:} & \\&\begin{aligned}"
-        #     r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\"
-        #     r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q) \, u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\"
-        #     r"u &\ge -0.5(q - q_{\text{min}}) \\"
-        #     r"-u &\ge -0.5(q_{\text{max}} - q) \\"
-        #     r"\end{aligned}",
-        #     tex_template=config["tex_template"],
-        #     font_size=eq_font_size,
-        # )
-        # opt_numeric.move_to(opt)
-        # self.play(TransformMatchingShapes(opt, opt_numeric), run_time=3)
+        self.play(*(Create(obj) for obj in curves), run_time=5)
+
+        # 7b.  Prepare the "small" version that will sit inside the rectangle
+        # after we zoom out.  Create new axes / curves with dimensions
+        # that match the original rectangle size.
+        hd_graph_axes_small = Axes(
+            x_range=graph_axes.x_range.copy(),
+            y_range=graph_axes.y_range.copy(),
+            x_length=small_x_length,
+            y_length=small_y_length,
+            tips=False,
+            axis_config={"include_numbers": True, "font_size": rect_graph_font_size},
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+        )
+        hd_graph_axes_small.move_to(hd_rect.get_center())
+
+        # Build the 7 curves in the small axes
+        hd_curves_small = VGroup()
+        for j in range(7):
+            curve_s = hd_graph_axes_small.plot_line_graph(
+                hdsdf_time,
+                hdsdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=2,
+            )
+            hd_curves_small.add(curve_s)
+
+        # Legend repositioned to top‑right corner of the small graph
+        hd_legend_items_small = VGroup()
+        for j in range(7):
+            item = MathTex(
+                f"\\dot{{q}}_{{{j+1}}}", color=colors[j], font_size=rect_graph_font_size
+            )
+            hd_legend_items_small.add(item)
+        # Legend repositioned to top‑right corner of the small graph
+        hd_legend_items_small.arrange(RIGHT, buff=0.08)
+        top_right_point = hd_graph_axes_small.coords_to_point(
+            hdsdf_time.max(), np.max(hdsdf_u)
+        )
+        hd_legend_items_small.next_to(top_right_point, UL, buff=0.05)
+
+        # 7c.  Transition: morph the zoomed‑in elements into the small ones,
+        # remove the zoom‑specific subtitle, then zoom the camera back.
+        self.play(
+            ReplacementTransform(graph_axes, hd_graph_axes_small),
+            *[ReplacementTransform(curves[j], hd_curves_small[j]) for j in range(7)],
+            ReplacementTransform(legend_items, hd_legend_items_small),
+            # legend_items.animate.move_to(legend_items),
+            ShrinkToCenter(sub_rect_zoom),
+            run_time=1.5,
+        )
+        self.remove(
+            graph_axes, curves, sub_text_zoom, sub_rect_zoom
+        )  # old mobjects gone
+        self.add(hd_graph_axes_small, hd_curves_small)  # keep the small ones
+
+        self.play(
+            Restore(self.camera.frame),
+            run_time=1.5,
+        )
+
+        big_x_length = (config.frame_width - 0.5) * 0.85
+        big_y_length = case_rect_h
+        big_font_size = 24
+        graph_axes_big = Axes(
+            x_range=graph_axes.x_range.copy(),
+            y_range=graph_axes.y_range.copy(),
+            x_length=big_x_length,
+            y_length=big_y_length,
+            tips=False,
+            axis_config={"include_numbers": True, "font_size": big_font_size},
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+        )
+        graph_axes_big.move_to(ORIGIN).shift(UP * 1.3 * big_y_length / 2)
+        # Build the 7 curves in the small axes
+        curves_big = VGroup()
+        for j in range(7):
+            curve_s = graph_axes_big.plot_line_graph(
+                esdf_time,
+                esdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=2,
+            )
+            curves_big.add(curve_s)
+        # Legend repositioned to top‑right corner of the small graph
+        legend_items_big = VGroup()
+        for j in range(7):
+            item = MathTex(
+                f"\\dot{{q}}_{{{j+1}}}", color=colors[j], font_size=big_font_size
+            )
+            legend_items_big.add(item)
+        # Legend repositioned to top‑right corner of the small graph
+        legend_items_big.arrange(RIGHT, buff=0.08)
+        top_right_point = graph_axes_big.coords_to_point(
+            esdf_time.max(), np.max(esdf_u)
+        )
+        legend_items_big.next_to(top_right_point, UL, buff=0.05)
+
+        hd_graph_axes_big = Axes(
+            x_range=graph_axes.x_range.copy(),
+            y_range=graph_axes.y_range.copy(),
+            x_length=big_x_length,
+            y_length=big_y_length,
+            tips=False,
+            axis_config={"include_numbers": True, "font_size": big_font_size},
+            x_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+            y_axis_config={"decimal_number_config": {"num_decimal_places": 2}},
+        )
+        hd_graph_axes_big.move_to(ORIGIN).shift(DOWN * big_y_length / 2)
+        # Build the 7 curves in the small axes
+        hd_curves_big = VGroup()
+        for j in range(7):
+            curve_s = hd_graph_axes_big.plot_line_graph(
+                hdsdf_time,
+                hdsdf_u[:, j],
+                line_color=colors[j],
+                add_vertex_dots=False,
+                stroke_width=2,
+            )
+            hd_curves_big.add(curve_s)
+        self.remove(sub_text)
+        par = (
+            r"Comparing both control inputs, it is clear that HD-SDF "
+            "much smoother results."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        # Legend repositioned to top‑right corner of the small graph
+        self.play(
+            Unwrite(opt_numeric),
+            Uncreate(euc_rect),
+            Uncreate(hd_rect),
+            Unwrite(euc_label),
+            Unwrite(hd_label),
+            ReplacementTransform(graph_axes_small, graph_axes_big),
+            ReplacementTransform(hd_graph_axes_small, hd_graph_axes_big),
+            *[ReplacementTransform(curves_small[j], curves_big[j]) for j in range(7)],
+            *[
+                ReplacementTransform(hd_curves_small[j], hd_curves_big[j])
+                for j in range(7)
+            ],
+            ReplacementTransform(
+                Group(legend_items_small, hd_legend_items_small), legend_items_big
+            ),
+            # legend_items.animate.move_to(legend_items),
+            ShrinkToCenter(sub_rect_zoom),
+            run_time=1.5,
+        )
+        self.wait(4)
