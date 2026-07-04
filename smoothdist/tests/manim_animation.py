@@ -29,8 +29,8 @@ config["tex_template"] = TexTemplate(
 CHAR_LIM = 120
 
 base_path = "/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist"
-esdf_data = f"{base_path}/experiment_data/mode_0/video_7_data/data.pickle"
-hdsdf_data = f"{base_path}/experiment_data/mode_1/video_1_data/data.pickle"
+esdf_data = f"{base_path}/experiment/data/mode_0/video_7_data/data.pickle"
+hdsdf_data = f"{base_path}/experiment/data/mode_1/video_1_data/data.pickle"
 
 with open(esdf_data, "rb") as f:
     esdf = pickle.load(f)
@@ -52,6 +52,19 @@ esdf_u = np.array(esdf["hist_dq"]).reshape(-1, 7)
 
 SUBTITLE_HEIGHT = 1.0
 
+
+class Remove(Animation):
+    """Instant removal of a mobject from the scene (no visual effect)."""
+    def __init__(self, mobject, **kwargs):
+        super().__init__(mobject, **kwargs)
+
+    def interpolate(self, alpha):
+        pass
+
+    def finish(self):
+        super().finish()
+        if hasattr(self.mobject, 'scene') and self.mobject.scene is not None:
+            self.mobject.scene.remove(self.mobject)
 
 def create_subtitle_box(
     text_lines,
@@ -497,7 +510,7 @@ class SquareDistanceScene(Scene):
             wrap(par, CHAR_LIM, subsequent_indent=" ")
         )
         self.add(subtitle_text)
-        self.wait(8)
+        self.wait(6)
 
         # 1.  Clean up previous phase (shapes, graph, parameter labels)
         self.play(
@@ -513,6 +526,7 @@ class SquareDistanceScene(Scene):
             run_time=1,
         )
         self.remove(subtitle_text, subtitle_rect)
+        self.wait(0.5)
 
 
 class ExperimentScene(MovingCameraScene):
@@ -523,31 +537,36 @@ class ExperimentScene(MovingCameraScene):
         # 3.  Build the optimization problem (common formulation)
         par = (
             "We formulate pose regulation as a quadratic program with "
-            "control barrier function (CBF) constraints, where $\Delta$ "
+            r"control barrier function (CBF) constraints, where $\Delta$ "
             "is either the Euclidean distance or the HD‑SDF."
         )
         sub_rect, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
-        self.add(sub_rect, sub_text)
+        sub_text.set_opacity(1)
+        sub_rect.set_opacity(1)
+        sub_rect.set_z_index(-1)
+        sub_text.set_z_index(1)
+        self.add(sub_rect, sub_rect)
 
         eq_font_size = 30
         opt = MathTex(
             r"\min_{u} &\left\|\frac{\partial r}{\partial q}(q)u + Kr(q)\right\|^2 + \lambda\|u\|^2 \\",
             r"\text{s.t.:} & \\&\begin{aligned}",
             r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q)  u &\geq -\eta_{\text{obs}}\bigl(\Delta_{ij}^{\text{obs}}(q) - \delta_{\text{obs}}\bigr) \\",
-            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q)  u &\geq -\eta_{\text{auto}}\bigl(\Delta_{ij}^{\text{auto}}(q) - \delta_{\text{auto}}\bigr) \\",
+            r"\frac{\partial \Delta_{ij}^{\text{self}}}{\partial q}(q)  u &\geq -\eta_{\text{self}}\bigl(\Delta_{ij}^{\text{self}}(q) - \delta_{\text{self}}\bigr) \\",
             r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\",
             r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\",
-            r"\end{aligned}",
+            r"\end{aligned}\\",
             r"r(q)&=\begin{bmatrix}p_{\text{eef}} - p_{\text{des}}\\"
             r"1 - x_{\text{eef}}^\top x_{\text{des}}\\"
             r"1 - y_{\text{eef}}^\top y_{\text{des}}\\"
-            r"1 - z_{\text{eef}}^\top z_{\text{des}}\\"
+            r"1 - z_{\text{eef}}^\top z_{\text{des}}"
             r"\end{bmatrix}",
             tex_template=config["tex_template"],
             font_size=eq_font_size,
         )
         opt.to_corner(UL, buff=0.3)  # left side of the screen
-        self.play(Write(opt), run_time=3)
+        self.play(Write(opt), run_time=6)
+        self.wait(6)
 
         self.remove(sub_text)
         par = (
@@ -579,10 +598,10 @@ class ExperimentScene(MovingCameraScene):
         # Stack them vertically on the right side
         VGroup(euc_rect, hd_rect).arrange(DOWN, buff=0.5)
         VGroup(euc_rect, hd_rect).to_edge(RIGHT, buff=0.3).shift(UP * 0.5)
-        euc_label = Tex("$\Delta=$ Euclidean distance", font_size=24).next_to(
+        euc_label = Tex(r"$\Delta=$ Euclidean distance", font_size=24).next_to(
             euc_rect, UP, buff=0.1
         )
-        hd_label = Tex("$\Delta=$ HD‑SDF", font_size=24).next_to(hd_rect, UP, buff=0.1)
+        hd_label = Tex(r"$\Delta=$ HD‑SDF", font_size=24).next_to(hd_rect, UP, buff=0.1)
 
         self.play(
             Circumscribe(opt[2:4]),
@@ -592,7 +611,7 @@ class ExperimentScene(MovingCameraScene):
             Write(hd_label),
             run_time=2,
         )
-        self.wait(2)
+        self.wait(8)
 
         # 5.  Populate common numeric values (λ, K, η…)
         opt_numeric = MathTex(
@@ -602,12 +621,12 @@ class ExperimentScene(MovingCameraScene):
             r"\frac{\partial \Delta_{ij}^{\text{obs}}}{\partial q}(q)  u &\geq -0.5\bigl(\Delta_{ij}^{\text{obs}}(q) - ",
             r"\delta_{\text{obs}}",
             r"\bigr) \\",
-            r"\frac{\partial \Delta_{ij}^{\text{auto}}}{\partial q}(q)  u &\geq -0.5\bigl(\Delta_{ij}^{\text{auto}}(q) - ",
-            r"\delta_{\text{auto}}",
+            r"\frac{\partial \Delta_{ij}^{\text{self}}}{\partial q}(q)  u &\geq -0.5\bigl(\Delta_{ij}^{\text{self}}(q) - ",
+            r"\delta_{\text{self}}",
             r"\bigr) \\",
             r"u &\ge -0.5(q - q_{\text{min}}) \\",
             r"-u &\ge -0.5(q_{\text{max}} - q)",
-            r"\end{aligned}",
+            r"\end{aligned}\\",
             r"r(q)&=\begin{bmatrix}p_{\text{eef}} - p_{\text{des}}\\"
             r"1 - x_{\text{eef}}^\top x_{\text{des}}\\"
             r"1 - y_{\text{eef}}^\top y_{\text{des}}\\"
@@ -631,15 +650,15 @@ class ExperimentScene(MovingCameraScene):
                 Circumscribe(opt[4:6]),
                 TransformMatchingShapes(opt, opt_numeric),
                 lag_ratio=0.25,
-                run_time=3,
+                run_time=2,
             ),
             # TransformMatchingTex(Group(opt, variables), opt_numeric, lag_ratio=0.5),
         )
-        self.wait(2)
+        self.wait(8)
 
         # 6.  Show the Euclidean‑case specific parameters
         euc_params = MathTex(
-            r"\delta_{\text{obs}} &= 0.03\\ \delta_{\text{auto}} &= 0.01", font_size=24
+            r"\delta_{\text{obs}} &= 0.03\\ \delta_{\text{self}} &= 0.01", font_size=24
         )
         euc_params.move_to(euc_rect.get_center() + UP * 0.3)
 
@@ -652,9 +671,9 @@ class ExperimentScene(MovingCameraScene):
             Indicate(opt_numeric[4]),
             Indicate(opt_numeric[7]),
             Write(euc_params),
-            run_time=1.5,
+            run_time=2,
         )
-        self.wait(0.5)
+        self.wait(3)
 
         # ── subtitle: “First, the Euclidean baseline” ────────────
         self.remove(sub_text)
@@ -695,40 +714,49 @@ class ExperimentScene(MovingCameraScene):
         )
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
+        self.wait(10)
 
         self.remove(sub_text)
         par = "All robot links are modeled as box primitives."
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
+        self.wait(4)
 
         self.remove(sub_text)
-        par = (
+        # -------------------------
+        # These will come in sequence during a graph animation
+        par_prev = (
             "The animation is reconstructed from the experiment data "
             "and lets us view the scene from different angles."
         )
-        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
-        self.add(sub_text)
-
-        # -------------------------
-        self.remove(sub_text)
         par = (
             "Although the pose converges, the control input (joint "
             "velocities) exhibits very high frequency oscillations."
         )
-        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
+        sub_rect_zoom, sub_text_zoom_prev = create_subtitle_box(
+            wrap(par_prev, CHAR_LIM + 8),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        _, sub_text_zoom = create_subtitle_box(
             wrap(par, CHAR_LIM + 8),
             corner_radius=0.05,
             width=sub_rect_width,
             height=sub_rect_height,
             font_size=sub_rect_font_size,
         )
+        _, sub_text_ = create_subtitle_box(wrap(par_prev, CHAR_LIM))
         sub_rect_zoom.set_z_index(-1)
+        sub_text_zoom_prev.set_z_index(2)
         sub_text_zoom.set_z_index(2)
         sub_rect_zoom.match_y(euc_rect, DOWN).match_x(euc_rect).shift(
             UP * sub_rect_up_ratio
         )
+        sub_text_zoom_prev.move_to(sub_rect_zoom)
         sub_text_zoom.move_to(sub_rect_zoom)
-        self.add(sub_rect_zoom, sub_text_zoom)
+        # self.add(sub_rect_zoom, sub_text_zoom)
 
         # Graph axes (bottom half)
         y_data = np.round(esdf_u, 2)
@@ -792,12 +820,22 @@ class ExperimentScene(MovingCameraScene):
         self.play(
             Create(graph_axes),
             Write(legend_items),
-            run_time=2,
+            run_time=1,
         )
 
-        self.play(*(Create(obj) for obj in curves), run_time=5)
+        self.add(sub_rect_zoom)
 
-        self.remove(sub_text_zoom)
+        self.play(
+            *(Create(obj, run_time=esdf_time.max()) for obj in curves),
+            Succession(
+                Add(sub_text_zoom_prev),
+                Wait(8.0),
+                ShrinkToCenter(sub_text_zoom_prev, run_time=1e-3),
+                Add(sub_text_zoom),
+            ),
+        )
+
+        self.remove(sub_text_zoom_prev, sub_text_zoom)
         par = (
             "In slow motion we can see that this causes vibrations, "
             "visible even in the animation. The reason is the rapidly "
@@ -815,7 +853,7 @@ class ExperimentScene(MovingCameraScene):
         )
         sub_text_zoom.move_to(sub_rect_zoom)
         self.add(sub_text_zoom)
-        self.wait(2)
+        self.wait(8)
 
         # 7b.  Prepare the "small" version that will sit inside the rectangle
         # after we zoom out.  Create new axes / curves with dimensions
@@ -887,6 +925,7 @@ class ExperimentScene(MovingCameraScene):
         par = r"Our HD‑SDF precisely solves this problem."
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
+        self.wait(5.0)
 
         # ---------------- TODO --------------------------------------
         self.remove(sub_text)
@@ -900,12 +939,13 @@ class ExperimentScene(MovingCameraScene):
         # -----------------------------------------------------------
 
         hd_params = MathTex(
-            r"\delta_{\text{obs}} &= -5\times 10^{-3} \quad \gamma&=2\\"
-            r"\delta_{\text{auto}} &= -1\times 10^{-4} \quad \epsilon&=9\times 10^{-4}",
+            r"\delta_{\text{obs}} &= -5\times 10^{-3} \quad \gamma=2\\"
+            r"\delta_{\text{self}} &= -1\times 10^{-4} \quad \epsilon=9\times 10^{-4}",
             font_size=24,
         )
         hd_params.move_to(hd_rect.get_center() + UP * 0.3)
-        self.play(Write(hd_params), run_time=1.5)
+        self.play(Write(hd_params), run_time=2)
+        self.wait(11) # 13 total
 
         target_area = hd_rect
         self.remove(sub_text)
@@ -934,6 +974,7 @@ class ExperimentScene(MovingCameraScene):
         )
         sub_text_zoom.move_to(sub_rect_zoom)
         self.add(sub_rect_zoom, sub_text_zoom)
+        self.wait(9.0)
 
         # Graph axes (bottom half)
         y_data = np.round(hdsdf_u, 2)
@@ -1011,7 +1052,7 @@ class ExperimentScene(MovingCameraScene):
         sub_text_zoom.move_to(sub_rect_zoom)
         self.add(sub_text_zoom)
 
-        self.play(*(Create(obj) for obj in curves), run_time=5)
+        self.play(*(Create(obj) for obj in curves), run_time=hdsdf_time.max())
 
         # 7b.  Prepare the "small" version that will sit inside the rectangle
         # after we zoom out.  Create new axes / curves with dimensions
@@ -1064,7 +1105,7 @@ class ExperimentScene(MovingCameraScene):
             ShrinkToCenter(sub_text_zoom),
             ShrinkToCenter(sub_rect_zoom),
             Restore(self.camera.frame),
-            run_time=1.5,
+            run_time=1.0,
         )
         self.remove(
             graph_axes, curves, sub_text_zoom, sub_rect_zoom
@@ -1165,4 +1206,4 @@ class ExperimentScene(MovingCameraScene):
             ShrinkToCenter(sub_rect_zoom),
             run_time=1.5,
         )
-        self.wait(4)
+        self.wait(10)
