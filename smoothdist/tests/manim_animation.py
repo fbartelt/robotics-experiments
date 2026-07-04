@@ -237,9 +237,9 @@ class SquareDistanceScene(Scene):
         # Add silently – no animation
 
         par = (
-            "The Euclidean SDF presents non‑differentiable points: 1) when the faces are parallel"
-            " and no collision occurs; 2) when collision occurs and separating normals are not"
-            " unique. Our HD‑SDF presents none of these issues."
+            "The Euclidean SDF exhibits points of non‑differentiability"
+            ": 1) when faces are parallel, and 2) when separating normals are not"
+            " unique. Our HD‑SDF is differentiable everywhere."
         )
 
         subtitle_rect, subtitle_text = create_subtitle_box(
@@ -278,7 +278,7 @@ class SquareDistanceScene(Scene):
             run_time=10,
             rate_func=linear,
         )
-        self.wait(1)
+        self.wait(2)
 
         # ---------------------------------------------------------
         # ── phase 2: morph HD‑SDF (ε, then γ) ────────────────────
@@ -313,13 +313,7 @@ class SquareDistanceScene(Scene):
         # ── Remove shapes, show equation ───────────────────────
         self.play(Uncreate(pentagon), Uncreate(square), run_time=1)
         self.remove(subtitle_text)
-        par = (
-            r"Differentiability of the HD-SDF depends on shaping function $\Phi$."
-            r"A larger $\epsilon$ makes the function smoother, but it "
-            "also increases the number of false collisions. "
-            r"A smaller $\epsilon$ yields a more accurate distance, yet "
-            "the derivative magnitude near zero becomes larger"
-        )
+        par = r"Differentiability of the HD-SDF depends on the shaping function $\Phi$."
         subtitle_rect, subtitle_text = create_subtitle_box(
             wrap(par, CHAR_LIM, subsequent_indent=" ")
         )
@@ -352,9 +346,9 @@ class SquareDistanceScene(Scene):
         gamma_label_group.next_to(eps_label_group, RIGHT, buff=0.1)
 
         self.play(
-            Write(eq), Create(eps_label_group), Create(gamma_label_group), run_time=3
+            Write(eq), Create(eps_label_group), Create(gamma_label_group), run_time=4
         )
-        self.wait(0.5)
+        self.wait(3)
         # it will appear after ε finishes – we'll add it later
 
         # Insert default curve into the sorted array
@@ -399,16 +393,39 @@ class SquareDistanceScene(Scene):
         # eps_rect = SurroundingRectangle(eq[1], color=RED, buff=0.1)
         # eps_rect2 = SurroundingRectangle(eq[5], color=RED, buff=0.1)
         # To be safe, we can highlight all occurrences
-        self.play(Indicate(eps_label_group), Indicate(eq[1]), Indicate(eq[7]))
         # self.play(Create(eps_rect), Create(eps_rect2), run_time=1)
         # self.wait(0.5)
         # self.play(FadeOut(eps_rect), FadeOut(eps_rect2))
         # Then proceed with epsilon sweep...
 
         # --- ε sequence: 1e-3 → 1e-4 → 1e-2 → 1e-3 ---
-        self.play(eps_tracker.animate.set_value(eps_ext[-1]), run_time=5)
-        self.play(eps_tracker.animate.set_value(eps_ext[0]), run_time=5)
-        self.wait(0.5)
+        self.remove(subtitle_text)
+        par = (
+            r"A larger $\epsilon$ makes the function smoother, but it "
+            "also increases the number of false collisions."
+        )
+        subtitle_rect, subtitle_text = create_subtitle_box(
+            wrap(par, CHAR_LIM, subsequent_indent=" ")
+        )
+        self.add(subtitle_text)
+
+        self.play(Indicate(eps_label_group), Indicate(eq[1]), Indicate(eq[7]))
+        self.play(eps_tracker.animate.set_value(eps_ext[-1]), run_time=6)
+        self.wait(2)
+
+        self.remove(subtitle_text)
+        par = (
+            r"A smaller $\epsilon$ yields a more accurate distance, yet "
+            "the derivative magnitude near zero becomes larger."
+        )
+        subtitle_rect, subtitle_text = create_subtitle_box(
+            wrap(par, CHAR_LIM, subsequent_indent=" ")
+        )
+        self.add(subtitle_text)
+
+        self.play(eps_tracker.animate.set_value(eps_ext[0]), run_time=6)
+        self.wait(3)
+
         self.play(eps_tracker.animate.set_value(default_eps), run_time=5)
         self.wait(0.5)
 
@@ -448,9 +465,9 @@ class SquareDistanceScene(Scene):
 
         self.remove(subtitle_text)
         par = (
-            r"While $\gamma$ controls how many times differentiable the distance is, "
-            r"it also controls how well the Hölder minimum approximates the true minimum. "
-            r"In turn, this increases the size of the neighborhood that is mapped to $0$."
+            r"The parameter $\gamma$ controls how many times differentiable "
+            "the distance is, and also how well the Hölder minimum approximates "
+            "the true minimum. In turn, this enlarges the neighborhood that is mapped to zero."
         )
         subtitle_rect, subtitle_text = create_subtitle_box(
             wrap(par, CHAR_LIM, subsequent_indent=" ")
@@ -467,20 +484,33 @@ class SquareDistanceScene(Scene):
         )
         # --- γ sequence: 2 → 1 → 10 ---
         self.play(gamma_tracker.animate.set_value(1), run_time=2)
-        self.play(gamma_tracker.animate.set_value(5), run_time=6)
-        self.wait(1)
+        self.wait(2)
+        self.play(gamma_tracker.animate.set_value(5), run_time=8)
+        self.wait(3)
+
+        self.remove(subtitle_text)
+        par = (
+            "While the aforementioned non-differentiable points might "
+            "seem harmless, the real experiment shows the contrary"
+        )
+        subtitle_rect, subtitle_text = create_subtitle_box(
+            wrap(par, CHAR_LIM, subsequent_indent=" ")
+        )
+        self.add(subtitle_text)
+        self.wait(8)
 
         # 1.  Clean up previous phase (shapes, graph, parameter labels)
         self.play(
             FadeOut(axes),
-            FadeOut(hd_line),
-            FadeOut(euc_line),
-            FadeOut(dist_label),
-            FadeOut(time_label),
-            FadeOut(eps_label_group),
+            Uncreate(hd_line),
+            Uncreate(euc_line),
+            Unwrite(dist_label),
+            Unwrite(time_label),
+            Unwrite(eps_label_group),
             FadeOut(gamma_label_group),
-            FadeOut(legend),
-            FadeOut(eq),
+            Unwrite(legend),
+            Unwrite(eq),
+            run_time=1,
         )
         self.remove(subtitle_text, subtitle_rect)
 
@@ -492,8 +522,9 @@ class ExperimentScene(MovingCameraScene):
         # ---------------------------------------------------------
         # 3.  Build the optimization problem (common formulation)
         par = (
-            "We use a QP formulation for pose regulation with CBF constraints for"
-            r" each distance case $\Delta$ (Euclidean or HD-SDF)."
+            "We formulate pose regulation as a quadratic program with "
+            "control barrier function (CBF) constraints, where $\Delta$ "
+            "is either the Euclidean distance or the HD‑SDF."
         )
         sub_rect, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_rect, sub_text)
@@ -507,6 +538,11 @@ class ExperimentScene(MovingCameraScene):
             r"u &\ge -\eta_{\text{joint}}(q - q_{\text{min}}) \\",
             r"-u &\ge -\eta_{\text{joint}}(q_{\text{max}} - q) \\",
             r"\end{aligned}",
+            r"r(q)&=\begin{bmatrix}p_{\text{eef}} - p_{\text{des}}\\"
+            r"1 - x_{\text{eef}}^\top x_{\text{des}}\\"
+            r"1 - y_{\text{eef}}^\top y_{\text{des}}\\"
+            r"1 - z_{\text{eef}}^\top z_{\text{des}}\\"
+            r"\end{bmatrix}",
             tex_template=config["tex_template"],
             font_size=eq_font_size,
         )
@@ -515,8 +551,9 @@ class ExperimentScene(MovingCameraScene):
 
         self.remove(sub_text)
         par = (
-            r" Each distance $\Delta$ is used to avoid collision with obstacles"
-            r" and auto collision. And each case uses a different safety margin $\delta$."
+            r"The distance $\Delta$ is used to prevent collisions with "
+            r"obstacles and self‑collisions. Each case uses a different "
+            r"safety margin $\delta$."
         )
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
@@ -571,14 +608,19 @@ class ExperimentScene(MovingCameraScene):
             r"u &\ge -0.5(q - q_{\text{min}}) \\",
             r"-u &\ge -0.5(q_{\text{max}} - q)",
             r"\end{aligned}",
+            r"r(q)&=\begin{bmatrix}p_{\text{eef}} - p_{\text{des}}\\"
+            r"1 - x_{\text{eef}}^\top x_{\text{des}}\\"
+            r"1 - y_{\text{eef}}^\top y_{\text{des}}\\"
+            r"1 - z_{\text{eef}}^\top z_{\text{des}}\\"
+            r"\end{bmatrix}",
             tex_template=config["tex_template"],
             font_size=eq_font_size,
         )
 
         self.remove(sub_text)
         par = (
-            r"Joint limits $(q_{\text{min}}, q_{text{max}})$ are shared "
-            r"between each case. As well as control and CBF tuning parameters."
+            r"Joint limits $q_{\text{min}}, q_{\text{max}}$ are shared "
+            r"between each case, as well as control gains and CBF tuning parameters."
         )
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
@@ -586,7 +628,7 @@ class ExperimentScene(MovingCameraScene):
         opt_numeric.move_to(opt)
         self.play(
             LaggedStart(
-                Circumscribe(opt[4:]),
+                Circumscribe(opt[4:6]),
                 TransformMatchingShapes(opt, opt_numeric),
                 lag_ratio=0.25,
                 run_time=3,
@@ -597,12 +639,12 @@ class ExperimentScene(MovingCameraScene):
 
         # 6.  Show the Euclidean‑case specific parameters
         euc_params = MathTex(
-            r"\delta_{\text{obs}} &= 0.05\\ \delta_{\text{auto}} &= 0.05", font_size=24
+            r"\delta_{\text{obs}} &= 0.03\\ \delta_{\text{auto}} &= 0.01", font_size=24
         )
         euc_params.move_to(euc_rect.get_center() + UP * 0.3)
 
         self.remove(sub_text)
-        par = r"In particular, the Euclidean case is setup as follows"
+        par = r"In the Euclidean case, the safety margins were set to these positive values."
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
 
@@ -643,10 +685,35 @@ class ExperimentScene(MovingCameraScene):
         sub_rect_width = zoomed_width * 0.95
         sub_rect_up_ratio = 0.01
 
+        # ----------------- TODO
+        self.remove(sub_text)
         par = (
-            "Although the pose converges, the control input "
-            "(configuration velocities) exhibit very high frequency"
-            " oscillations."
+            "Both cases share the same setup: "
+            r"the robot must reach a target pose inside a corridor "
+            "of obstacles, while avoiding collisions with them and "
+            "with itself."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        self.remove(sub_text)
+        par = "All robot links are modeled as box primitives."
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        self.remove(sub_text)
+        par = (
+            "The animation is reconstructed from the experiment data "
+            "and lets us view the scene from different angles."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        # -------------------------
+        self.remove(sub_text)
+        par = (
+            "Although the pose converges, the control input (joint "
+            "velocities) exhibits very high frequency oscillations."
         )
         sub_rect_zoom, sub_text_zoom = create_subtitle_box(
             wrap(par, CHAR_LIM + 8),
@@ -732,8 +799,9 @@ class ExperimentScene(MovingCameraScene):
 
         self.remove(sub_text_zoom)
         par = (
-            "In slowmotion it is visible that this behavior introduces "
-            "vibrations. This is caused by the rapidly swtiching witness points."
+            "In slow motion we can see that this causes vibrations, "
+            "visible even in the animation. The reason is the rapidly "
+            "switching witness points."
         )
         _, sub_text_zoom = create_subtitle_box(
             wrap(par, CHAR_LIM + 8),
@@ -801,7 +869,9 @@ class ExperimentScene(MovingCameraScene):
             *[ReplacementTransform(curves[j], curves_small[j]) for j in range(7)],
             ReplacementTransform(legend_items, legend_items_small),
             # legend_items.animate.move_to(legend_items),
+            ShrinkToCenter(sub_text_zoom),
             ShrinkToCenter(sub_rect_zoom),
+            Restore(self.camera.frame),
             run_time=1.5,
         )
         self.remove(
@@ -809,21 +879,29 @@ class ExperimentScene(MovingCameraScene):
         )  # old mobjects gone
         self.add(graph_axes_small, curves_small)  # keep the small ones
 
-        # ----------------------- HDSDF CASE BEGIN----------------------
-
-        # 8.  Zoom back out to the split screen
-        self.play(
-            Restore(self.camera.frame),
-            run_time=1.5,
-        )
+        # -------------------------------------------------------------
+        # ---------------------- HD-SDF
+        # -------------------------------------------------------------
 
         # 9.  Now populate the HD‑SDF case parameters
-        par = r"Our HD-SDF solves precisely the former issue."
+        par = r"Our HD‑SDF precisely solves this problem."
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
 
+        # ---------------- TODO --------------------------------------
+        self.remove(sub_text)
+        par = (
+            r"For the HD‑SDF, we use negative safety margins. "
+            r"$\gamma$ is set to $2$ for a twice differentiable distance, "
+            r"and $\epsilon$ is set accordingly."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+        # -----------------------------------------------------------
+
         hd_params = MathTex(
-            r"\delta_{\text{obs}} &= -5\times 10^{-1} \\ \delta_{\text{auto}} &= -1\times 10^{-4}",
+            r"\delta_{\text{obs}} &= -5\times 10^{-3} \quad \gamma&=2\\"
+            r"\delta_{\text{auto}} &= -1\times 10^{-4} \quad \epsilon&=9\times 10^{-4}",
             font_size=24,
         )
         hd_params.move_to(hd_rect.get_center() + UP * 0.3)
@@ -839,8 +917,8 @@ class ExperimentScene(MovingCameraScene):
         self.wait(0.3)
 
         par = (
-            "The safety margin is negative as we virtually expand the "
-            "obstacles. Thus we allow penetration on these."
+            "The safety margins are negative because we virtually expand "
+            "the obstacles, allowing the robot to penetrate them slightly."
         )
         sub_rect_zoom, sub_text_zoom = create_subtitle_box(
             wrap(par, CHAR_LIM + 8),
@@ -918,7 +996,7 @@ class ExperimentScene(MovingCameraScene):
         )
 
         self.remove(sub_text_zoom)
-        par = "As the control input is much smoother, no vibration is observed."
+        par = "With the smoother control input, no vibrations are observed."
         _, sub_text_zoom = create_subtitle_box(
             wrap(par, CHAR_LIM + 8),
             corner_radius=0.05,
@@ -983,7 +1061,9 @@ class ExperimentScene(MovingCameraScene):
             *[ReplacementTransform(curves[j], hd_curves_small[j]) for j in range(7)],
             ReplacementTransform(legend_items, hd_legend_items_small),
             # legend_items.animate.move_to(legend_items),
+            ShrinkToCenter(sub_text_zoom),
             ShrinkToCenter(sub_rect_zoom),
+            Restore(self.camera.frame),
             run_time=1.5,
         )
         self.remove(
@@ -991,10 +1071,9 @@ class ExperimentScene(MovingCameraScene):
         )  # old mobjects gone
         self.add(hd_graph_axes_small, hd_curves_small)  # keep the small ones
 
-        self.play(
-            Restore(self.camera.frame),
-            run_time=1.5,
-        )
+        # -------------------------------------------------------------
+        # ---------------------- BIG GRAPHS
+        # -------------------------------------------------------------
 
         big_x_length = (config.frame_width - 0.5) * 0.85
         big_y_length = case_rect_h
@@ -1059,8 +1138,8 @@ class ExperimentScene(MovingCameraScene):
             hd_curves_big.add(curve_s)
         self.remove(sub_text)
         par = (
-            r"Comparing both control inputs, it is clear that HD-SDF "
-            "much smoother results."
+            "Comparing both control inputs, it is clear that the "
+            "Hölder Signed Distance yields much smoother results."
         )
         _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
         self.add(sub_text)
