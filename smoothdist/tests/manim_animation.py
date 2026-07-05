@@ -55,6 +55,7 @@ SUBTITLE_HEIGHT = 1.0
 
 class Remove(Animation):
     """Instant removal of a mobject from the scene (no visual effect)."""
+
     def __init__(self, mobject, **kwargs):
         super().__init__(mobject, **kwargs)
 
@@ -63,8 +64,9 @@ class Remove(Animation):
 
     def finish(self):
         super().finish()
-        if hasattr(self.mobject, 'scene') and self.mobject.scene is not None:
+        if hasattr(self.mobject, "scene") and self.mobject.scene is not None:
             self.mobject.scene.remove(self.mobject)
+
 
 def create_subtitle_box(
     text_lines,
@@ -545,7 +547,7 @@ class ExperimentScene(MovingCameraScene):
         sub_rect.set_opacity(1)
         sub_rect.set_z_index(-1)
         sub_text.set_z_index(1)
-        self.add(sub_rect, sub_rect)
+        self.add(sub_rect, sub_text)
 
         eq_font_size = 30
         opt = MathTex(
@@ -565,17 +567,6 @@ class ExperimentScene(MovingCameraScene):
             font_size=eq_font_size,
         )
         opt.to_corner(UL, buff=0.3)  # left side of the screen
-        self.play(Write(opt), run_time=6)
-        self.wait(6)
-
-        self.remove(sub_text)
-        par = (
-            r"The distance $\Delta$ is used to prevent collisions with "
-            r"obstacles and self‑collisions. Each case uses a different "
-            r"safety margin $\delta$."
-        )
-        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
-        self.add(sub_text)
 
         # 4.  Create two “case” rectangles on the right
         rect_ratio = 0.45
@@ -604,14 +595,30 @@ class ExperimentScene(MovingCameraScene):
         hd_label = Tex(r"$\Delta=$ HD‑SDF", font_size=24).next_to(hd_rect, UP, buff=0.1)
 
         self.play(
-            Circumscribe(opt[2:4]),
+            Write(opt),
             Create(euc_rect),
             Create(hd_rect),
             Write(euc_label),
             Write(hd_label),
+            run_time=6,
+        )
+        self.wait(6)
+
+        self.remove(sub_text)
+        par = (
+            r"The distance $\Delta$ is used to prevent collisions with "
+            r"obstacles and self‑collisions. Each case uses a different "
+            r"safety margin $\delta$."
+        )
+        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
+        self.add(sub_text)
+
+        self.wait(4)
+        self.play(
+            Circumscribe(opt[2:4]),
             run_time=2,
         )
-        self.wait(8)
+        self.wait(4)
 
         # 5.  Populate common numeric values (λ, K, η…)
         opt_numeric = MathTex(
@@ -645,16 +652,17 @@ class ExperimentScene(MovingCameraScene):
         self.add(sub_text)
 
         opt_numeric.move_to(opt)
+        self.wait(2)
         self.play(
             LaggedStart(
                 Circumscribe(opt[4:6]),
                 TransformMatchingShapes(opt, opt_numeric),
-                lag_ratio=0.25,
-                run_time=2,
+                lag_ratio=1.5,
+                run_time=3,
             ),
             # TransformMatchingTex(Group(opt, variables), opt_numeric, lag_ratio=0.5),
         )
-        self.wait(8)
+        self.wait(4)
 
         # 6.  Show the Euclidean‑case specific parameters
         euc_params = MathTex(
@@ -673,7 +681,7 @@ class ExperimentScene(MovingCameraScene):
             Write(euc_params),
             run_time=2,
         )
-        self.wait(3)
+        self.wait(4)
 
         # ── subtitle: “First, the Euclidean baseline” ────────────
         self.remove(sub_text)
@@ -706,25 +714,57 @@ class ExperimentScene(MovingCameraScene):
 
         # ----------------- TODO
         self.remove(sub_text)
+        par = "Both cases share the same setup: "
+        sub_rect_zoom, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 16),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_rect_zoom.set_z_index(-1)
+        sub_text_zoom.set_z_index(2)
+        sub_rect_zoom.match_y(euc_rect, DOWN).match_x(euc_rect).shift(
+            UP * sub_rect_up_ratio
+        )
+        sub_text_zoom.move_to(sub_rect_zoom)
+        self.add(sub_rect_zoom, sub_text_zoom)
+        self.wait(3)
+
+        self.remove(sub_text_zoom)
         par = (
-            "Both cases share the same setup: "
-            r"the robot must reach a target pose inside a corridor "
+            r"The robot must reach a target pose inside a corridor "
             "of obstacles, while avoiding collisions with them and "
             "with itself."
         )
-        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
-        self.add(sub_text)
-        self.wait(10)
+        _, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 16),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_text_zoom.set_z_index(2)
+        sub_text_zoom.move_to(sub_rect_zoom)
+        self.wait(9)
 
-        self.remove(sub_text)
+        self.remove(sub_text_zoom)
         par = "All robot links are modeled as box primitives."
-        _, sub_text = create_subtitle_box(wrap(par, CHAR_LIM))
-        self.add(sub_text)
-        self.wait(4)
+        _, sub_text_zoom = create_subtitle_box(
+            wrap(par, CHAR_LIM + 16),
+            corner_radius=0.05,
+            width=sub_rect_width,
+            height=sub_rect_height,
+            font_size=sub_rect_font_size,
+        )
+        sub_text_zoom.set_z_index(2)
+        sub_text_zoom.move_to(sub_rect_zoom)
 
-        self.remove(sub_text)
+        self.add(sub_text_zoom)
+        self.wait(4)
         # -------------------------
         # These will come in sequence during a graph animation
+        self.remove(sub_text_zoom)
         par_prev = (
             "The animation is reconstructed from the experiment data "
             "and lets us view the scene from different angles."
@@ -733,29 +773,23 @@ class ExperimentScene(MovingCameraScene):
             "Although the pose converges, the control input (joint "
             "velocities) exhibits very high frequency oscillations."
         )
-        sub_rect_zoom, sub_text_zoom_prev = create_subtitle_box(
-            wrap(par_prev, CHAR_LIM + 8),
+        _, sub_text_zoom_prev = create_subtitle_box(
+            wrap(par_prev, CHAR_LIM + 16),
             corner_radius=0.05,
             width=sub_rect_width,
             height=sub_rect_height,
             font_size=sub_rect_font_size,
         )
         _, sub_text_zoom = create_subtitle_box(
-            wrap(par, CHAR_LIM + 8),
+            wrap(par, CHAR_LIM + 16),
             corner_radius=0.05,
             width=sub_rect_width,
             height=sub_rect_height,
             font_size=sub_rect_font_size,
         )
         _, sub_text_ = create_subtitle_box(wrap(par_prev, CHAR_LIM))
-        sub_rect_zoom.set_z_index(-1)
         sub_text_zoom_prev.set_z_index(2)
         sub_text_zoom.set_z_index(2)
-        sub_rect_zoom.match_y(euc_rect, DOWN).match_x(euc_rect).shift(
-            UP * sub_rect_up_ratio
-        )
-        sub_text_zoom_prev.move_to(sub_rect_zoom)
-        sub_text_zoom.move_to(sub_rect_zoom)
         # self.add(sub_rect_zoom, sub_text_zoom)
 
         # Graph axes (bottom half)
@@ -823,8 +857,6 @@ class ExperimentScene(MovingCameraScene):
             run_time=1,
         )
 
-        self.add(sub_rect_zoom)
-
         self.play(
             *(Create(obj, run_time=esdf_time.max()) for obj in curves),
             Succession(
@@ -842,7 +874,7 @@ class ExperimentScene(MovingCameraScene):
             "switching witness points."
         )
         _, sub_text_zoom = create_subtitle_box(
-            wrap(par, CHAR_LIM + 8),
+            wrap(par, CHAR_LIM + 16),
             corner_radius=0.05,
             width=sub_rect_width,
             height=sub_rect_height,
@@ -853,7 +885,7 @@ class ExperimentScene(MovingCameraScene):
         )
         sub_text_zoom.move_to(sub_rect_zoom)
         self.add(sub_text_zoom)
-        self.wait(8)
+        self.wait(22)
 
         # 7b.  Prepare the "small" version that will sit inside the rectangle
         # after we zoom out.  Create new axes / curves with dimensions
@@ -945,7 +977,7 @@ class ExperimentScene(MovingCameraScene):
         )
         hd_params.move_to(hd_rect.get_center() + UP * 0.3)
         self.play(Write(hd_params), run_time=2)
-        self.wait(11) # 13 total
+        self.wait(11)  # 13 total
 
         target_area = hd_rect
         self.remove(sub_text)
