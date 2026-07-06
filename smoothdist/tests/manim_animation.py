@@ -662,7 +662,7 @@ class ExperimentScene(MovingCameraScene):
             ),
             # TransformMatchingTex(Group(opt, variables), opt_numeric, lag_ratio=0.5),
         )
-        self.wait(4)
+        self.wait(5)
 
         # 6.  Show the Euclidean‑case specific parameters
         euc_params = MathTex(
@@ -746,6 +746,7 @@ class ExperimentScene(MovingCameraScene):
         )
         sub_text_zoom.set_z_index(2)
         sub_text_zoom.move_to(sub_rect_zoom)
+        self.add(sub_text_zoom)
         self.wait(9)
 
         self.remove(sub_text_zoom)
@@ -759,9 +760,9 @@ class ExperimentScene(MovingCameraScene):
         )
         sub_text_zoom.set_z_index(2)
         sub_text_zoom.move_to(sub_rect_zoom)
-
         self.add(sub_text_zoom)
         self.wait(4)
+
         # -------------------------
         # These will come in sequence during a graph animation
         self.remove(sub_text_zoom)
@@ -790,6 +791,8 @@ class ExperimentScene(MovingCameraScene):
         _, sub_text_ = create_subtitle_box(wrap(par_prev, CHAR_LIM))
         sub_text_zoom_prev.set_z_index(2)
         sub_text_zoom.set_z_index(2)
+        sub_text_zoom_prev.move_to(sub_rect_zoom)
+        sub_text_zoom.move_to(sub_rect_zoom)
         # self.add(sub_rect_zoom, sub_text_zoom)
 
         # Graph axes (bottom half)
@@ -874,7 +877,7 @@ class ExperimentScene(MovingCameraScene):
             "switching witness points."
         )
         _, sub_text_zoom = create_subtitle_box(
-            wrap(par, CHAR_LIM + 16),
+            wrap(par, CHAR_LIM + 18),
             corner_radius=0.05,
             width=sub_rect_width,
             height=sub_rect_height,
@@ -971,8 +974,8 @@ class ExperimentScene(MovingCameraScene):
         # -----------------------------------------------------------
 
         hd_params = MathTex(
-            r"\delta_{\text{obs}} &= -5\times 10^{-3} \quad \gamma=2\\"
-            r"\delta_{\text{self}} &= -1\times 10^{-4} \quad \epsilon=9\times 10^{-4}",
+            r"\delta_{\text{obs}} &= -5\times 10^{-3}, \quad \gamma=2\\"
+            r"\delta_{\text{self}} &= -1\times 10^{-4}, \quad \epsilon=9\times 10^{-4}",
             font_size=24,
         )
         hd_params.move_to(hd_rect.get_center() + UP * 0.3)
