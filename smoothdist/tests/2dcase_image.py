@@ -108,34 +108,6 @@ def transform_vertices(V, htm):
     return V_trans[:, :3]  # back to (N,3)
 
 
-def holder_distance_aux(v1, v2, n1, n2, edges, gamma, skip, epsilon=1e-3):
-    normals = np.vstack([n1, n2])
-    minkowksi = [va - vb for va in v1 for vb in v2]
-    print(f"Minkowksi vertices: {minkowksi}")
-    g_list = []
-    h_list = []
-
-    def phi(u):
-        return u * (np.abs(u) ** gamma / (np.abs(u) ** gamma + epsilon))
-
-    for i, n in enumerate(normals):
-        g_list.append([])
-        print(f"Dot products n{i}:")
-        for v in minkowksi:
-            gn = np.dot(n, v)
-            g_list[i].append(gn)
-            print(f"n^T(v) = {n.ravel()}.T ({v.ravel()})")
-            print(gn, end=", ")
-        print()
-        min_g, *_ = smooth_min(g_list[i], gamma)
-        h_list.append(phi(min_g))
-        print(f"gn{i}={min_g}, phi(gn)={phi(min_g)}")
-    dist, *_ = smooth_max(h_list, gamma)
-    print(f"dist={dist}, phi(dist)={phi(dist)}")
-    dist = phi(dist)
-    return dist, h_list, g_list
-
-
 # Square centered at (0, 0) with lenght 1
 V_square = np.array(
     [
@@ -209,6 +181,7 @@ x0, y0 = htm[0, -1].item(), htm[1, -1].item()
 theta0 = np.acos((np.trace(htm[:3, :3]) - 1) / 2)
 
 # For manim
+acquire_manim = False # saves or not epsilon data for manim
 var_eps = np.linspace(1e-4, 1e-2, 50)
 var_gammas = np.linspace(1, 10, 10)
 dists_eps = { v : [] for v in var_eps}
@@ -219,9 +192,6 @@ for i in tqdm(range(imax), total=imax):
     N_sq_t = normals_from_vertices(V_sq_t)
     V_square_history.append(V_sq_t)
 
-    # dist, *_ = holder_distance_aux(
-    #     V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=5e-3
-    # )
     dist, *_ = holder_distance(
         V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=1e-3
     )
@@ -232,43 +202,59 @@ for i in tqdm(range(imax), total=imax):
     htm = make_htm_2d(v * dt * i + x0, 0.0 + y0, omega * dt * i + theta0)
 
     # For manim
-    for eps_ in var_eps:
-        d_, *_ = holder_distance(
-            V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=eps_
-        )
-        dists_eps[eps_].append(d_)
-    for gamma_ in var_gammas:
-        d_, *_ = holder_distance(
-            V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], gamma_, True, epsilon=1e-3
-        )
-        dists_gammas[gamma_].append(d_)
+    if acquire_manim:
+        for eps_ in var_eps:
+            d_, *_ = holder_distance(
+                V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], 2, True, epsilon=eps_
+            )
+            dists_eps[eps_].append(d_)
+        for gamma_ in var_gammas:
+            d_, *_ = holder_distance(
+                V_sq_t, V_pentagon, N_sq_t, normals_pentagon, [], gamma_, True, epsilon=1e-3
+            )
+            dists_gammas[gamma_].append(d_)
 
 
 distances = np.array(distances)
 euclidean_distances = np.array(euclidean_distances)
 
 # For manim
-eps_keys   = np.array(var_eps)                         # shape (n_eps,)
-eps_values = np.array([dists_eps[v] for v in var_eps]) # shape (n_eps, imax)
-gamma_keys   = np.array(var_gammas)
-gamma_values = np.array([dists_gammas[v] for v in var_gammas])
+if acquire_manim:
+    eps_keys   = np.array(var_eps)                         # shape (n_eps,)
+    eps_values = np.array([dists_eps[v] for v in var_eps]) # shape (n_eps, imax)
+    gamma_keys   = np.array(var_gammas)
+    gamma_values = np.array([dists_gammas[v] for v in var_gammas])
 
-np.savez(
-    "./tests/anim_data.npz",
-    t=np.array(t),
-    V_square_history=np.array(V_square_history),  # shape (N_frames, 4, 3)
-    distances=distances,  # hdsdf
-    euclidean_distances=euclidean_distances,  # esdf
-    V_pentagon=V_pentagon,
-    # For manim
-    eps_keys=eps_keys,
-    eps_values=eps_values,
-    gamma_keys=gamma_keys,
-    gamma_values=gamma_values,
-)
+    np.savez(
+        "./tests/anim_data.npz",
+        t=np.array(t),
+        V_square_history=np.array(V_square_history),  # shape (N_frames, 4, 3)
+        distances=distances,  # hdsdf
+        euclidean_distances=euclidean_distances,  # esdf
+        V_pentagon=V_pentagon,
+        # For manim
+        eps_keys=eps_keys,
+        eps_values=eps_values,
+        gamma_keys=gamma_keys,
+        gamma_values=gamma_values,
+    )
 
 
 # %%
+data = np.load("./tests/anim_data.npz")
+# t_array = data["t"]  # (N_frames,)
+# V_square_history = data["V_square_history"]  # (N_frames, 4, 3)
+# hdsdf = data["distances"]  # Holder distance
+# esdf = data["euclidean_distances"]  # Euclidean signed distance
+# V_pentagon = data["V_pentagon"]  # (M, 3)
+
+# For varying curve
+epsilons = data["eps_keys"][np.array([0, -1])]
+hdsdf_vs_eps = data["eps_values"][np.array([0, -1])]
+hd_sdf_eps = {str(e_): hdsdf_vs_eps[i_] for i_, e_ in enumerate(epsilons)}
+# epsilons
+
+
 def make_sdf_figure_callout(
     t,
     euclidean_dist,
@@ -288,6 +274,7 @@ def make_sdf_figure_callout(
     font_size=20,
     plot_width=1200,
     plot_height=480,
+    hd_sdf_eps=None,
 ):
     """
     Distance plot with callout boxes for up to three intervals.
@@ -333,6 +320,22 @@ def make_sdf_figure_callout(
             line=dict(color="blue", width=3),
         )
     )
+
+    if hd_sdf_dist is not None:
+        other_colors = [ "lime", "magenta"]
+        for idx_, key in enumerate(hd_sdf_eps.keys()):
+            eps_name = key
+            eps_hd_data = hd_sdf_eps[key]
+            color = other_colors[idx_]
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=eps_hd_data,
+                    mode="lines",
+                    name=eps_name,
+                    line=dict(color=color, width=3, dash='dashdot'),
+                )
+            )
 
     # ----- 3. Interval list with labels -----
     default_labels = ["Separation", "Penetration", "Post‑penetration"]
@@ -433,18 +436,6 @@ def make_sdf_figure_callout(
             )
         )
 
-        # # b) Callout box
-        # fig.add_shape(
-        #     type="rect",
-        #     x0=box_x0,
-        #     y0=box_y0,
-        #     x1=box_x1,
-        #     y1=box_y1,
-        #     line=dict(color="grey", width=1.5),
-        #     fillcolor="white",
-        #     opacity=1.0,
-        # )
-
         # c) Dashed connecting lines
         fig.add_shape(
             type="line",
@@ -535,13 +526,6 @@ def make_sdf_figure_callout(
                 yanchor="top",
             )
 
-        # # e) Box label
-        # fig.add_annotation(
-        #     x=box_center, y=box_y1 + callout_height * 0.05,
-        #     text=label, showarrow=False,
-        #     font=dict(size=12, color="black"),
-        # )
-
     # ----- 7. Place all callouts -----
     for (interval, label), center in zip(intervals, box_centers):
         add_callout(interval, center, label)
@@ -617,6 +601,7 @@ fig = make_sdf_figure_callout(
     # post_interval=(4.25, 4.75), # pentagon
     num_snapshots=3,
     snapshot_scale=0.22,
+    hd_sdf_eps=hd_sdf_eps,
 )
 
 fig.show()
