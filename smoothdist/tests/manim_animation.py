@@ -28,7 +28,7 @@ config["tex_template"] = TexTemplate(
 )
 CHAR_LIM = 120
 
-base_path = "/home/fbartelt/Documents/Projetos/robotics-experiments/smoothdist"
+base_path = "/home/fbartelt/Projects/robotics-experiments/smoothdist"
 esdf_data = f"{base_path}/experiment/data/mode_0/video_7_data/data.pickle"
 hdsdf_data = f"{base_path}/experiment/data/mode_1/video_1_data/data.pickle"
 
