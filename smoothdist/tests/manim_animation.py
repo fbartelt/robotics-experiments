@@ -118,6 +118,19 @@ def create_subtitle_box(
 
     return subtitle_rect, subtitle_text
 
+class CoverScene(Scene):
+    def construct(self):
+
+        par = r"Hölder Signed Distance: A Differentiable, Signed, Parallelizable Metric for Robotics"
+        title = Tex(
+            r'\\'.join(wrap(par, 45, subsequent_indent="")),
+            font_size=60,
+            color=WHITE,
+        )
+        title.move_to(ORIGIN)
+
+        self.play(FadeIn(title, shift=UP * 0.5), run_time=2)
+        self.wait(1)   # keeps the title on screen for 1 second
 
 class SquareDistanceScene(Scene):
     def construct(self):
