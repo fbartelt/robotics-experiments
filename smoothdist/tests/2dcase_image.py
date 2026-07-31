@@ -321,7 +321,7 @@ def make_sdf_figure_callout(
         )
     )
 
-    if hd_sdf_dist is not None:
+    if hd_sdf_eps is not None:
         other_colors = [ "lime", "magenta"]
         for idx_, key in enumerate(hd_sdf_eps.keys()):
             eps_name = key
@@ -601,7 +601,7 @@ fig = make_sdf_figure_callout(
     # post_interval=(4.25, 4.75), # pentagon
     num_snapshots=3,
     snapshot_scale=0.22,
-    hd_sdf_eps=hd_sdf_eps,
+    # hd_sdf_eps=hd_sdf_eps, # This was too ugly to keep it
 )
 
 fig.show()
