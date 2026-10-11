@@ -1,12 +1,13 @@
 # %%
 import numpy as np
-from uaibot import Utils, Simulation
+from uaibot import Utils, Simulation, Robot
 from uaibot.simobjects import Box
 from uaibot.gpu.distance import holder_distance_objects_with_grad
 from uaibot.gpu.lie import se3_exp
 from uaibot.gpu.functional import holder_min, shaping_function
 from uaibot_cpp_bind import expSE3, SmapSE3
 from tqdm import tqdm
+from gcbf.curves import make_circle
 
 Z_DOWN = np.array([0.0, 0.0, 1.0]).reshape(-1, 1)
 
@@ -229,7 +230,7 @@ def get_aclecian(
 ):
     H0 = np.asarray(uav_model.htm, dtype=float)
 
-    reduce_fn = lambda d: shaping_function(holder_min(d, gamma, dim=1), k).sum()
+    reduce_fn = lambda d: shaping_function(holder_min(d, gamma, dim=1), k, eps=eps).sum()
 
     def h_grad(H):
         dists, grads = holder_distance_objects_with_grad(
@@ -259,34 +260,95 @@ def get_aclecian(
 
     Sym_fd = 0.5 * (A_fd + A_fd.T)
     Skew_exact = aclecian_skew_part(Lf)
-    A = Sym_fd + Skew_exact
+    A = Sym_fd + 0.5 * Skew_exact
     # NO final symmetrization — the aclecian is not symmetric.
 
     # Consistency check (debug)
     skew_fd = 0.5 * (A_fd - A_fd.T)
     err = np.linalg.norm(skew_fd - Skew_exact)
+    # print(err)
     # For central differences you should see err ~ O(delta^2).
     # If err ~ O(delta), something is wrong (transpose, twist order, sign).
     # beta = the SAME scalar the reduce_fn minimized
-    beta = shaping_function(holder_min(d0, gamma=gamma, dim=1), k).item()
+    beta = shaping_function(holder_min(d0, gamma=gamma, dim=1), k, eps=eps).item()
 
     return A, Lf, beta
+
+
+def tracking_xi_dot(
+    drone,
+    curve,
+    curve_derivative,
+    dt_fd=1e-4,
+    kt1=1.0,
+    kt2=1.0,
+    kt3=1.0,
+    kn1=1.0,
+    kn2=1.0,
+    Kp_xi=5.0,
+):
+    """
+    Return xi_dot_des by:
+      1. evaluating the vector field twist at the current state,
+      2. central-differencing the vector field along that twist.
+    """
+    H = np.asarray(drone.htm, dtype=float)
+    xi_actual = np.asarray(drone.xi).reshape(
+        6,
+    )
+
+    def vf(H_):
+        xi, dist, idx = Robot.vector_field_SE3(
+            H_,
+            curve,
+            kt1=kt1,
+            kt2=kt2,
+            kt3=kt3,
+            kn1=kn1,
+            kn2=kn2,
+            curve_derivative=curve_derivative,
+            delta=1e-3,
+            ds=1e-3,
+            mode="c++",
+        )
+        return np.asarray(xi, dtype=float).ravel(), dist, idx
+
+    xi_vf, dist, idx = vf(H)
+
+    H_fwd = expSE3(SmapSE3(xi_vf * dt_fd)) @ H
+    H_bwd = expSE3(SmapSE3(-xi_vf * dt_fd)) @ H
+
+    xi_fwd, *_ = vf(H_fwd)
+    xi_bwd, *_ = vf(H_bwd)
+
+    xi_dot_ff = (xi_fwd - xi_bwd) / (2.0 * dt_fd)  # feedforward
+    xi_dot_des = xi_dot_ff + Kp_xi * (xi_vf - xi_actual)  # + P on velocity error
+    return xi_dot_des, xi_vf, dist
 
 
 def control(
     uav_model,
     obstacles,
+    t,
+    curve,
+    curve_derivative=[],
     k1=2.0,
     k2=0.5,
-    delta_acl=1e-3,
-    eta=0.1,
+    kt1=1.0,
+    kt2=1.0,
+    kt3=1.0,
+    kn1=1.0,
+    kn2=1.0,
+    delta_acl=1e-4,
     gamma=2.0,
     eps=1e-3,
     k_shape=2,
+    eta=10,
+    dt_fd=1e-4,
+    Kp_xi=5.0,
 ):
-    H = uav_model.htm
-    xi = uav_model.xi  # (6, 1)
-    xid = uav_model.xi_dot  # (6, 1)
+    H = np.asarray(uav_model.htm, dtype=float)
+    xi = np.asarray(uav_model.xi).reshape(6, 1)
 
     aclecian, L_beta, beta = get_aclecian(
         uav_model,
@@ -296,95 +358,92 @@ def control(
         eps=eps,
         k=k_shape,
     )
+    L_beta = np.asarray(L_beta, dtype=float).reshape(1, 6)
+    beta = float(beta)
 
-    L_beta = np.asarray(L_beta, dtype=float).reshape(1, 6)  # row vector
-    beta = float(beta)  # scalar
-    print(beta, L_beta.ravel())
-
-    quad = (xi.T @ aclecian @ xi).item()  # xi^T A xi
-    lin = (L_beta @ xi).item()  # L_beta @ xi
-
-    # Psi_2 constraint
-    # xi.T @ aclecian @ xi + L_beta * (k1 * xi + u) + k2 * (L_beta @ xi + k1 * beta)
-
-    # CBF drift d = xi^T A xi + (k1+k2) L_beta xi + k1 k2 beta
+    quad = (xi.T @ aclecian @ xi).item()
+    lin = (L_beta @ xi).item()
     d_cbf = quad + (k1 + k2) * lin + k1 * k2 * beta
 
     A_qp = L_beta
     b_qp = -eta * np.array([d_cbf])
 
-    # Nominal: input realizing the desired xi_dot (hover if xid = 0)
-    u_d = uav_model.inv_dynamics(H, xi, xid).reshape(
+    # Nominal: geometric tracking
+    # ---- feedback linearization source ----
+    xi_dot_des, _, dist = tracking_xi_dot(
+        drone=uav_model,
+        curve=curve,
+        curve_derivative=curve_derivative,
+        dt_fd=dt_fd,
+        kt1=kt1,
+        kt2=kt2,
+        kt3=kt3,
+        kn1=kn1,
+        kn2=kn2,
+        Kp_xi=Kp_xi,
+    )
+
+    xi_dot_des = xi_dot_des.reshape(6, 1)
+
+    # inv_dynamics IS the feedback linearization:
+    #   u = M xi_dot + M_dot xi - M ad*_xi xi + L_H[E_p]^T
+    u_d = uav_model.inv_dynamics(H, xi, xi_dot_des).reshape(
         6,
     )
+    # return u_d, dist
 
     H_qp = np.eye(6)
     f_qp = -u_d
-    # QP: min 0.5 ||u - u_d||^2 s.t. A_qp u >= b_qp
     u = np.asarray(Utils.solve_qp(H_qp, f_qp, A_qp, b_qp)).reshape(6, 1)
 
-    # Sanity: verify the CBF constraint is honoured
+    # Safety check
     psi2 = (
         xi.T @ aclecian @ xi + L_beta @ (k1 * xi + u) + k2 * (L_beta @ xi + k1 * beta)
     ).item()
     assert psi2 >= -1e-6, f"CBF violated: psi2={psi2:.3e}, beta={beta:.3e}"
 
-    return u
-
-
-# def control(
-#     uav_model,
-#     obstacles,
-#     k1=2.0,
-#     k2=0.5,
-#     delta_acl=1e-3,
-#     gamma=2.0,
-#     eps=1e-3,
-#     k_shape=2,
-# ):
-#     H = uav_model.htm
-#     xi = uav_model.xi
-#     xi_dot = uav_model.xi_dot
-#     # Psi_2 constraint
-#     # xi.T @ aclecian @ xi + L_beta * (k1 * xi + u) + k2 * (L_beta @ xi + k1 * beta)
-#
-#     aclecian, L_beta, beta = get_aclecian(
-#         uav_model, obstacles, delta=delta_acl, gamma=gamma, eps=eps, k=k_shape
-#     )
-#     L_beta = np.asarray(L_beta, dtype=float).reshape(1, 6)
-#     beta = float(beta)  # scalar
-#
-#     # CBF constraint: L_beta @ u >= -(xi^T A xi + (k1+k2) L_beta @ xi + k1 k2 beta)
-#     b_qp = float(xi @ aclecian @ xi + (k1 + k2) * (L_beta @ xi) + k1 * k2 * beta)
-#     A_qp = L_beta.reshape(1, 6)
-#     b_qp = -np.array([b_qp])
-#
-#     # Nominal control and QP-based safety filter
-#     u_d = uav_model.dynamics(H, xi, xi_dot)  # your nominal, shape (6,)
-#     # QP: min 0.5 ||u - u_d||^2 s.t. A_qp u >= b_qp
-#     H_qp = np.eye(6)
-#     f_qp = -u_d
-#     u = np.asarray(Utils.solve_qp(H_qp, f_qp, A_qp, b_qp)).reshape(6, 1)
-#
-#     # Optional debug: verify psi_2
-#     psi2 = float(
-#         xi @ aclecian @ xi + L_beta @ (k1 * xi + u) + k2 * (L_beta @ xi + k1 * beta)
-#     )
-#     assert psi2 >= -1e-6, f"CBF violated: psi2={psi2:.3e}"
-#
-#     return u
+    return u, dist, beta
 
 
 # %%
-drone = UAV(inertia=np.ones(3), mass=20)
-obstacle = Box(htm=Utils.trn([1, 0.1, 0.5]), width=1, height=1, depth=1)
+curve, dcurve = make_circle(n_points=2000, radius=0.7, center=(1.0, 0.1, 0.5))
+curve_derivative = dcurve
+htm0 = Utils.trn([0.0, 0.0, 1.0])
+drone = UAV(htm=htm0, inertia=np.ones(3), mass=20)
+obstacle = Box(htm=Utils.trn([5.0, 0.1, 0.5]), width=1, height=1, depth=1)
+kn1, kn2 = 0.1, 1.0
+kt1, kt2, kt3 = 0.1, 1.0, kn2
 
 sim = Simulation.create_sim_grid([drone.collision_model, obstacle])
 
-T, dt = 5.0, 1e-2
+T, dt = 10.0, 1e-2
+log = []
 for t in tqdm(np.arange(0, T, dt)):
-    u = control(drone, [obstacle])
+    u, dist_curve, dist_obs = control(
+        uav_model=drone,
+        obstacles=[obstacle],
+        t=t,
+        curve=curve,
+        curve_derivative=dcurve,
+        dt_fd=1e-3,
+        Kp_xi=1.0,
+        eta=1.,
+    )
     drone.step(t, dt, u)
+    log.append(
+        (
+            t,
+            np.asarray(drone.htm)[:3, 3].copy(),
+            dist_curve,
+            dist_obs,
+        )
+    )
 
 sim.run_in_browser()
-print(drone.get_gravity_vector().ravel())
+
+dist_log = [d for _, _, d, *_ in log]
+dist_obs_log = [d for _, _, _, d in log]
+import plotly.express as px
+
+px.line(dist_log)
+px.line(dist_obs_log)
