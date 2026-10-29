@@ -3,9 +3,9 @@ import uaibot as ub
 import uaibot_cpp_bind as ub_cpp
 import plotly.graph_objects as go
 from tqdm import tqdm
-from uaibot.simobjects import Box
+from uaibot.simobjects import Box, Frame
 from uaibot.simobjects.curve import CurveSE3
-from curves import build_curve
+from fossen.curves import build_curve
 from plotly.subplots import make_subplots
 
 # ---------- Initial conditions (mirror of the C++ example) ---------------
@@ -13,10 +13,11 @@ htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
 
 actual_twist = np.zeros(6)
-gains = 5 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 60 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+# gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 100
+T = 60
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000
@@ -26,33 +27,33 @@ CURVE_POINTS = 15000
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "vertical_coil"
+CURVE_TYPE = "circle"
 
-CURVE_RADIUS = 1.5 * 2 * 2
-CURVE_N_ROLLS = 0.0
+CURVE_RADIUS = 1.5 * 2
+CURVE_N_ROLLS = 1.0
 
 # Ellipse
-ELLIPSE_A = 2.0 * 10
-ELLIPSE_B = 1.0 * 10
+ELLIPSE_A = 2.0 * 1
+ELLIPSE_B = 1.0 * 1
 
 # Lissajous
-LISSAJOUS_A = 10.0
-LISSAJOUS_B = 8.0
-LISSAJOUS_C = 3.0
+LISSAJOUS_A = 4.0
+LISSAJOUS_B = 2.0
+LISSAJOUS_C = 1.0
 
 # Trefoil
-TREFOIL_R = 6.0
+TREFOIL_R = 1.0
 TREFOIL_Z_AMP = 1.0
 
 # Cylinder surface
-TREFOIL_R = 2.0
-TREFOIL_Z_AMP = 1.0
+CYLINDER_R = 2.0
+CYLINDER_Z_AMP = 1.0
 CYLINDER_N_OSCILLATIONS = 3
 
 
-kn1 = 0.6
+kn1 = 1.0
 kn2 = 1.0
-kt1 = 0.05
+kt1 = 0.03
 kt2 = 1.0
 kt3 = kn2
 
@@ -64,6 +65,7 @@ kwargs = {
 
 if CURVE_TYPE == "circle":
     kwargs["radius"] = CURVE_RADIUS
+    kwargs["n_rolls"] = CURVE_N_ROLLS
 elif CURVE_TYPE == "ellipse":
     kwargs["a"] = ELLIPSE_A
     kwargs["b"] = ELLIPSE_B
@@ -75,8 +77,8 @@ elif CURVE_TYPE == "trefoil":
     kwargs["R"] = TREFOIL_R
     kwargs["z_amp"] = TREFOIL_R
 elif CURVE_TYPE == "vertical_coil":
-    kwargs["R"] = TREFOIL_R
-    kwargs["z_amp"] = TREFOIL_Z_AMP
+    kwargs["R"] = CYLINDER_R
+    kwargs["z_amp"] = CYLINDER_Z_AMP
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
 
 
@@ -85,7 +87,8 @@ curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
 # ---------- Scene object -------------------------------------------------
 # htm0 = curve[0]
 auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red")
-sim = ub.Simulation([auv])
+auv_frame = Frame(htm=htm0)
+sim = ub.Simulation([auv, auv_frame])
 curve_ub = CurveSE3(points=curve, color="cyan")
 sim.add(curve_ub)
 sim.set_parameters(width=1480, height=920)
@@ -93,7 +96,13 @@ sim.set_parameters(width=1480, height=920)
 # ---------- Integrate physics + build animation frames -------------------
 htm_next = htm0.copy()
 time_vec = np.arange(0, T, dt)
+params = ub_cpp.FossenParameters()
+params.dt = dt
+params.velocity_gains = gains
+params.model_compensation = False
+
 log_dist, log_err_pos, log_err_ori, log_idx = [], [], [], []
+log_twist, log_xi = [], []
 
 for t in tqdm(time_vec):
     # Same call as C++: bluerov2::step(target, pose, twist, gains, dt)
@@ -113,7 +122,8 @@ for t in tqdm(time_vec):
     target_twist = np.empty(6)
     target_twist[:3] = v + np.cross(omega, p)
     target_twist[3:] = omega
-    state = ub_cpp.fossen_step_direct(target_twist, htm_next, actual_twist, gains, dt)
+    # state = ub_cpp.fossen_step_direct(target_twist, htm_next, actual_twist, gains, dt)
+    state = ub_cpp.fossen_step_stateless(target_twist, htm_next, actual_twist, params)
 
     log_dist.append(dist)
     log_idx.append(idx)
@@ -135,6 +145,7 @@ for t in tqdm(time_vec):
     htm_next = state.pose
     actual_twist = state.twist
     auv.add_ani_frame(time=float(t), htm=htm_next)
+    auv_frame.add_ani_frame(time=float(t), htm=htm_next)
 
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
@@ -160,7 +171,7 @@ def create_fig():
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=time_vec, y=log_dist, showlegend=False, line=dict(width=3)),
+        go.Scatter(x=time_vec, y=log_idx, showlegend=False, line=dict(width=3)),
         row=4,
         col=1,
     )
@@ -212,3 +223,4 @@ def create_fig():
 
 
 create_fig().show()
+#

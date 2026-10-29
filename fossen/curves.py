@@ -37,11 +37,104 @@ def _inward_frame(p, dp_ds, dp_ds2):
 
 
 # ==========================================================================
+# Generic frame construction (default: tangent-aligned)
+# ==========================================================================
+def _frame_and_derivative(p, dp_ds, dp_ds2):
+    # ... (keep the existing default frame code exactly as it is) ...
+    v = float(np.linalg.norm(dp_ds))
+    t = dp_ds / v
+    k = np.array([0.0, 0.0, 1.0])
+
+    t_dot_ddp = float(np.dot(t, dp_ds2))
+    dt = (dp_ds2 - t * t_dot_ddp) / v
+
+    w = np.cross(k, t)
+    w_norm = float(np.linalg.norm(w))
+    y = w / w_norm
+
+    dw = np.cross(k, dt)
+    dw_norm = float(np.dot(w, dw)) / w_norm
+    dy = dw / w_norm - w * dw_norm / (w_norm**2)
+
+    z = np.cross(t, y)
+    dz = np.cross(dt, y) + np.cross(t, dy)
+
+    R = np.column_stack([t, y, z])
+    dR = np.column_stack([dt, dy, dz])
+    return R, dR
+
+
+def _htm_and_derivative(p, dp_ds, dp_ds2, frame_func=_frame_and_derivative):
+    R, dR = frame_func(p, dp_ds, dp_ds2)
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = p
+    dT = np.zeros((4, 4))
+    dT[:3, :3] = dR
+    dT[:3, 3] = dp_ds
+    return T, dT
+
+
+def _sample(p_func, dp_func, ddp_func, n_points, frame_func=_frame_and_derivative):
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+    for i in range(n_points):
+        s = i / n_points
+        p = p_func(s)
+        dp = dp_func(s)
+        ddp = ddp_func(s)
+        T, dT = _htm_and_derivative(p, dp, ddp, frame_func)
+        curve[i] = T
+        dcurve[i] = dT
+    return curve, dcurve
+
+
+def barrel_roll(p, dp_ds, dp_ds2, n_rolls, s):
+    # Base frame — call the existing default unchanged
+    R0, dR0 = _frame_and_derivative(p, dp_ds, dp_ds2)
+
+    t, y0, z0 = R0[:, 0], R0[:, 1], R0[:, 2]
+    dt, dy0, dz0 = dR0[:, 0], dR0[:, 1], dR0[:, 2]
+
+    theta = 2.0 * np.pi * n_rolls * s
+    dtheta = 2.0 * np.pi * n_rolls
+
+    c, sn = np.cos(theta), np.sin(theta)
+
+    y = c * y0 + sn * z0
+    z = -sn * y0 + c * z0
+
+    dy = -sn * dtheta * y0 + c * dy0 + c * dtheta * z0 + sn * dz0
+    dz = -c * dtheta * y0 - sn * dy0 - sn * dtheta * z0 + c * dz0
+
+    R = np.column_stack([t, y, z])
+    dR = np.column_stack([dt, dy, dz])
+    return R, dR
+
+
+def _sample_barrel_roll(p_func, dp_func, ddp_func, n_points, n_rolls):
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+    for i in range(n_points):
+        s = i / n_points
+
+        # Bind s via a default arg so _htm_and_derivative can call
+        # frame_func(p, dp, ddp) with its unchanged 3-argument signature.
+        def frame_func(p, dp_ds, dp_ds2, _s=s):
+            return barrel_roll(p, dp_ds, dp_ds2, n_rolls, _s)
+
+        T, dT = _htm_and_derivative(p_func(s), dp_func(s), ddp_func(s), frame_func)
+        curve[i] = T
+        dcurve[i] = dT
+    return curve, dcurve
+
+
+# ==========================================================================
 # Curve builders
 # ==========================================================================
 
 
-def make_circle(radius=1.5, z0=-1.0, center_xy=(0.0, 0.0), n_points=5000):
+def make_circle(radius=1.5, z0=-1.0, center_xy=(0.0, 0.0), n_points=5000, n_rolls=0):
     cx, cy = center_xy
     w = 2.0 * np.pi
     w2 = w * w
@@ -58,7 +151,10 @@ def make_circle(radius=1.5, z0=-1.0, center_xy=(0.0, 0.0), n_points=5000):
         th = w * s
         return np.array([-w2 * radius * np.cos(th), -w2 * radius * np.sin(th), 0.0])
 
-    return _sample(p, dp, ddp, n_points)
+    if n_rolls > 0:
+        return _sample_barrel_roll(p, dp, ddp, n_points, n_rolls)
+    else:
+        return _sample(p, dp, ddp, n_points)
 
 
 def make_ellipse(a=2.0, b=1.0, z0=-1.0, center_xy=(0.0, 0.0), n_points=5000):
@@ -112,59 +208,6 @@ def make_lissajous_3d(
         )
 
     return _sample(p, dp, ddp, n_points)
-
-
-# ==========================================================================
-# Generic frame construction (default: tangent-aligned)
-# ==========================================================================
-def _frame_and_derivative(p, dp_ds, dp_ds2):
-    # ... (keep the existing default frame code exactly as it is) ...
-    v = float(np.linalg.norm(dp_ds))
-    t = dp_ds / v
-    k = np.array([0.0, 0.0, 1.0])
-
-    t_dot_ddp = float(np.dot(t, dp_ds2))
-    dt = (dp_ds2 - t * t_dot_ddp) / v
-
-    w = np.cross(k, t)
-    w_norm = float(np.linalg.norm(w))
-    y = w / w_norm
-
-    dw = np.cross(k, dt)
-    dw_norm = float(np.dot(w, dw)) / w_norm
-    dy = dw / w_norm - w * dw_norm / (w_norm**2)
-
-    z = np.cross(t, y)
-    dz = np.cross(dt, y) + np.cross(t, dy)
-
-    R = np.column_stack([t, y, z])
-    dR = np.column_stack([dt, dy, dz])
-    return R, dR
-
-
-def _htm_and_derivative(p, dp_ds, dp_ds2, frame_func=_frame_and_derivative):
-    R, dR = frame_func(p, dp_ds, dp_ds2)
-    T = np.eye(4)
-    T[:3, :3] = R
-    T[:3, 3] = p
-    dT = np.zeros((4, 4))
-    dT[:3, :3] = dR
-    dT[:3, 3] = dp_ds
-    return T, dT
-
-
-def _sample(p_func, dp_func, ddp_func, n_points, frame_func=_frame_and_derivative):
-    curve = np.zeros((n_points, 4, 4))
-    dcurve = np.zeros((n_points, 4, 4))
-    for i in range(n_points):
-        s = i / n_points
-        p = p_func(s)
-        dp = dp_func(s)
-        ddp = ddp_func(s)
-        T, dT = _htm_and_derivative(p, dp, ddp, frame_func)
-        curve[i] = T
-        dcurve[i] = dT
-    return curve, dcurve
 
 
 # ==========================================================================
