@@ -17,7 +17,7 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 70
+T = 150
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000 * 2
@@ -27,9 +27,9 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "trefoil"
+CURVE_TYPE = "lissajous_3d"
 
-CURVE_RADIUS = 1.5 * 2
+CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
 
 # Ellipse
@@ -38,8 +38,8 @@ ELLIPSE_B = 1.0 * 1
 
 # Lissajous
 LISSAJOUS_A = 4.0
-LISSAJOUS_B = 2.0
-LISSAJOUS_C = 1.0
+LISSAJOUS_B = 3.5
+LISSAJOUS_C = 0.5
 
 # Trefoil
 TREFOIL_R = 1.0 * 2
@@ -64,7 +64,7 @@ kwargs = {
 }
 
 if CURVE_TYPE == "circle":
-    kwargs["radius"] = CURVE_RADIUS
+    kwargs["radius"] = CIRCLE_RADIUS
     kwargs["n_rolls"] = CURVE_N_ROLLS
 elif CURVE_TYPE == "ellipse":
     kwargs["a"] = ELLIPSE_A
@@ -83,7 +83,7 @@ elif CURVE_TYPE == "vertical_coil":
 
 
 curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
-scale_pos = 1 / np.sqrt(3)
+scale_pos = 1 / np.sqrt(2.7)
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
 
@@ -136,30 +136,18 @@ params.measurement_noise.white_variances = np.array(
 
 params.measurement_noise.colored_variances = np.array(
     [
-        0 * 0.01**2,
-        0 * 0.01**2,
-        0 * 0.005**2,  # Position: ~1 cm drift
-        0 * 0.002**2,
-        0 * 0.002**2,
-        0 * 0.005**2,
+        0.05**2,
+        0.05**2,
+        0.05**2,  # Position: ~1 cm drift
+        0.005**2,
+        0.005**2,
+        0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.001**2,
         0.001**2,
         0.001**2,
-        # 0.05**2,
-        # 0.05**2,
-        # 0.01**2,
-        # 0.005**2,
-        # 0.005**2,
-        # 0.02**2,
-        # 0.01**2,
-        # 0.01**2,
-        # 0.01**2,
-        # 0.003**2,
-        # 0.003**2,
-        # 0.003**2,
     ],
     dtype=np.float64,
 )
@@ -189,25 +177,8 @@ prev_idx = 0
 window_size = int(0.1 * CURVE_POINTS)
 dist = 1e3
 
-noise_xi_H = np.zeros((6,))
-std_noise = np.array(
-    [
-        0.05,
-        0.05,
-        0.05,
-        0.005,
-        0.005,
-        0.005,
-    ]
-)
-
-A = np.exp(-dt / 5.0)
-
 for t in tqdm(time_vec):
     half_win = window_size // 2
-    noise_xi_H = A * noise_xi_H + std_noise * np.sqrt(1 - A**2) * np.random.normal(
-        size=(6,)
-    )
 
     if dist < 0.5:
         start = (prev_idx - half_win) % CURVE_POINTS
@@ -229,7 +200,6 @@ for t in tqdm(time_vec):
     ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
     ctrl_twist = state.measurement.twist if state.measurement.valid else state.twist
 
-    ctrl_pose = ub_cpp.expSE3(ub_cpp.SmapSE3(noise_xi_H)) @ state.pose
     scale_pose = ctrl_pose.copy()
     scale_pose[:3, 3] *= scale_pos
 
@@ -249,7 +219,7 @@ for t in tqdm(time_vec):
     # 4. Map the local index back to the global curve index
     global_idx = (start + local_idx) % CURVE_POINTS
     prev_idx = global_idx
-    idx = global_idx
+    closest_idx = global_idx
 
     v, omega = xi[:3], xi[3:]
     p_ctrl = ctrl_pose[:3, 3]
@@ -265,13 +235,29 @@ for t in tqdm(time_vec):
     true_pose = state.pose
     true_twist = state.twist
     rot = true_pose[:3, :3].T
+    true_pose_scale = true_pose.copy()
+    true_pose_scale[:3, 3] *= scale_pos
+
+    # _, dist, local_idx = ub.Robot.vector_field_SE3(
+    #     true_pose_scale,
+    #     # curve,
+    #     curve_window,
+    #     kt1=kt1,
+    #     kt2=kt2,
+    #     kt3=kt3,
+    #     kn1=kn1,
+    #     kn2=kn2,
+    #     # curve_derivative=curve_derivative,
+    #     curve_derivative=deriv_window,
+    # )
+    # closest_idx = (start + local_idx) % CURVE_POINTS
 
     log_dist.append(dist)
-    log_idx.append(idx)
+    log_idx.append(closest_idx)
     log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
     log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
 
-    closest_point = curve[idx]
+    closest_point = curve[closest_idx]
     p_near = closest_point[:3, 3]
     ori_near = closest_point[:3, :3]
     p_curr = true_pose[:3, 3]
