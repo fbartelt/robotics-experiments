@@ -1,0 +1,367 @@
+{
+  "frame": "x forward, y left, z up; metres; rotated 180 degrees about x from source",
+  "notes": "Shaft axes define a geometric convention, not calibrated positive motor commands. Allocation omits reaction torque, saturation, fluid forces and actuator dynamics.",
+  "geometric_force_allocation_rank": 6,
+  "thrusters": [
+    {
+      "name": "FrontRight",
+      "position_m": [
+        0.1355,
+        -0.1,
+        -0.0725
+      ],
+      "shaft_axis_unit": [
+        0.7071067811847432,
+        0.7071067811883519,
+        0.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          0.7071067811847432,
+          0.7071067811883519,
+          0.0,
+          0.1355
+        ],
+        [
+          0.7071067811883519,
+          -0.7071067811847432,
+          0.0,
+          -0.1
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          -0.0725
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "true"
+      }
+    },
+    {
+      "name": "FrontLeft",
+      "position_m": [
+        0.1355,
+        0.1,
+        -0.0725
+      ],
+      "shaft_axis_unit": [
+        0.7071067811847432,
+        -0.7071067811883519,
+        0.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          0.7071067811847432,
+          -0.7071067811883519,
+          0.0,
+          0.1355
+        ],
+        [
+          -0.7071067811883519,
+          -0.7071067811847432,
+          0.0,
+          0.1
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          -0.0725
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "true"
+      }
+    },
+    {
+      "name": "BackRight",
+      "position_m": [
+        -0.1475,
+        -0.1,
+        -0.0725
+      ],
+      "shaft_axis_unit": [
+        -0.7071067811919605,
+        0.7071067811811346,
+        0.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -0.7071067811919605,
+          0.7071067811811346,
+          0.0,
+          -0.1475
+        ],
+        [
+          0.7071067811811346,
+          0.7071067811919605,
+          0.0,
+          -0.1
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          -0.0725
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "false"
+      }
+    },
+    {
+      "name": "BackLeft",
+      "position_m": [
+        -0.1475,
+        0.1,
+        -0.0725
+      ],
+      "shaft_axis_unit": [
+        -0.7071067811919605,
+        -0.7071067811811346,
+        0.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -0.7071067811919605,
+          -0.7071067811811346,
+          0.0,
+          -0.1475
+        ],
+        [
+          -0.7071067811811346,
+          0.7071067811919605,
+          0.0,
+          0.1
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          -0.0725
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "false"
+      }
+    },
+    {
+      "name": "DiveFrontRight",
+      "position_m": [
+        0.12,
+        -0.218,
+        0.0
+      ],
+      "shaft_axis_unit": [
+        -5.1034119672569625e-12,
+        0.0,
+        -1.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -5.1034119672569625e-12,
+          0.0,
+          -1.0,
+          0.12
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.218
+        ],
+        [
+          -1.0,
+          0.0,
+          5.1034119672569625e-12,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "false"
+      }
+    },
+    {
+      "name": "DiveFrontLeft",
+      "position_m": [
+        0.12,
+        0.218,
+        0.0
+      ],
+      "shaft_axis_unit": [
+        -5.1034119672569625e-12,
+        0.0,
+        -1.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -5.1034119672569625e-12,
+          0.0,
+          -1.0,
+          0.12
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.218
+        ],
+        [
+          -1.0,
+          0.0,
+          5.1034119672569625e-12,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "true"
+      }
+    },
+    {
+      "name": "DiveBackRight",
+      "position_m": [
+        -0.12,
+        -0.218,
+        0.0
+      ],
+      "shaft_axis_unit": [
+        -5.1034119672569625e-12,
+        0.0,
+        -1.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -5.1034119672569625e-12,
+          0.0,
+          -1.0,
+          -0.12
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.218
+        ],
+        [
+          -1.0,
+          0.0,
+          5.1034119672569625e-12,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "true"
+      }
+    },
+    {
+      "name": "DiveBackLeft",
+      "position_m": [
+        -0.12,
+        0.218,
+        0.0
+      ],
+      "shaft_axis_unit": [
+        -5.1034119672569625e-12,
+        0.0,
+        -1.0
+      ],
+      "mesh_to_body_transform": [
+        [
+          -5.1034119672569625e-12,
+          0.0,
+          -1.0,
+          -0.12
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.218
+        ],
+        [
+          -1.0,
+          0.0,
+          5.1034119672569625e-12,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "source_specs": {
+        "thrust_coeff": "0.167",
+        "torque_coeff": "0.016",
+        "max_rpm": "3600.0",
+        "inverted": "false"
+      }
+    }
+  ]
+}

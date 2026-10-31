@@ -1,0 +1,13 @@
+{
+  "glb_bytes": 5624424,
+  "geometry_count": 10,
+  "triangles": 213806,
+  "dimensions_m": [
+    0.457633,
+    0.575672,
+    0.255248
+  ],
+  "thrusters": 8,
+  "geometric_allocation_rank": 6,
+  "preview": "/workspace/scratch/7c977a9cf142/vehicle_models/bluerov2_heavy_preview.png"
+}
