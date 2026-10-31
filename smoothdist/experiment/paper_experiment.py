@@ -1,6 +1,6 @@
 import numpy as np
 import uaibot as ub
-from franka_tests.create_franka_emika_3_mod import create_franka_emika_3_mod
+from experiment.create_franka_emika_3_mod import create_franka_emika_3_mod
 import plotly.graph_objects as go
 import webbrowser
 from pathlib import Path
@@ -52,7 +52,7 @@ else:
     delta_obs = -5.0e-4 * 1e1
     delta_auto = -1e-4
 
-# Obstacles
+
 real_obstacles = []
 real_obstacles.append(
     ub.Box(
@@ -60,7 +60,8 @@ real_obstacles.append(
         width=0.35,
         depth=0.05,
         height=0.90,
-        color="magenta",
+        # color="magenta",
+        color="#A8CEAC",
     )
 )
 real_obstacles.append(
@@ -69,7 +70,8 @@ real_obstacles.append(
         width=0.35,
         depth=0.05,
         height=0.90,
-        color="magenta",
+        # color="magenta",
+        color="#A8CEAC",
     )
 )
 real_obstacles.append(
@@ -78,24 +80,26 @@ real_obstacles.append(
         width=0.35,
         depth=0.35,
         height=0.05,
-        color="magenta",
+        # color="magenta",
+        color="#E8DD94",
     )
 )
 
 # Agumented obstacles
 obstacles = []
-expand = 0.1  # equivalent to 0.05 * 3.0
-# expand = 2e-2
 expand = 5e-2
 
+expand_opacity = 0.5
+expand_color = "cyan"
 obstacles.append(
     ub.Box(
         htm=ub.Utils.trn([0.53, 0.16, 0.45]),
         width=0.35 + expand,
         depth=0.05 + expand,
         height=0.90 + expand,
-        color="cyan",
-        opacity=0.7,
+        # color=expand_color,
+        color="#A8CEAC",
+        opacity=expand_opacity,
     )
 )
 obstacles.append(
@@ -104,8 +108,9 @@ obstacles.append(
         width=0.35 + expand,
         depth=0.05 + expand,
         height=0.90 + expand,
-        color="cyan",
-        opacity=0.7,
+        color="#A8CEAC",
+        # color=expand_color,
+        opacity=expand_opacity,
     )
 )
 obstacles.append(
@@ -114,8 +119,9 @@ obstacles.append(
         width=0.35 + expand,
         depth=0.35 + expand,
         height=0.05 + expand,
-        color="cyan",
-        opacity=0.7,
+        color="#E8DD94",
+        # color=expand_color,
+        opacity=expand_opacity,
     )
 )
 
@@ -161,7 +167,7 @@ sim_time = 0
 robot = create_franka_emika_3_mod()
 
 # sim = ub.Simulation(background_color="lightblue")
-sim = ub.Simulation()
+sim = ub.Simulation.create_sim_grid(robot)
 sim.add(robot)
 robot.add_ani_frame(0, q)
 
