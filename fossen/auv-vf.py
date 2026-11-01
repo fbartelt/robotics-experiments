@@ -3,9 +3,12 @@ import uaibot as ub
 import uaibot_cpp_bind as ub_cpp
 import plotly.graph_objects as go
 from tqdm import tqdm
+from uaibot.utils import Utils
 from uaibot.simobjects import Box, Frame, Ball
 from uaibot.simobjects.curve import CurveSE3
 from fossen.curves import build_curve
+from fossen.create_bluerov2 import make_rov
+from fossen.ocean_sim import create_sim_underwater
 from plotly.subplots import make_subplots
 
 # ---------- Initial conditions (mirror of the C++ example) ---------------
@@ -17,7 +20,7 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 150
+T = 30
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000 * 2
@@ -27,7 +30,7 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "lissajous_3d"
+CURVE_TYPE = "trefoil"
 
 CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
@@ -90,10 +93,24 @@ curve_scale[:, :3, 3] *= scale_pos
 # ---------- Scene object -------------------------------------------------
 # htm0 = curve[0]
 closest_p = Ball(htm=np.eye(4), opacity=0.8, radius=0.05, color="pink")
-auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red", opacity=0.3)
+# auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red", opacity=0.3)
+auv = make_rov(htm=htm0)
 auv_frame = Frame(htm=htm0)
-sim = ub.Simulation([auv, auv_frame])
-sim.add(closest_p)
+# sim = ub.Simulation([auv, auv_frame])
+camera_start_htm = np.asarray(Utils.trn([-2.0, 0.0, 1.0])) @ htm0
+camera_start_pose = [
+    camera_start_htm[0, 3],
+    camera_start_htm[1, 3],
+    camera_start_htm[2, 3],
+    0,
+    0,
+    0,
+    1.0,
+]
+sim = create_sim_underwater([auv, auv_frame])
+sim.set_parameters(camera_follow=auv, camera_start_pose=camera_start_pose)
+
+# sim.add(closest_p)
 curve_ub = CurveSE3(points=curve, color="cyan")
 sim.add(curve_ub)
 sim.set_parameters(width=1480, height=920)
