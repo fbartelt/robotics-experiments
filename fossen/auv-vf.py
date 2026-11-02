@@ -1,3 +1,5 @@
+import pickle
+import os
 import numpy as np
 import uaibot as ub
 import uaibot_cpp_bind as ub_cpp
@@ -20,7 +22,8 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 30
+T = 300
+curve_base_path = "./fossen/data"
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000 * 2
@@ -30,7 +33,7 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "trefoil"
+CURVE_TYPE = "ellipse"
 
 CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
@@ -85,7 +88,17 @@ elif CURVE_TYPE == "vertical_coil":
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
 
 
-curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
+results_file_name = f"results_{CURVE_TYPE}_default.pkl"
+results_file = os.path.join(curve_base_path, results_file_name)
+curve_path = os.path.join(curve_base_path, f"{CURVE_TYPE}.npy")
+dcurve_path = os.path.join(curve_base_path, f"{CURVE_TYPE}_derivative.npy")
+
+if os.path.exists(curve_path):
+    curve = np.load(curve_path, allow_pickle=True)
+    curve_derivative = np.load(dcurve_path, allow_pickle=True)
+else:
+    curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
+
 scale_pos = 1 / np.sqrt(2.7)
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
@@ -188,7 +201,10 @@ state.measurement.valid = True
 # ---------- Integrate physics + build animation frames -------------------
 time_vec = np.arange(0, T, dt)
 log_dist, log_err_pos, log_err_ori, log_idx = [], [], [], []
-log_twist, log_xi = [], []
+log_twist, log_xi, log_htm = [], [], []
+log_requested_wrench, log_allocated_wrench = [], []
+log_applied_wrench, log_allocation_residual = [], []
+log_thrust_setpoints, log_saturated_thrusters = [], []
 
 prev_idx = 0
 window_size = int(0.1 * CURVE_POINTS)
@@ -247,6 +263,7 @@ for t in tqdm(time_vec):
 
     # 2. PHYSICS STEP (Updates state.pose, state.twist, and state.measurement)
     state = ub_cpp.fossen_step(target_twist, state, params)
+    diagnostics = state.diagnostics
 
     # 3. LOGGING (Uses Ground Truth)
     true_pose = state.pose
@@ -269,11 +286,6 @@ for t in tqdm(time_vec):
     # )
     # closest_idx = (start + local_idx) % CURVE_POINTS
 
-    log_dist.append(dist)
-    log_idx.append(closest_idx)
-    log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
-    log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
-
     closest_point = curve[closest_idx]
     p_near = closest_point[:3, 3]
     ori_near = closest_point[:3, :3]
@@ -285,14 +297,47 @@ for t in tqdm(time_vec):
     acos = np.arccos(np.clip((trace_ - 1) / 2, -1.0, 1.0))  # Clip for numerical safety
     if np.isnan(acos):
         acos = 0
+
+    log_dist.append(dist)
+    log_idx.append(closest_idx)
+    log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
+    log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
     log_err_ori.append(acos * 180 / np.pi)
+    log_htm.append(true_pose.copy())
+    log_requested_wrench.append(diagnostics.requested_wrench)
+    log_allocated_wrench.append(diagnostics.allocated_wrench)
+    log_applied_wrench.append(diagnostics.applied_wrench)
+    log_allocation_residual.append(diagnostics.allocation_residual)
+    log_thrust_setpoints.append(diagnostics.thrust_setpoints)
+    log_saturated_thrusters.append(diagnostics.saturated_thrusters)
+
 
     auv.add_ani_frame(time=float(t), htm=true_pose)
     auv_frame.add_ani_frame(time=float(t), htm=true_pose)
     closest_p.add_ani_frame(time=float(t), htm=closest_point)
 
+data = {
+        "time": time_vec,
+        "dist": np.array(log_dist),
+        "err_pos": np.array(log_err_pos),
+        "err_ori": np.array(log_err_ori),
+        "idx": np.array(log_idx),
+        "xi": np.array(log_xi),
+        "twist": np.array(log_twist),
+        "htm": np.array(log_htm),
+        "requested_wrench": np.array(log_requested_wrench),
+        "allocated_wrench": np.array(log_allocated_wrench),
+        "applied_wrench": np.array(log_applied_wrench),
+        "allocation_residual": np.array(log_allocation_residual),
+        "thrust_setpoints": np.array(log_thrust_setpoints),
+        "saturated_thrusters": np.array(log_saturated_thrusters),
+}
+
+
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
+with open(results_file, 'wb') as f:
+    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def create_fig():
