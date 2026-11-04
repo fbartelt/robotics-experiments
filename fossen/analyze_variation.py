@@ -145,117 +145,13 @@ def analyze_pickle_recomputed_v2(
             if r["is_stuck"]:
                 reasons.append(f"stuck(dwell={r['max_dwell_frac']:.2f})")
             if not r.get("performance_ok", True):
-                reasons.append(f"poor_tracking(pos={r['ss_pos']:.1f}cm, ori={r['ss_ori']:.1f}°)")
-            print(f"  Run {int(run_ids[i]):3d}: " + ", ".join(reasons) +
-                  f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm")
-    # if failures:
-    #     print(f"\nFailed runs ({len(failures)}):")
-    #     for i, r in failures:
-    #         reasons = []
-    #         if r["coverage"] < analyzer_kwargs.get("coverage_threshold", 0.90):
-    #             reasons.append(f"coverage={r['coverage']:.2f}")
-    #         if r["laps"] < analyzer_kwargs.get("min_laps", 1.0):
-    #             reasons.append(f"laps={r['laps']:.2f}")
-    #         if r["is_stuck"]:
-    #             reasons.append(f"stuck(dwell={r['max_dwell_frac']:.2f})")
-    #         print(
-    #             f"  Run {int(run_ids[i]):3d}: "
-    #             + ", ".join(reasons)
-    #             + f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm"
-    #         )
-
-    return results
-
-
-def analyze_pickle_recomputed(pkl_path, curve_npy_path, **analyzer_kwargs):
-    """
-    TEMPORARY FIX: load a saved pickle, recompute idx/err_pos/err_ori from
-    the saved true poses and the true curve, then run the standard analyzer.
-    The saved idx/err_pos/err_ori are corrupted by a local-vs-global index
-    bug; this function ignores them. Keep analyze_pickle() for future runs.
-
-    Note: 'dist' from the pickle is in SCALED units (scale_pos ≈ 0.608).
-    Multiply by 1/scale_pos if you want physical meters in the report.
-    """
-    print("\n" + "=" * 68)
-    print(f"Analyzing (RECOMPUTED): {pkl_path}")
-    print("=" * 68)
-
-    with open(pkl_path, "rb") as f:
-        data = pickle.load(f)
-
-    curve = np.load(curve_npy_path, allow_pickle=True)
-    N = len(curve)
-    print(f"N = {N} (from curve file)")
-
-    run_ids = sorted(
-        {
-            k[len("run_") : -len("_htm")]
-            for k in data
-            if k.startswith("run_") and k.endswith("_htm")
-        }
-    )
-    n_runs = len(run_ids)
-    print(f"Recomputing metrics for {n_runs} runs...")
-
-    results = []
-    for run_id in run_ids:
-        htm = data[f"run_{run_id}_htm"]
-        time_arr = data.get(f"run_{run_id}_time")
-        dist_arr = data.get(f"run_{run_id}_dist")
-
-        idx, err_pos, err_ori = recompute_from_htm(htm, curve)
-
-        if time_arr is None:
-            time_arr = np.arange(len(htm)) * 0.01
-        if dist_arr is None:
-            dist_arr = np.zeros(len(htm))
-
-        r = analyze_run(idx, dist_arr, err_pos, err_ori, time_arr, N, **analyzer_kwargs)
-        results.append(r)
-
-    successes = [r for r in results if r["success"]]
-    failures = [(i, r) for i, r in enumerate(results) if not r["success"]]
-    print(
-        f"\nSuccess rate: {len(successes)}/{n_runs} = "
-        f"{100.0 * len(successes) / n_runs:.1f}%"
-    )
-
-    if successes:
-        print("\nMetrics (successful runs only; dist in scaled units):")
-        for metric in [
-            "ss_dist",
-            "ss_pos",
-            "ss_ori",
-            "max_dist_ss",
-            "first_lap_time",
-            "laps",
-            "coverage",
-            "max_dwell_frac",
-        ]:
-            vals = np.array([r[metric] for r in successes])
-            vals = vals[~np.isnan(vals)]
-            if len(vals):
-                print(
-                    f"  {metric:16s}: mean={vals.mean():9.4f}  "
-                    f"std={vals.std():9.4f}  median={np.median(vals):9.4f}  "
-                    f"min={vals.min():9.4f}  max={vals.max():9.4f}"
+                reasons.append(
+                    f"poor_tracking(pos={r['ss_pos']:.1f}cm, ori={r['ss_ori']:.1f}°)"
                 )
-
-    if failures:
-        print(f"\nFailed runs ({len(failures)}):")
-        for i, r in failures:
-            reasons = []
-            if r["coverage"] < analyzer_kwargs.get("coverage_threshold", 0.90):
-                reasons.append(f"coverage={r['coverage']:.2f}")
-            if r["laps"] < analyzer_kwargs.get("min_laps", 1.0):
-                reasons.append(f"laps={r['laps']:.2f}")
-            if r["is_stuck"]:
-                reasons.append(f"stuck(dwell={r['max_dwell_frac']:.2f})")
             print(
-                f"  Run {i:3d}: "
+                f"  Run {int(run_ids[i]):3d}: "
                 + ", ".join(reasons)
-                + f"  | ss_dist={r['ss_dist']:.3f}  final_dist={r['final_dist']:.3f}"
+                + f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm"
             )
 
     return results
@@ -366,29 +262,57 @@ def analyze_run(
     # }
 
 
-def analyze_pickle(pkl_path, curve_npy_path=None, **kwargs):
+def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **kwargs):
     print("\n" + "=" * 68)
     print(f"Analyzing: {pkl_path}")
+    if include_types is not None:
+        print(f"  Filter: only runs with init_type in {include_types}")
+    else:
+        print(f"  Filter: none (all runs included)")
     print("=" * 68)
 
     with open(pkl_path, "rb") as f:
         data = pickle.load(f)
 
-    idx_keys = sorted(k for k in data if k.startswith("run_") and k.endswith("_idx"))
-    n_runs = len(idx_keys)
+    # --- extract run IDs that actually exist in the pickle ---
+    all_run_ids = sorted(
+        {
+            int(k[len("run_") : -len("_idx")])
+            for k in data
+            if k.startswith("run_") and k.endswith("_idx")
+        }
+    )
+    print(f"  Runs present in file: {len(all_run_ids)}")
 
+    # --- filter by init_type (treat missing meta as 'nominal' for backward compat) ---
+    run_ids = []
+    for rid in all_run_ids:
+        init_type = data.get(f"run_{rid:03d}_meta_init_type", "nominal")
+        if include_types is None or init_type in include_types:
+            run_ids.append(rid)
+    print(
+        f"  Using runs: {len(run_ids)}  "
+        f"(ids: {run_ids[:5]}{'...' if len(run_ids) > 5 else ''})"
+    )
+
+    if not run_ids:
+        print("  No runs matched the filter. Aborting analysis for this curve.")
+        return []
+
+    # --- N from curve file if available, otherwise infer ---
     if curve_npy_path and os.path.exists(curve_npy_path):
         curve = np.load(curve_npy_path, allow_pickle=True)
         N = len(curve)
-        print(f"N = {N} (from curve file)")
+        print(f"  N = {N} (from curve file)")
     else:
-        all_idx = np.concatenate([data[k] for k in idx_keys])
-        N = int(all_idx.max()) + 1
-        print(f"N = {N} (inferred from max index)")
+        sample = np.concatenate([data[f"run_{rid:03d}_idx"] for rid in run_ids[:20]])
+        N = int(sample.max()) + 1
+        print(f"  N = {N} (inferred from a sample of runs)")
 
+    # --- evaluate each run ---
     results = []
-    for i in range(n_runs):
-        prefix = f"run_{i:03d}_"
+    for rid in run_ids:
+        prefix = f"run_{rid:03d}_"
         r = analyze_run(
             data[prefix + "idx"],
             data[prefix + "dist"],
@@ -398,14 +322,16 @@ def analyze_pickle(pkl_path, curve_npy_path=None, **kwargs):
             N,
             **kwargs,
         )
+        r["run_id"] = rid
+        r["init_type"] = data.get(f"{prefix}meta_init_type", "nominal")
         results.append(r)
 
     successes = [r for r in results if r["success"]]
-    failures = [(i, r) for i, r in enumerate(results) if not r["success"]]
+    failures = [r for r in results if not r["success"]]
 
     print(
-        f"\nSuccess rate: {len(successes)}/{n_runs} = "
-        f"{100.0 * len(successes) / n_runs:.1f}%"
+        f"\nSuccess rate: {len(successes)}/{len(results)} = "
+        f"{100.0 * len(successes) / len(results):.1f}%"
     )
 
     if successes:
@@ -424,17 +350,22 @@ def analyze_pickle(pkl_path, curve_npy_path=None, **kwargs):
             vals = vals[~np.isnan(vals)]
             if len(vals):
                 print(
-                    f"  {metric:16s}: "
-                    f"mean={vals.mean():9.4f}  "
-                    f"std={vals.std():9.4f}  "
-                    f"median={np.median(vals):9.4f}  "
-                    f"min={vals.min():9.4f}  "
-                    f"max={vals.max():9.4f}"
+                    f"  {metric:16s}: mean={vals.mean():9.4f}  std={vals.std():9.4f}  "
+                    f"median={np.median(vals):9.4f}  min={vals.min():9.4f}  max={vals.max():9.4f}"
                 )
+
+    # --- breakdown by init_type (informative once problematic runs are merged in) ---
+    types_present = sorted({r["init_type"] for r in results})
+    if len(types_present) > 1:
+        print("\nBreakdown by init_type:")
+        for t in types_present:
+            group = [r for r in results if r["init_type"] == t]
+            n_ok = sum(1 for r in group if r["success"])
+            print(f"  {t:10s}: {n_ok}/{len(group)} = {100.0 * n_ok / len(group):5.1f}%")
 
     if failures:
         print(f"\nFailed runs ({len(failures)}):")
-        for i, r in failures:
+        for r in failures:
             reasons = []
             if r["coverage"] < kwargs.get("coverage_threshold", 0.90):
                 reasons.append(f"coverage={r['coverage']:.2f}")
@@ -442,10 +373,64 @@ def analyze_pickle(pkl_path, curve_npy_path=None, **kwargs):
                 reasons.append(f"laps={r['laps']:.2f}")
             if r["is_stuck"]:
                 reasons.append(f"stuck(dwell={r['max_dwell_frac']:.2f})")
+            if not r.get("performance_ok", True):
+                reasons.append(
+                    f"poor_tracking(pos={r['ss_pos']:.1f}cm, ori={r['ss_ori']:.1f}°)"
+                )
+            # --- Extract the scale factor and base radii for this curve ---
+            curve_seed = r["run_id"] // 5  # N_INITS=5
+            rng = np.random.default_rng(curve_seed)
+            _ = rng.uniform(0, 2 * np.pi)  # first draw: global yaw
+            scale = rng.uniform(0.8, 1.5)  # second draw: scale
+
+            # Base ellipse radii from your simulation script (A=2.0, B=1.0)
+            a = 2.0 * scale
+            b = 1.0 * scale
+
             print(
-                f"  Run {i:3d}: "
+                f"  Run {r['run_id']:3d} [{r['init_type']:10s}]: "
                 + ", ".join(reasons)
-                + f"  | ss_dist={r['ss_dist']:.3f}  final_dist={r['final_dist']:.3f}"
+                + f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm"
+                + f"  | curve_seed={curve_seed} (a={a:.2f}, b={b:.2f})"
+            )
+
+        seed_stats = {}
+        for r in results:
+            seed = r["run_id"] // 5  # N_INITS=5
+            s = seed_stats.setdefault(seed, {"ok": 0, "total": 0})
+            s["total"] += 1
+            s["ok"] += int(r["success"])
+
+        print(f"\nPer-seed summary (sorted by scale):")
+        print(
+            f"  {'seed':>4}  {'scale':>5}  {'a':>5}  {'b':>5}  {'roll°':>6}  {'pitch°':>7}  {'yaw_off°':>7}  {'success':>9}"
+        )
+        rows = []
+        for seed, s in seed_stats.items():
+            rng = np.random.default_rng(seed)
+            _ = rng.uniform(0, 2 * np.pi)  # yaw_global
+            scale = rng.uniform(0.8, 1.5)
+            roll = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
+            pitch = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
+            yaw_off = np.degrees(rng.uniform(-np.pi, np.pi))  # <-- add this
+            rows.append(
+                (
+                    scale,
+                    seed,
+                    3.0 * scale,
+                    2.0 * scale,
+                    roll,
+                    pitch,
+                    yaw_off,
+                    s["ok"],
+                    s["total"],
+                )
+            )
+
+        rows.sort()
+        for scale, seed, a, b, roll, pitch, yaw_off, ok, tot in rows:
+            print(
+                f"  {seed:>4}  {scale:>5.2f}  {a:>5.2f}  {b:>5.2f}  {roll:>6.1f}  {pitch:>7.1f}  {yaw_off:>7.1f}  {ok:>4}/{tot}"
             )
 
     return results
@@ -459,7 +444,7 @@ if __name__ == "__main__":
         pkl_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
         npy_path = os.path.join(curves_dir, f"{curve_type}.npy")
         if os.path.exists(pkl_path):
-            analyze_pickle(pkl_path, npy_path)
+            analyze_pickle(pkl_path, npy_path, min_laps=0.6,)
         else:
             print(f"Skipping {curve_type}: {pkl_path} not found")
 
