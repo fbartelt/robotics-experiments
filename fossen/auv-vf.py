@@ -1,3 +1,4 @@
+import torch
 import pickle
 import os
 import numpy as np
@@ -12,17 +13,25 @@ from fossen.curves import build_curve
 from fossen.create_bluerov2 import make_rov
 from fossen.ocean_sim import create_sim_underwater
 from plotly.subplots import make_subplots
+from fossen.torch_vf import SE3VectorField
+
+# ---- Torch device / dtype (float64 to match numpy) -----------------------
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DTYPE = torch.float64
+
+# Instantiate the solver once (delta / ds match the C++ constants c_delta / c_ds)
+vf_solver = SE3VectorField(delta=1e-3, ds=1e-3)
 
 # ---------- Initial conditions (mirror of the C++ example) ---------------
 htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
 
 actual_twist = np.zeros(6)
-gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 1 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 300
+T = 120
 curve_base_path = "./fossen/data"
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
@@ -33,14 +42,14 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "ellipse"
+CURVE_TYPE = "trefoil"
 
 CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
 
 # Ellipse
-ELLIPSE_A = 2.0 * 1
-ELLIPSE_B = 1.0 * 1
+ELLIPSE_A = 3.0 * 1
+ELLIPSE_B = 2.0 * 1
 
 # Lissajous
 LISSAJOUS_A = 4.0
@@ -102,6 +111,9 @@ else:
 scale_pos = 1 / np.sqrt(2.7)
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
+# Convert curves to torch tensors ONCE (kept on the same device for the whole run)
+curve_scale_t = torch.as_tensor(curve_scale, dtype=DTYPE, device=DEVICE)  # (M,4,4)
+deriv_t = torch.as_tensor(curve_derivative, dtype=DTYPE, device=DEVICE)  # (M,4,4)
 
 # ---------- Scene object -------------------------------------------------
 # htm0 = curve[0]
@@ -144,7 +156,7 @@ params.thrust_min = -4.10 * 9.80665 * np.ones((8,))
 # Measurement Noise Configuration (converted from C++ to NumPy arrays)
 params.measurement_noise.enabled = True
 params.measurement_noise.seed = 42
-params.measurement_noise.sample_period = 0.01 * 0
+params.measurement_noise.sample_period = 1 / 30
 
 params.measurement_noise.white_variances = np.array(
     [
@@ -236,18 +248,45 @@ for t in tqdm(time_vec):
     scale_pose = ctrl_pose.copy()
     scale_pose[:3, 3] *= scale_pos
 
-    xi, dist, local_idx = ub.Robot.vector_field_SE3(
-        scale_pose,
-        # curve,
-        curve_window,
+    # xi, dist, local_idx = ub.Robot.vector_field_SE3(
+    #     scale_pose,
+    #     # curve,
+    #     curve_window,
+    #     kt1=kt1,
+    #     kt2=kt2,
+    #     kt3=kt3,
+    #     kn1=kn1,
+    #     kn2=kn2,
+    #     # curve_derivative=curve_derivative,
+    #     curve_derivative=deriv_window,
+    # )
+    # ---- Build window on device (preserves the exact wrap-around logic) ------
+    if start < end:
+        curve_window_t = curve_scale_t[start:end]
+        deriv_window_t = deriv_t[start:end]
+    else:
+        curve_window_t = torch.cat((curve_scale_t[start:], curve_scale_t[:end]), dim=0)
+        deriv_window_t = torch.cat((deriv_t[start:], deriv_t[:end]), dim=0)
+
+    # ---- Single state -> batched (1, 4, 4) -----------------------------------
+    scale_pose_t = torch.as_tensor(scale_pose, dtype=DTYPE, device=DEVICE).unsqueeze(0)
+
+    # ---- Batched torch vector field ------------------------------------------
+    twist_t, dist_t, idx_t = vf_solver.vectorfield_se3(
+        states=scale_pose_t,
+        curve=curve_window_t,
         kt1=kt1,
         kt2=kt2,
         kt3=kt3,
         kn1=kn1,
         kn2=kn2,
-        # curve_derivative=curve_derivative,
-        curve_derivative=deriv_window,
+        curve_derivative=deriv_window_t,
     )
+
+    # ---- Back to numpy for downstream physics / logging ----------------------
+    xi = twist_t.squeeze(0).cpu().numpy()  # (6,)   v || omega
+    dist = float(dist_t.item())
+    local_idx = int(idx_t.item())
 
     # 4. Map the local index back to the global curve index
     global_idx = (start + local_idx) % CURVE_POINTS
@@ -311,32 +350,31 @@ for t in tqdm(time_vec):
     log_thrust_setpoints.append(diagnostics.thrust_setpoints)
     log_saturated_thrusters.append(diagnostics.saturated_thrusters)
 
-
     auv.add_ani_frame(time=float(t), htm=true_pose)
     auv_frame.add_ani_frame(time=float(t), htm=true_pose)
     closest_p.add_ani_frame(time=float(t), htm=closest_point)
 
 data = {
-        "time": time_vec,
-        "dist": np.array(log_dist),
-        "err_pos": np.array(log_err_pos),
-        "err_ori": np.array(log_err_ori),
-        "idx": np.array(log_idx),
-        "xi": np.array(log_xi),
-        "twist": np.array(log_twist),
-        "htm": np.array(log_htm),
-        "requested_wrench": np.array(log_requested_wrench),
-        "allocated_wrench": np.array(log_allocated_wrench),
-        "applied_wrench": np.array(log_applied_wrench),
-        "allocation_residual": np.array(log_allocation_residual),
-        "thrust_setpoints": np.array(log_thrust_setpoints),
-        "saturated_thrusters": np.array(log_saturated_thrusters),
+    "time": time_vec,
+    "dist": np.array(log_dist),
+    "err_pos": np.array(log_err_pos),
+    "err_ori": np.array(log_err_ori),
+    "idx": np.array(log_idx),
+    "xi": np.array(log_xi),
+    "twist": np.array(log_twist),
+    "htm": np.array(log_htm),
+    "requested_wrench": np.array(log_requested_wrench),
+    "allocated_wrench": np.array(log_allocated_wrench),
+    "applied_wrench": np.array(log_applied_wrench),
+    "allocation_residual": np.array(log_allocation_residual),
+    "thrust_setpoints": np.array(log_thrust_setpoints),
+    "saturated_thrusters": np.array(log_saturated_thrusters),
 }
 
 
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
-with open(results_file, 'wb') as f:
+with open(results_file, "wb") as f:
     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
