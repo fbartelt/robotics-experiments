@@ -10,8 +10,8 @@ CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
 
 # Ellipse
-ELLIPSE_A = 2.0 * 1
-ELLIPSE_B = 1.0 * 1
+ELLIPSE_A = 3.0 * 1
+ELLIPSE_B = 2.0 * 1
 
 # Lissajous
 LISSAJOUS_A = 4.0

@@ -1,0 +1,210 @@
+
+========================================================================
+  Curve: ellipse   seed: 0   N = 30000
+  Candidates: 50000   P2 scorer: C++ L-operator
+  Workers: 28   chunks: 28
+========================================================================
+
+  [ellipse seed=0] chunk 1/28 done (11.2 min elapsed)
+  [ellipse seed=0] chunk 2/28 done (11.2 min elapsed)
+  [ellipse seed=0] chunk 3/28 done (11.2 min elapsed)
+  [ellipse seed=0] chunk 4/28 done (11.2 min elapsed)
+  [ellipse seed=0] chunk 5/28 done (11.3 min elapsed)
+  [ellipse seed=0] chunk 6/28 done (11.3 min elapsed)
+  [ellipse seed=0] chunk 7/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 8/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 9/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 10/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 11/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 12/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 13/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 14/28 done (11.4 min elapsed)
+  [ellipse seed=0] chunk 15/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 16/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 17/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 18/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 19/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 20/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 21/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 22/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 23/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 24/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 25/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 26/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 27/28 done (11.5 min elapsed)
+  [ellipse seed=0] chunk 28/28 done (11.6 min elapsed)
+
+  done in 11.6 min
+
+P1: min=4.4633e+05  median=2.4851e+06  p90=6.4384e+06  p99=1.5872e+07  max=5.4653e+08
+P2: min=1.4401e+00  median=9.0319e+00  p90=1.5477e+01  p99=2.9431e+01  max=2.7956e+03
+
+Top 10 by P1 (most ambiguous):
+  idx= 19594  P1=5.4653e+08  P2=1.3332e+03  pos=[1.277, -1.265, -7.190]
+  idx= 12072  P1=4.8191e+08  P2=4.9716e+02  pos=[0.042, -1.842, -0.592]
+  idx= 40024  P1=9.1385e+07  P2=7.9378e+01  pos=[-3.134, 0.222, -4.648]
+  idx= 28623  P1=8.9986e+07  P2=1.2366e+02  pos=[-0.261, 1.748, -6.905]
+  idx= 40949  P1=8.4550e+07  P2=3.3496e+01  pos=[0.551, -2.804, -0.793]
+  idx= 30268  P1=8.2592e+07  P2=1.1738e+02  pos=[0.483, -2.211, -7.385]
+  idx= 17260  P1=8.1846e+07  P2=8.5435e+01  pos=[0.934, -3.551, -4.774]
+  idx= 11658  P1=7.1935e+07  P2=4.5601e+01  pos=[-3.225, 0.263, -2.649]
+  idx= 19733  P1=6.9821e+07  P2=7.7121e+01  pos=[0.318, -1.963, -7.617]
+  idx= 26362  P1=6.4684e+07  P2=1.6027e+02  pos=[-0.753, 3.072, -5.022]
+
+Top 10 by P2 (highest L-operator Jacobian):
+  idx=  9943  P2=2.7956e+03  P1=1.5502e+07  pos=[-0.358, -0.576, -6.155]
+  idx= 46043  P2=2.3096e+03  P1=5.1933e+06  pos=[0.224, -0.470, -6.101]
+  idx= 45382  P2=1.8954e+03  P1=4.6250e+06  pos=[-1.023, -0.593, -5.652]
+  idx= 46767  P2=1.8435e+03  P1=7.8056e+06  pos=[0.044, 0.442, -7.633]
+  idx=  2926  P2=1.8042e+03  P1=9.8382e+06  pos=[1.363, 0.152, -6.671]
+  idx= 13083  P2=1.7517e+03  P1=3.2269e+06  pos=[1.540, 0.552, -6.622]
+  idx= 17904  P2=1.7194e+03  P1=5.9782e+06  pos=[-1.308, -0.803, -7.794]
+  idx= 12280  P2=1.6887e+03  P1=7.0345e+06  pos=[-0.478, 0.954, -4.691]
+  idx= 26771  P2=1.6573e+03  P1=2.8124e+06  pos=[1.434, -0.561, -6.306]
+  idx= 32479  P2=1.6540e+03  P1=3.1193e+06  pos=[1.714, 0.870, -6.879]
+
+Worst combined (in top-100 of both):
+  idx=19594  P1=5.4653e+08  P2=1.3332e+03  pos=[1.277, -1.265, -7.190]
+
+Saved to ./problematic_ellipse_seed0.pkl
+
+
+========================================================================
+  Curve: trefoil   seed: 0   N = 30000
+  Candidates: 50000   P2 scorer: C++ L-operator
+  Workers: 28   chunks: 28
+========================================================================
+
+  [trefoil seed=0] chunk 1/28 done (11.5 min elapsed)
+  [trefoil seed=0] chunk 2/28 done (11.6 min elapsed)
+  [trefoil seed=0] chunk 3/28 done (11.6 min elapsed)
+  [trefoil seed=0] chunk 4/28 done (11.6 min elapsed)
+  [trefoil seed=0] chunk 5/28 done (11.6 min elapsed)
+  [trefoil seed=0] chunk 6/28 done (11.6 min elapsed)
+  [trefoil seed=0] chunk 7/28 done (11.7 min elapsed)
+  [trefoil seed=0] chunk 8/28 done (11.7 min elapsed)
+  [trefoil seed=0] chunk 9/28 done (11.7 min elapsed)
+  [trefoil seed=0] chunk 10/28 done (11.7 min elapsed)
+  [trefoil seed=0] chunk 11/28 done (11.7 min elapsed)
+  [trefoil seed=0] chunk 12/28 done (11.8 min elapsed)
+  [trefoil seed=0] chunk 13/28 done (11.8 min elapsed)
+  [trefoil seed=0] chunk 14/28 done (11.8 min elapsed)
+  [trefoil seed=0] chunk 15/28 done (11.8 min elapsed)
+  [trefoil seed=0] chunk 16/28 done (11.8 min elapsed)
+  [trefoil seed=0] chunk 17/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 18/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 19/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 20/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 21/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 22/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 23/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 24/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 25/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 26/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 27/28 done (11.9 min elapsed)
+  [trefoil seed=0] chunk 28/28 done (12.0 min elapsed)
+
+  done in 12.0 min
+
+P1: min=4.9302e+04  median=3.3846e+05  p90=7.4210e+05  p99=1.6921e+06  max=6.0630e+08
+P2: min=1.4062e+00  median=1.1152e+01  p90=1.8882e+01  p99=4.1914e+01  max=3.6264e+03
+
+Top 10 by P1 (most ambiguous):
+  idx=  8455  P1=6.0630e+08  P2=5.5582e+02  pos=[-1.162, 0.255, -0.213]
+  idx= 16271  P1=4.2107e+08  P2=6.4141e+02  pos=[2.978, -3.433, -2.421]
+  idx=  7785  P1=3.8870e+08  P2=2.6139e+03  pos=[-0.469, -0.614, -10.390]
+  idx= 19623  P1=1.8753e+08  P2=1.3809e+03  pos=[3.456, -5.552, 0.351]
+  idx= 10844  P1=1.1434e+08  P2=5.2243e+02  pos=[-1.154, -0.488, 1.806]
+  idx=  4970  P1=5.7201e+07  P2=9.6922e+02  pos=[-1.472, 2.719, -7.486]
+  idx=  6373  P1=4.1653e+07  P2=3.8076e+02  pos=[-3.005, 2.770, 0.640]
+  idx= 17315  P1=3.8975e+07  P2=1.7385e+03  pos=[-3.548, 1.019, -7.182]
+  idx= 23525  P1=3.1625e+07  P2=1.4019e+03  pos=[2.997, 3.321, -3.399]
+  idx= 34081  P1=2.4724e+07  P2=8.1630e+02  pos=[-0.439, 3.835, -6.431]
+
+Top 10 by P2 (highest L-operator Jacobian):
+  idx=  1725  P2=3.6264e+03  P1=5.2832e+06  pos=[7.263, -3.773, -5.403]
+  idx=  7011  P2=3.3979e+03  P1=2.4634e+07  pos=[5.724, -2.276, -5.416]
+  idx= 46470  P2=3.2449e+03  P1=2.0260e+06  pos=[2.371, 0.820, -9.340]
+  idx= 15400  P2=3.2263e+03  P1=1.8695e+06  pos=[-1.128, 6.706, -9.043]
+  idx=  7785  P2=2.6139e+03  P1=3.8870e+08  pos=[-0.469, -0.614, -10.390]
+  idx= 47673  P2=2.4897e+03  P1=2.9716e+06  pos=[-0.080, 0.774, -5.141]
+  idx= 27002  P2=2.4680e+03  P1=1.5024e+06  pos=[5.903, -1.644, -9.366]
+  idx= 27421  P2=2.4399e+03  P1=8.2931e+05  pos=[-1.906, 4.687, -8.192]
+  idx= 26357  P2=2.3604e+03  P1=9.3378e+05  pos=[4.567, -0.194, -8.446]
+  idx= 18263  P2=2.3577e+03  P1=1.6939e+06  pos=[4.812, 1.482, -10.060]
+
+Worst combined (in top-100 of both):
+  idx=7785  P1=3.8870e+08  P2=2.6139e+03  pos=[-0.469, -0.614, -10.390]
+
+Saved to ./problematic_trefoil_seed0.pkl
+
+
+========================================================================
+  Curve: vertical_coil   seed: 0   N = 30000
+  Candidates: 50000   P2 scorer: C++ L-operator
+  Workers: 28   chunks: 28
+========================================================================
+
+  [vertical_coil seed=0] chunk 1/28 done (11.6 min elapsed)
+  [vertical_coil seed=0] chunk 2/28 done (11.7 min elapsed)
+  [vertical_coil seed=0] chunk 3/28 done (11.7 min elapsed)
+  [vertical_coil seed=0] chunk 4/28 done (11.8 min elapsed)
+  [vertical_coil seed=0] chunk 5/28 done (11.8 min elapsed)
+  [vertical_coil seed=0] chunk 6/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 7/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 8/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 9/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 10/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 11/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 12/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 13/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 14/28 done (11.9 min elapsed)
+  [vertical_coil seed=0] chunk 15/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 16/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 17/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 18/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 19/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 20/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 21/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 22/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 23/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 24/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 25/28 done (12.0 min elapsed)
+  [vertical_coil seed=0] chunk 26/28 done (12.1 min elapsed)
+  [vertical_coil seed=0] chunk 27/28 done (12.1 min elapsed)
+  [vertical_coil seed=0] chunk 28/28 done (12.1 min elapsed)
+
+  done in 12.1 min
+
+P1: min=2.6195e+05  median=1.4024e+06  p90=2.9852e+06  p99=7.2730e+06  max=1.4400e+08
+P2: min=2.0404e+00  median=1.0536e+01  p90=2.0748e+01  p99=5.7064e+01  max=2.6483e+03
+
+Top 10 by P1 (most ambiguous):
+  idx= 10256  P1=1.4400e+08  P2=8.3185e+02  pos=[-1.526, 0.316, -4.455]
+  idx= 37320  P1=9.4051e+07  P2=1.4773e+03  pos=[0.413, 0.488, -7.076]
+  idx= 32620  P1=6.9353e+07  P2=1.4923e+03  pos=[-0.576, 1.771, -2.885]
+  idx= 20152  P1=6.6565e+07  P2=1.3221e+02  pos=[2.527, 0.153, -4.290]
+  idx=  7587  P1=6.0808e+07  P2=1.4040e+03  pos=[0.793, -0.515, -6.377]
+  idx= 25703  P1=5.8217e+07  P2=1.7301e+03  pos=[-1.265, -0.270, -3.120]
+  idx= 46839  P1=5.6921e+07  P2=1.6137e+03  pos=[-0.826, 1.492, -6.642]
+  idx=  7976  P1=4.7913e+07  P2=9.8442e+01  pos=[0.408, -0.669, -4.839]
+  idx= 34272  P1=4.3580e+07  P2=1.2457e+01  pos=[-1.315, -0.029, -2.906]
+  idx= 20174  P1=4.1038e+07  P2=6.9162e+01  pos=[1.243, -2.028, -3.328]
+
+Top 10 by P2 (highest L-operator Jacobian):
+  idx= 35560  P2=2.6483e+03  P1=1.8742e+06  pos=[1.160, 0.477, -4.758]
+  idx=  1597  P2=2.5987e+03  P1=1.1860e+06  pos=[0.579, 0.243, -7.060]
+  idx= 15627  P2=2.5538e+03  P1=1.3056e+06  pos=[0.471, 0.441, -7.193]
+  idx= 25718  P2=2.5431e+03  P1=9.9670e+05  pos=[2.092, 0.237, -5.010]
+  idx= 12485  P2=2.5188e+03  P1=2.7217e+07  pos=[-0.487, -0.283, -6.339]
+  idx= 29928  P2=2.4796e+03  P1=1.7810e+07  pos=[-0.894, 0.586, -6.304]
+  idx= 19135  P2=2.4636e+03  P1=1.3447e+06  pos=[1.726, 1.175, -6.335]
+  idx= 39611  P2=2.4571e+03  P1=3.7283e+07  pos=[-0.060, -0.504, -5.556]
+  idx=  1609  P2=2.3419e+03  P1=2.9036e+06  pos=[-0.689, -0.323, -5.975]
+  idx=  2892  P2=2.1248e+03  P1=1.6660e+06  pos=[-0.059, -0.454, -6.742]
+
+Worst combined (in top-100 of both):
+  idx=39611  P1=3.7283e+07  P2=2.4571e+03  pos=[-0.060, -0.504, -5.556]
+
+Saved to ./problematic_vertical_coil_seed0.pkl
+
