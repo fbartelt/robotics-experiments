@@ -439,12 +439,16 @@ def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **
 if __name__ == "__main__":
     results_dir = "./fossen/data"
     curves_dir = "./fossen/data"
+    RUN_BASELINE = False
 
     for curve_type in ["ellipse", "trefoil", "vertical_coil"]:
-        pkl_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
+        if RUN_BASELINE:
+            pkl_path = os.path.join(results_dir, f"{curve_type}_baseline_results.pkl")
+        else:
+            pkl_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
         npy_path = os.path.join(curves_dir, f"{curve_type}.npy")
         if os.path.exists(pkl_path):
-            analyze_pickle(pkl_path, npy_path, min_laps=0.6,)
+            analyze_pickle(pkl_path, npy_path, min_laps=0.7,)
         else:
             print(f"Skipping {curve_type}: {pkl_path} not found")
 

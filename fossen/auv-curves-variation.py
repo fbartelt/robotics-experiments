@@ -11,9 +11,16 @@ from scipy.spatial.transform import Rotation as R
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from torch_vf import SE3VectorField, ec_distance_and_pos_ori
+from baseline_adriano import (
+    se3_curve_to_r3t3,
+    rezende_vf_r3t3,
+    rezende_distance_gradient,
+    vf_to_fossen_twist,
+)
 
 mp_ctx = multiprocessing.get_context("spawn")
 curve_base_path = "./data"
+results_dir = curve_base_path
 curve_types = ["ellipse", "trefoil", "vertical_coil"]
 
 # ----------------------- FIXED PARAMETERS -----------------------------
@@ -33,6 +40,7 @@ N_INITS = 5
 PROBLEMATIC_INIT_SEED = 0
 n_samples = N_CURVES * N_INITS
 
+RUN_BASELINE = True  # whether to run Lie-VF or Rezende VF
 # "both" (default), "nominal" (skip problematic), or "problematic" (only problematic)
 RUN_MODE = "nominal"
 # Rejection-sampling effort for problematic seeds
@@ -43,6 +51,8 @@ N_PROBLEMATIC_TRIES = 50000
 # 100 processes fighting over one GPU.
 # ---- Torch device / dtype (float64 to match numpy) -----------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if RUN_BASELINE:
+    DEVICE = torch.device("cpu")
 DTYPE = torch.float64
 
 # Instantiate the solver once (delta / ds match the C++ constants c_delta / c_ds)
@@ -462,14 +472,198 @@ def run_single_sim(curve_type, i, curve_base, curve_derivative_base):
     }
 
 
-def _save_merged(results_dir, curve_type, all_run_results):
+def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
+    """Rezende baseline on R^3 x T^3. CPU-only, no torch VF in the loop."""
+    # One thread per worker — critical under ProcessPoolExecutor.
+    torch.set_num_threads(1)
+    torch.set_grad_enabled(False)
+
+    noise_seed = int((i * 7919 + 13) % (2**31 - 1))
+    params = get_params(noise_seed=noise_seed)
+
+    curve_seed = i // N_INITS
+    init_seed = i % N_INITS
+    if init_seed != PROBLEMATIC_INIT_SEED:
+        init_type = "nominal"
+    else:
+        init_type = "P1" if curve_seed % 2 == 0 else "P2"
+
+    curve, curve_derivative = rand_se3_curve(
+        curve_base, curve_derivative_base, seed=curve_seed
+    )
+    curve_scale = curve.copy()
+    curve_scale[:, :3, 3] *= scale_pos
+
+    local_rng = np.random.default_rng(i + 1000)
+    htm0, target_score = sample_init(curve, local_rng, kind=init_type)
+
+    state = ub_cpp.FossenState()
+    state.pose = htm0.copy()
+    state.twist = np.zeros(6)
+    state.measurement.pose = htm0.copy()
+    state.measurement.twist = np.zeros(6)
+    state.measurement.valid = True
+
+    # ---- Rezende curve representation (once) ---------------------------
+    # Test-script convention: build from the UNSCALED curve; scale_pos is
+    # applied to both p_ctrl and p_curve at VF-call time.
+    p_curve, phi_curve = se3_curve_to_r3t3(curve)
+    p_curve_scl = p_curve * scale_pos  # hoisted out of loop
+
+    time_vec = np.arange(0, T, dt)
+
+    # ---- Logs (same names as run_single_sim where it makes sense) ------
+    log_dist_rez, log_dist_ctrl_rez, log_idx = [], [], []
+    log_twist, log_xi, log_htm = [], [], []
+    log_requested_wrench, log_allocated_wrench = [], []
+    log_applied_wrench, log_allocation_residual = [], []
+    log_thrust_setpoints, log_saturated_thrusters = [], []
+    log_meas_htm, log_meas_twist = [], []
+
+    print(f"begin {i}", end="; ", flush=True)
+
+    for t in time_vec:
+        # 1. Controller feedback (noisy measurement)
+        ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
+        p_ctrl = ctrl_pose[:3, 3]
+        phi_ctrl = R.from_matrix(ctrl_pose[:3, :3]).as_euler("xyz")
+
+        psi = rezende_vf_r3t3(
+            p_ctrl * scale_pos,
+            phi_ctrl,
+            p_curve_scl,
+            phi_curve,
+            v_r=1.0,
+            kn1=kn1,
+            kn2=kn2,
+            kt1=kt1 * 10,
+            kt2=kt2,
+            kt3=kt3,
+        )
+        target_twist = vf_to_fossen_twist(psi, phi_ctrl)
+
+        # 2. Physics
+        state = ub_cpp.fossen_step(target_twist, state, params)
+        diagnostics = state.diagnostics
+
+        # 3. In-loop logging ---------------------------------------------
+        true_pose = state.pose
+        true_twist = state.twist
+        p_true = true_pose[:3, 3]
+        phi_true = R.from_matrix(true_pose[:3, :3]).as_euler("xyz")
+
+        # True-pose Rezende metric (matches test script)
+        dist_true_rez, closest_idx, _ = rezende_distance_gradient(
+            p_true, phi_true, p_curve, phi_curve
+        )
+        # Perceived Rezende metric (noisy ctrl pose) — analogous to
+        # run_single_sim's `dist_noisy` (extra full search per step; drop
+        # this call if you don't need the perceived-vs-true split).
+        dist_ctrl_rez, _, _ = rezende_distance_gradient(
+            p_ctrl, phi_ctrl, p_curve, phi_curve
+        )
+
+        log_dist_rez.append(float(dist_true_rez))
+        log_dist_ctrl_rez.append(float(dist_ctrl_rez))
+        log_idx.append(int(closest_idx))
+        log_xi.append(target_twist.copy())
+        log_twist.append(true_twist.copy())
+        log_htm.append(true_pose.copy())
+        log_requested_wrench.append(diagnostics.requested_wrench)
+        log_allocated_wrench.append(diagnostics.allocated_wrench)
+        log_applied_wrench.append(diagnostics.applied_wrench)
+        log_allocation_residual.append(diagnostics.allocation_residual)
+        log_thrust_setpoints.append(diagnostics.thrust_setpoints)
+        log_saturated_thrusters.append(diagnostics.saturated_thrusters)
+        log_meas_htm.append(state.measurement.pose.copy())
+        log_meas_twist.append(state.measurement.twist.copy())
+
+    print(f"end {i}", end="$$ ", flush=True)
+
+    # ------------------------------------------------------------------
+    # Post-hoc pos/ori errors (NumPy-only, reusing Rezende closest_idx)
+    # ------------------------------------------------------------------
+    htm_arr = np.array(log_htm)  # (T, 4, 4)
+    idx_arr = np.array(log_idx)  # (T,)
+    closest_arr = curve[idx_arr]  # (T, 4, 4) unscaled
+
+    p_true_all = htm_arr[:, :3, 3]
+    R_true_all = htm_arr[:, :3, :3]
+    p_near_all = closest_arr[:, :3, 3]
+    R_near_all = closest_arr[:, :3, :3]
+
+    err_pos_cm = np.linalg.norm(p_near_all - p_true_all, axis=1) * 100.0
+    trace = (R_near_all * R_true_all).sum(axis=(1, 2))
+    cos_ang = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
+    err_ori_deg = np.degrees(np.arccos(cos_ang))
+
+    return {
+        "time": np.array(time_vec),
+        # distance: perceived (noisy) and true-pose Rezende
+        "dist_noisy": np.array(log_dist_ctrl_rez),  # Rezende on ctrl_pose
+        "dist": np.array(log_dist_rez),  # Rezende on true pose
+        # pos/ori errors (unscaled, closest point from Rezende)
+        "err_pos": err_pos_cm,
+        "err_ori": err_ori_deg,
+        # inputs / traces
+        "curve": curve,
+        "curve_derivative": curve_derivative,
+        "idx": idx_arr,
+        "idx_true": idx_arr,  # same source as err_*
+        "xi": np.array(log_xi),
+        "twist": np.array(log_twist),
+        "htm": htm_arr,
+        "meas_htm": np.array(log_meas_htm),
+        "meas_twist": np.array(log_meas_twist),
+        "requested_wrench": np.array(log_requested_wrench),
+        "allocated_wrench": np.array(log_allocated_wrench),
+        "applied_wrench": np.array(log_applied_wrench),
+        "allocation_residual": np.array(log_allocation_residual),
+        "thrust_setpoints": np.array(log_thrust_setpoints),
+        "saturated_thrusters": np.array(log_saturated_thrusters),
+        "noise_seed": noise_seed,
+        # metadata
+        "meta_curve_seed": curve_seed,
+        "meta_init_seed": init_seed,
+        "meta_run_id": i,
+        "meta_init_rng_seed": i + 1000,
+        "meta_init_type": init_type,
+        "meta_target_score": target_score,
+        "meta_htm0": htm0,
+        "meta_baseline": "rezende_r3t3",
+        "meta_config": {
+            "gains": gains,
+            "dt": dt,
+            "T": T,
+            "scale_pos": scale_pos,
+            "kt1": kt1,
+            "kt2": kt2,
+            "kt3": kt3,
+            "kn1": kn1,
+            "kn2": kn2,
+            "kt1_effective": kt1 * 10,  # baseline uses 10× kt1
+            "v_r": 1.0,
+            "thrust_max": params.thrust_max,
+            "thrust_min": params.thrust_min,
+            "noise_white_var": params.measurement_noise.white_variances,
+            "noise_colored_var": params.measurement_noise.colored_variances,
+            "noise_corr_times": params.measurement_noise.correlation_times,
+            "curve_type": curve_type,
+        },
+    }
+
+
+def _save_merged(results_dir, curve_type, all_run_results, baseline=False):
     """Merge this batch into {curve_type}_results.pkl atomically."""
     save_dict = {}
     for run_id, run_data in all_run_results:
         for key, value in run_data.items():
             save_dict[f"run_{run_id:03d}_{key}"] = value
 
-    save_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
+    if baseline:
+        save_path = os.path.join(results_dir, f"{curve_type}_baseline_results.pkl")
+    else:
+        save_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
     if os.path.exists(save_path):
         with open(save_path, "rb") as f:
             existing = pickle.load(f)
@@ -484,19 +678,20 @@ def _save_merged(results_dir, curve_type, all_run_results):
 
 
 if __name__ == "__main__":
-    results_dir = curve_base_path
     os.makedirs(results_dir, exist_ok=True)
 
     SAVE_EVERY_K = 10  # checkpoint every K completed runs
     is_cuda = DEVICE.type == "cuda"
+    tag = "baseline" if RUN_BASELINE else "lie"
+    worker_fn = run_single_baseline if RUN_BASELINE else run_single_sim
 
     if is_cuda:
-        print(f"Device: {DEVICE}, dtype: {DTYPE}  ->  sequential")
+        print(f"[{tag}] Device: {DEVICE}, dtype: {DTYPE}  ->  sequential")
     else:
         max_cores = multiprocessing.cpu_count()
         mp_ctx = multiprocessing.get_context("spawn")
         print(
-            f"Device: {DEVICE}, dtype: {DTYPE}  ->  parallel "
+            f"[{tag}] Device: {DEVICE}, dtype: {DTYPE}  ->  parallel "
             f"({max_cores} cores, spawn)"
         )
 
@@ -539,13 +734,16 @@ if __name__ == "__main__":
                     flush=True,
                 )
                 if (k % SAVE_EVERY_K == 0) or (k == n_total):
-                    path = _save_merged(results_dir, curve_type, all_run_results)
+                    path = _save_merged(
+                        results_dir, curve_type, all_run_results, baseline=RUN_BASELINE
+                    )
                     print(f"  -> checkpoint saved: {path}", flush=True)
 
         else:
             # ---------------- PARALLEL (CPU) ------------------------
             worker_func = functools.partial(
-                run_single_sim,
+                # run_single_sim,
+                worker_fn,
                 curve_type,
                 curve_base=curve_base,
                 curve_derivative_base=curve_derivative_base,
@@ -563,7 +761,12 @@ if __name__ == "__main__":
                         flush=True,
                     )
                     if (k % SAVE_EVERY_K == 0) or (k == n_total):
-                        path = _save_merged(results_dir, curve_type, all_run_results)
+                        path = _save_merged(
+                            results_dir,
+                            curve_type,
+                            all_run_results,
+                            baseline=RUN_BASELINE,
+                        )
                         print(f"  -> checkpoint saved: {path}", flush=True)
 
         print(
