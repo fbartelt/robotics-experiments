@@ -21,7 +21,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float64
 
 # Instantiate the solver once (delta / ds match the C++ constants c_delta / c_ds)
-vf_solver = SE3VectorField(delta=1e-3, ds=1e-3)
+vf_solver = SE3VectorField(delta=1e-3, ds=1e-3, normalize_tangent=True)
 
 # ---------- Initial conditions (mirror of the C++ example) ---------------
 htm0 = np.eye(4)
@@ -32,15 +32,15 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 120
+T = 300
 curve_base_path = "./fossen/data"
 scale_pos = 1 / np.sqrt(3.0)
 curve_seed = None
-curve_seed = 6  # used to check failed runs in variations
+# curve_seed = 79  # used to check failed runs in variations
 
 kn1 = 1
 kn2 = 1.0
-kt1 = 0.03 * 0.8
+kt1 = 0.03 * 0.8 * 10
 kt2 = 1.0
 kt3 = kn2
 
@@ -52,9 +52,9 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "ellipse"
+CURVE_TYPE = "gimbal"
 
-CIRCLE_RADIUS = 1.5 * 8
+CIRCLE_RADIUS = 3.0
 CURVE_N_ROLLS = 1.0
 
 # Ellipse
@@ -104,6 +104,72 @@ def rand_se3_curve(curve, curve_deriv, seed=None):
     return curve_rand, curve_deriv_rand
 
 
+def make_gimbal_lock_curve(x_amp=1.0, y_amp=1.0, beta_max_deg=88.0, n_points=5000):
+    """
+    Simplest curve that passes through gimbal lock *by construction*.
+
+    - Position: horizontal circle of radii (x_amp, y_amp) in the xy-plane.
+    - Orientation: prescribed via intrinsic Euler angles (scipy "xyz").
+      The middle angle β = beta_max_deg * sin(2π s), which sweeps through
+      ±beta_max_deg at s ≈ 0.25 and s ≈ 0.75.
+
+    Independent of the tangent-frame convention, so |β| reaches beta_max_deg
+    regardless of `_frame_and_derivative`.
+
+    Returns
+    -------
+    curve  : (N, 4, 4) homogeneous transforms H_d(s)
+    dcurve : (N, 4, 4) their derivatives dH_d/ds (analytic)
+    """
+    beta_max = np.deg2rad(beta_max_deg)
+    w = 2 * np.pi
+    e1, e2, e3 = np.eye(3)[:, 0], np.eye(3)[:, 1], np.eye(3)[:, 2]
+
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+
+    for i in range(n_points):
+        s = i / n_points
+
+        # Position and derivative (horizontal circle)
+        x = x_amp * np.cos(w * s)
+        dx = -x_amp * w * np.sin(w * s)
+        y = y_amp * np.sin(w * s)
+        dy = y_amp * w * np.cos(w * s)
+        z, dz = 0.0, 0.0
+
+        # Euler angles and derivatives
+        alpha = 0.3 * w * s
+        dalpha = 0.3 * w
+        beta = beta_max * np.sin(w * s)
+        dbeta = beta_max * w * np.cos(w * s)
+        gamma = 0.5 * w * s
+        dgamma = 0.5 * w
+
+        # R = Rx(α) Ry(β) Rz(γ)
+        Rx = R.from_euler("x", alpha).as_matrix()
+        Ry = R.from_euler("y", beta).as_matrix()
+        Rz = R.from_euler("z", gamma).as_matrix()
+        R_mat = Rx @ Ry @ Rz
+
+        # dR/ds = skew(Ω_world) · R  where
+        # Ω_world = dα·e₁ + dβ·(R_x e₂) + dγ·(R_x R_y e₃)
+        Omega = dalpha * e1 + dbeta * (Rx @ e2) + dgamma * (Rx @ Ry @ e3)
+        dR_mat = np.asarray(ub.Utils.S(Omega)) @ R_mat
+
+        H = np.eye(4)
+        H[:3, :3] = R_mat
+        H[:3, 3] = [x, y, z]
+        dH = np.zeros((4, 4))
+        dH[:3, :3] = dR_mat
+        dH[:3, 3] = [dx, dy, dz]
+
+        curve[i] = H
+        dcurve[i] = dH
+
+    return curve, dcurve
+
+
 kwargs = {
     "n_points": CURVE_POINTS,
     "z0": CURVE_Z0,
@@ -127,6 +193,12 @@ elif CURVE_TYPE == "vertical_coil":
     kwargs["R"] = CYLINDER_R
     kwargs["z_amp"] = CYLINDER_Z_AMP
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
+elif CURVE_TYPE == "gimbal":
+    kwargs = {
+        "n_points": CURVE_POINTS,
+        "x_amp": CIRCLE_RADIUS,
+        "y_amp": CIRCLE_RADIUS,
+    }
 
 
 results_file_name = f"results_{CURVE_TYPE}_default.pkl"
@@ -138,7 +210,11 @@ if os.path.exists(curve_path):
     curve = np.load(curve_path, allow_pickle=True)
     curve_derivative = np.load(dcurve_path, allow_pickle=True)
 else:
-    curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
+    print(f"Curve {curve_path} not found! Generating {CURVE_POINTS}.")
+    if CURVE_TYPE == "gimbal":
+        curve, curve_derivative = make_gimbal_lock_curve(**kwargs)
+    else:
+        curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
 
 if curve_seed is None:
     pass
