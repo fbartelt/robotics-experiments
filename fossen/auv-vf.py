@@ -8,12 +8,13 @@ import plotly.graph_objects as go
 from tqdm import tqdm
 from uaibot.utils import Utils
 from uaibot.simobjects import Box, Frame, Ball
+from scipy.spatial.transform import Rotation as R
 from uaibot.simobjects.curve import CurveSE3
 from fossen.curves import build_curve
 from fossen.create_bluerov2 import make_rov
 from fossen.ocean_sim import create_sim_underwater
 from plotly.subplots import make_subplots
-from fossen.torch_vf import SE3VectorField
+from fossen.torch_vf import SE3VectorField, ec_distance_and_pos_ori
 
 # ---- Torch device / dtype (float64 to match numpy) -----------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,12 +28,21 @@ htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
 
 actual_twist = np.zeros(6)
-gains = 1 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
 T = 120
 curve_base_path = "./fossen/data"
+scale_pos = 1 / np.sqrt(3.0)
+curve_seed = None
+curve_seed = 6  # used to check failed runs in variations
+
+kn1 = 1
+kn2 = 1.0
+kt1 = 0.03 * 0.8
+kt2 = 1.0
+kt3 = kn2
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000 * 2
@@ -42,7 +52,7 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "trefoil"
+CURVE_TYPE = "ellipse"
 
 CIRCLE_RADIUS = 1.5 * 8
 CURVE_N_ROLLS = 1.0
@@ -66,11 +76,33 @@ CYLINDER_Z_AMP = 1.0
 CYLINDER_N_OSCILLATIONS = 3
 
 
-kn1 = 1
-kn2 = 1.0
-kt1 = 0.03 / 2
-kt2 = 1.0
-kt3 = kn2
+def rand_se3_curve(curve, curve_deriv, seed=None):
+    rng = np.random.default_rng(seed)
+    N = len(curve)
+    yaw_global = rng.uniform(0, 2 * np.pi)
+    R_global = R.from_euler("z", yaw_global).as_matrix()
+    scale = rng.uniform(0.8, 1.5)
+    roll_offset = rng.uniform(-np.pi / 12, np.pi / 12)
+    pitch_offset = rng.uniform(-np.pi / 12, np.pi / 12)
+    yaw_offset = rng.uniform(0, 2 * np.pi)
+    R_offset = R.from_euler("xyz", [roll_offset, pitch_offset, yaw_offset]).as_matrix()
+
+    curve_rand = np.zeros_like(curve)
+    curve_deriv_rand = np.zeros_like(curve_deriv)
+
+    for i in range(N):
+        H = curve[i].copy()
+        H[:3, :3] = R_global @ H[:3, :3] @ R_offset
+        H[:3, 3] = scale * (R_global @ H[:3, 3])
+        curve_rand[i] = H
+
+        dH = curve_deriv[i].copy()
+        dH[:3, :3] = R_global @ dH[:3, :3] @ R_offset
+        dH[:3, 3] = scale * (R_global @ dH[:3, 3])
+        curve_deriv_rand[i] = dH
+
+    return curve_rand, curve_deriv_rand
+
 
 kwargs = {
     "n_points": CURVE_POINTS,
@@ -108,7 +140,11 @@ if os.path.exists(curve_path):
 else:
     curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
 
-scale_pos = 1 / np.sqrt(2.7)
+if curve_seed is None:
+    pass
+else:
+    curve, curve_derivative = rand_se3_curve(curve, curve_derivative, seed=curve_seed)
+
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
 # Convert curves to torch tensors ONCE (kept on the same device for the whole run)
@@ -133,7 +169,7 @@ camera_start_pose = [
     1.0,
 ]
 sim = create_sim_underwater([auv, auv_frame])
-sim.set_parameters(camera_follow=auv, camera_start_pose=camera_start_pose)
+# sim.set_parameters(camera_follow=auv, camera_start_pose=camera_start_pose)
 
 # sim.add(closest_p)
 curve_ub = CurveSE3(points=curve, color="cyan")
@@ -156,47 +192,51 @@ params.thrust_min = -4.10 * 9.80665 * np.ones((8,))
 # Measurement Noise Configuration (converted from C++ to NumPy arrays)
 params.measurement_noise.enabled = True
 params.measurement_noise.seed = 42
-params.measurement_noise.sample_period = 1 / 30
+params.measurement_noise.sample_period = 0  # 1 / 30
 
 params.measurement_noise.white_variances = np.array(
     [
-        0 * 0.02**2,
-        0 * 0.02**2,
-        0 * 0.003**2,
-        0 * 0.002**2,
-        0 * 0.002**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
+        # Position (x, y, z) [m]
+        0.005**2,
+        0.005**2,
+        0.002**2,
+        # Orientation (roll, pitch, yaw) [rad]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Linear velocity (u, v, w) [m/s]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Angular velocity (p, q, r) [rad/s]
+        0.003**2,
+        0.003**2,
+        0.003**2,
     ],
     dtype=np.float64,
 )
 
 params.measurement_noise.colored_variances = np.array(
     [
-        0.05**2,
-        0.05**2,
-        0.05**2,  # Position: ~1 cm drift
+        0.01**2,
+        0.01**2,
+        0.01**2,  # Position: ~1 cm drift
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
-        0.001**2,
-        0.001**2,
-        0.001**2,
+        0.01**2,
+        0.01**2,
+        0.01**2,
     ],
     dtype=np.float64,
 )
 
 # params.measurement_noise.correlation_times = 0.2 * np.ones((12,))
 params.measurement_noise.correlation_times = np.array(
-    [10.0, 10.0, 10.0, 1.0, 1.0, 5.0, 0.2, 0.2, 0.2, 30.0, 30.0, 30.0], dtype=np.float64
+    [10.0, 10.0, 10.0, 1.0, 1.0, 2.0, 0.8, 0.8, 0.8, 0.3, 0.3, 0.3], dtype=np.float64
 )
 
 # ---------- Initialize State ---------------
@@ -232,14 +272,6 @@ for t in tqdm(time_vec):
         start = 0
         end = CURVE_POINTS
 
-    if start < end:
-        curve_window = curve_scale[start:end]
-        deriv_window = curve_derivative[start:end]
-    else:
-        # Handle wrap-around at the seam
-        curve_window = np.vstack((curve_scale[start:], curve_scale[:end]))
-        deriv_window = np.vstack((curve_derivative[start:], curve_derivative[:end]))
-
     # 1. CONTROLLER FEEDBACK (Uses Noisy Measurement)
     # If measurement isn't valid yet, fallback to ground truth
     ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
@@ -248,18 +280,6 @@ for t in tqdm(time_vec):
     scale_pose = ctrl_pose.copy()
     scale_pose[:3, 3] *= scale_pos
 
-    # xi, dist, local_idx = ub.Robot.vector_field_SE3(
-    #     scale_pose,
-    #     # curve,
-    #     curve_window,
-    #     kt1=kt1,
-    #     kt2=kt2,
-    #     kt3=kt3,
-    #     kn1=kn1,
-    #     kn2=kn2,
-    #     # curve_derivative=curve_derivative,
-    #     curve_derivative=deriv_window,
-    # )
     # ---- Build window on device (preserves the exact wrap-around logic) ------
     if start < end:
         curve_window_t = curve_scale_t[start:end]
@@ -311,37 +331,11 @@ for t in tqdm(time_vec):
     true_pose_scale = true_pose.copy()
     true_pose_scale[:3, 3] *= scale_pos
 
-    # _, dist, local_idx = ub.Robot.vector_field_SE3(
-    #     true_pose_scale,
-    #     # curve,
-    #     curve_window,
-    #     kt1=kt1,
-    #     kt2=kt2,
-    #     kt3=kt3,
-    #     kn1=kn1,
-    #     kn2=kn2,
-    #     # curve_derivative=curve_derivative,
-    #     curve_derivative=deriv_window,
-    # )
-    # closest_idx = (start + local_idx) % CURVE_POINTS
-
-    closest_point = curve[closest_idx]
-    p_near = closest_point[:3, 3]
-    ori_near = closest_point[:3, :3]
-    p_curr = true_pose[:3, 3]
-    ori_curr = true_pose[:3, :3]
-
-    log_err_pos.append(np.linalg.norm(p_near - p_curr) * 100)
-    trace_ = np.trace(ori_near @ np.linalg.inv(ori_curr))
-    acos = np.arccos(np.clip((trace_ - 1) / 2, -1.0, 1.0))  # Clip for numerical safety
-    if np.isnan(acos):
-        acos = 0
-
     log_dist.append(dist)
     log_idx.append(closest_idx)
+    # log_err_ori.append(acos * 180 / np.pi)
     log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
     log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
-    log_err_ori.append(acos * 180 / np.pi)
     log_htm.append(true_pose.copy())
     log_requested_wrench.append(diagnostics.requested_wrench)
     log_allocated_wrench.append(diagnostics.allocated_wrench)
@@ -352,14 +346,40 @@ for t in tqdm(time_vec):
 
     auv.add_ani_frame(time=float(t), htm=true_pose)
     auv_frame.add_ani_frame(time=float(t), htm=true_pose)
-    closest_p.add_ani_frame(time=float(t), htm=closest_point)
+    # closest_p.add_ani_frame(time=float(t), htm=closest_point)
 
+# ------------------------------------------------------------------
+# True-pose metrics, computed post-hoc on the full curve (batched).
+# ------------------------------------------------------------------
+
+htm_batch = torch.as_tensor(np.array(log_htm), dtype=DTYPE, device=DEVICE)
+htm_batch_scl = htm_batch.clone()
+htm_batch_scl[..., :3, 3] *= scale_pos
+
+curve_full_t = torch.as_tensor(curve, dtype=DTYPE, device=DEVICE)  # unscaled
+curve_full_scl_t = torch.as_tensor(curve_scale, dtype=DTYPE, device=DEVICE)  # scaled
+
+dists_true, idx_true, pos_err_true_cm, ori_err_true_deg = ec_distance_and_pos_ori(
+    vf_solver,
+    states_scaled=htm_batch_scl,
+    curve_scaled=curve_full_scl_t,
+    states_unscaled=htm_batch,
+    curve_unscaled=curve_full_t,
+    chunk_size=None,  # auto-chunks to ~5e6 pairs
+)
+
+# Store alongside the in-loop (noisy-derived) logs for direct comparison
+# Optional: overwrite the "primary" metrics with the true ones for plots
 data = {
     "time": time_vec,
     "dist": np.array(log_dist),
-    "err_pos": np.array(log_err_pos),
-    "err_ori": np.array(log_err_ori),
+    "dist_true": dists_true.cpu().numpy(),
+    # "err_pos": np.array(log_err_pos),
+    # "err_ori": np.array(log_err_ori),
+    "err_pos": pos_err_true_cm.cpu().numpy(),
+    "err_ori": ori_err_true_deg.cpu().numpy(),
     "idx": np.array(log_idx),
+    "idx_true": idx_true.cpu().numpy(),
     "xi": np.array(log_xi),
     "twist": np.array(log_twist),
     "htm": np.array(log_htm),
@@ -371,6 +391,9 @@ data = {
     "saturated_thrusters": np.array(log_saturated_thrusters),
 }
 
+log_dist = data["dist_true"]
+log_err_pos = data["err_pos"]
+log_err_ori = data["err_ori"]
 
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
