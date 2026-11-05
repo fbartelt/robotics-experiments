@@ -17,11 +17,13 @@ class SE3VectorField:
         ds: float = 1e-3,
         max_cos_theta: float = 0.999,
         theta_zero: float = 1e-6,
+        normalize_tangent: bool = False,
     ):
         self.delta = delta
         self.ds = ds
         self.max_cos_theta = max_cos_theta
         self.theta_zero = theta_zero
+        self.normalize_tangent = normalize_tangent
 
     # ------------------------------------------------------------------
     # Helpers
@@ -232,6 +234,8 @@ class SE3VectorField:
             dHd = curve_derivative[closest_indices]
 
         tangent = self.inv_smap_se3(dHd @ torch.linalg.inv(closest_points))  # (N, 6)
+        if self.normalize_tangent:
+            tangent = tangent / tangent.norm(dim=-1, keepdim=True).clamp_min(1e-12)
 
         # ---- distance-dependent gains ------------------------------------
         eps = 1e-3
