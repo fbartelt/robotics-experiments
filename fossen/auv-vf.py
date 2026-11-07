@@ -21,27 +21,36 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float64
 
 # Instantiate the solver once (delta / ds match the C++ constants c_delta / c_ds)
-vf_solver = SE3VectorField(delta=1e-3, ds=1e-3, normalize_tangent=True)
+vf_solver = SE3VectorField(
+    delta=1e-3,
+    ds=1e-3,
+    normalize_tangent=True,
+    normalize_normal=False,
+    # scale_pos=1.0 / np.sqrt(3),
+    scale_pos=1.0,
+)
 
 # ---------- Initial conditions (mirror of the C++ example) ---------------
 htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
 
 actual_twist = np.zeros(6)
-gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 300
+T = 120
 curve_base_path = "./fossen/data"
 scale_pos = 1 / np.sqrt(3.0)
+scale_pos = 1.0
 curve_seed = None
-# curve_seed = 79  # used to check failed runs in variations
+# curve_seed = 61  # used to check failed runs in variations
 
-kn1 = 1
-kn2 = 1.0
-kt1 = 0.03 * 0.8 * 10
-kt2 = 1.0
+kn1 = 1.0
+kn2 = 0.7
+# kt1 = 1.0
+kt1 = 0.7 # 0.9 is too high, 0.4 is tpp slow
+kt2 = 0.7
 kt3 = kn2
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
@@ -52,7 +61,14 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "gimbal"
+CURVE_TYPE = "trefoil"
+
+scl = (0.8 / 1.5)
+scl = 1.0
+TEST_RADIUS = 3.0 * scl
+TEST_MINOR_RADIUS = 2.0 * scl
+TEST_N_COILS = 4.0
+TEST_ROLLS = 1.0
 
 CIRCLE_RADIUS = 3.0
 CURVE_N_ROLLS = 1.0
@@ -104,72 +120,6 @@ def rand_se3_curve(curve, curve_deriv, seed=None):
     return curve_rand, curve_deriv_rand
 
 
-def make_gimbal_lock_curve(x_amp=1.0, y_amp=1.0, beta_max_deg=88.0, n_points=5000):
-    """
-    Simplest curve that passes through gimbal lock *by construction*.
-
-    - Position: horizontal circle of radii (x_amp, y_amp) in the xy-plane.
-    - Orientation: prescribed via intrinsic Euler angles (scipy "xyz").
-      The middle angle β = beta_max_deg * sin(2π s), which sweeps through
-      ±beta_max_deg at s ≈ 0.25 and s ≈ 0.75.
-
-    Independent of the tangent-frame convention, so |β| reaches beta_max_deg
-    regardless of `_frame_and_derivative`.
-
-    Returns
-    -------
-    curve  : (N, 4, 4) homogeneous transforms H_d(s)
-    dcurve : (N, 4, 4) their derivatives dH_d/ds (analytic)
-    """
-    beta_max = np.deg2rad(beta_max_deg)
-    w = 2 * np.pi
-    e1, e2, e3 = np.eye(3)[:, 0], np.eye(3)[:, 1], np.eye(3)[:, 2]
-
-    curve = np.zeros((n_points, 4, 4))
-    dcurve = np.zeros((n_points, 4, 4))
-
-    for i in range(n_points):
-        s = i / n_points
-
-        # Position and derivative (horizontal circle)
-        x = x_amp * np.cos(w * s)
-        dx = -x_amp * w * np.sin(w * s)
-        y = y_amp * np.sin(w * s)
-        dy = y_amp * w * np.cos(w * s)
-        z, dz = 0.0, 0.0
-
-        # Euler angles and derivatives
-        alpha = 0.3 * w * s
-        dalpha = 0.3 * w
-        beta = beta_max * np.sin(w * s)
-        dbeta = beta_max * w * np.cos(w * s)
-        gamma = 0.5 * w * s
-        dgamma = 0.5 * w
-
-        # R = Rx(α) Ry(β) Rz(γ)
-        Rx = R.from_euler("x", alpha).as_matrix()
-        Ry = R.from_euler("y", beta).as_matrix()
-        Rz = R.from_euler("z", gamma).as_matrix()
-        R_mat = Rx @ Ry @ Rz
-
-        # dR/ds = skew(Ω_world) · R  where
-        # Ω_world = dα·e₁ + dβ·(R_x e₂) + dγ·(R_x R_y e₃)
-        Omega = dalpha * e1 + dbeta * (Rx @ e2) + dgamma * (Rx @ Ry @ e3)
-        dR_mat = np.asarray(ub.Utils.S(Omega)) @ R_mat
-
-        H = np.eye(4)
-        H[:3, :3] = R_mat
-        H[:3, 3] = [x, y, z]
-        dH = np.zeros((4, 4))
-        dH[:3, :3] = dR_mat
-        dH[:3, 3] = [dx, dy, dz]
-
-        curve[i] = H
-        dcurve[i] = dH
-
-    return curve, dcurve
-
-
 kwargs = {
     "n_points": CURVE_POINTS,
     "z0": CURVE_Z0,
@@ -193,12 +143,11 @@ elif CURVE_TYPE == "vertical_coil":
     kwargs["R"] = CYLINDER_R
     kwargs["z_amp"] = CYLINDER_Z_AMP
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
-elif CURVE_TYPE == "gimbal":
-    kwargs = {
-        "n_points": CURVE_POINTS,
-        "x_amp": CIRCLE_RADIUS,
-        "y_amp": CIRCLE_RADIUS,
-    }
+elif CURVE_TYPE == "test" or CURVE_TYPE == "gimbal":
+    kwargs["R"] = TEST_RADIUS
+    kwargs["r"] = TEST_MINOR_RADIUS
+    kwargs["n_coils"] = TEST_N_COILS
+    kwargs["n_rolls"] = TEST_ROLLS
 
 
 results_file_name = f"results_{CURVE_TYPE}_default.pkl"
@@ -211,10 +160,7 @@ if os.path.exists(curve_path):
     curve_derivative = np.load(dcurve_path, allow_pickle=True)
 else:
     print(f"Curve {curve_path} not found! Generating {CURVE_POINTS}.")
-    if CURVE_TYPE == "gimbal":
-        curve, curve_derivative = make_gimbal_lock_curve(**kwargs)
-    else:
-        curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
+    curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
 
 if curve_seed is None:
     pass
@@ -228,6 +174,7 @@ curve_scale_t = torch.as_tensor(curve_scale, dtype=DTYPE, device=DEVICE)  # (M,4
 deriv_t = torch.as_tensor(curve_derivative, dtype=DTYPE, device=DEVICE)  # (M,4,4)
 
 # ---------- Scene object -------------------------------------------------
+# htm0 = curve[int(CURVE_POINTS / 2)]
 # htm0 = curve[0]
 closest_p = Ball(htm=np.eye(4), opacity=0.8, radius=0.05, color="pink")
 # auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red", opacity=0.3)
@@ -262,8 +209,8 @@ params.dt = dt
 params.velocity_gains = gains
 params.model_compensation = False
 params.thruster_time_constant = 0
-params.thrust_max = 5.25 * 9.80665 * np.ones((8,))
-params.thrust_min = -4.10 * 9.80665 * np.ones((8,))
+params.thrust_max = 5.25 * 9.80665 * np.ones((8,)) * 2
+params.thrust_min = -4.10 * 9.80665 * np.ones((8,)) * 2
 
 # Measurement Noise Configuration (converted from C++ to NumPy arrays)
 params.measurement_noise.enabled = True
@@ -378,6 +325,7 @@ for t in tqdm(time_vec):
         kn2=kn2,
         curve_derivative=deriv_window_t,
     )
+    # Apply a constant thrust to the vertical thrusters to pitch the vehicle
 
     # ---- Back to numpy for downstream physics / logging ----------------------
     xi = twist_t.squeeze(0).cpu().numpy()  # (6,)   v || omega
@@ -550,6 +498,11 @@ def create_fig():
 
 create_fig().show()
 
+ss_idxs = np.where(time_vec > 20)[0]
+ss_D = log_dist[ss_idxs].mean()
+ss_pos = log_err_pos[ss_idxs].mean()
+ss_ori = log_err_ori[ss_idxs].mean()
+print(f"Steady state errors-- D: {ss_D}, pos: {ss_pos} cm, ori: {ss_ori}°")
 # %%
 
 fig = go.Figure()
