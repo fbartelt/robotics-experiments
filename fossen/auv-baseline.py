@@ -29,14 +29,15 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 120
+T = 300
 curve_base_path = "./fossen/data"
 
-kn1 = 1
-kn2 = 1.0
-kt1 = 0.03 * 10 * 2
-# kt1 = 0.7
-kt2 = 1.0
+kn1 = 1.0
+kn2 = 0.7
+# kt1 = 1.0
+kt1 = 0.7  # 0.7 is cool for toroidal coil
+# kt1 = 0.3
+kt2 = 0.7
 kt3 = kn2
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
@@ -47,7 +48,8 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "gimbal"
+# toroidal_coil
+CURVE_TYPE = "toroidal_coil"
 
 scl = 0.8 / 1.5
 scl = 1.0
@@ -110,7 +112,11 @@ elif CURVE_TYPE == "test" or CURVE_TYPE == "gimbal":
     kwargs["r"] = TEST_MINOR_RADIUS
     kwargs["n_coils"] = TEST_N_COILS
     kwargs["n_rolls"] = TEST_ROLLS
-
+elif CURVE_TYPE == "toroidal_coil":
+    kwargs["R"] = TEST_RADIUS
+    kwargs["r"] = TEST_MINOR_RADIUS
+    kwargs["n_coils"] = TEST_N_COILS
+    kwargs["n_rolls"] = TEST_ROLLS
 
 
 results_file_name = f"results_{CURVE_TYPE}_baseline.pkl"
@@ -135,6 +141,7 @@ p_curve, phi_curve = se3_curve_to_r3t3(curve)
 # VF tuning (Rezende's v_r is a mixed m+rad speed; 0.4 ≈ 0.4 m/s surge)
 REZENDE_V_R = 1.0
 scale_pos = 1 / np.sqrt(3.0)
+scale_pos = 1.0
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
 
@@ -179,47 +186,51 @@ params.thrust_min = -4.10 * 9.80665 * np.ones((8,)) * 2
 # Measurement Noise Configuration (converted from C++ to NumPy arrays)
 params.measurement_noise.enabled = True
 params.measurement_noise.seed = 42
-params.measurement_noise.sample_period = 0.01 * 0
+params.measurement_noise.sample_period = 0  # 1 / 30
 
 params.measurement_noise.white_variances = np.array(
     [
-        0 * 0.02**2,
-        0 * 0.02**2,
-        0 * 0.003**2,
-        0 * 0.002**2,
-        0 * 0.002**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
+        # Position (x, y, z) [m]
+        0.005**2,
+        0.005**2,
+        0.002**2,
+        # Orientation (roll, pitch, yaw) [rad]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Linear velocity (u, v, w) [m/s]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Angular velocity (p, q, r) [rad/s]
+        0.003**2,
+        0.003**2,
+        0.003**2,
     ],
     dtype=np.float64,
 )
 
 params.measurement_noise.colored_variances = np.array(
     [
-        0.05**2,
-        0.05**2,
-        0.05**2,  # Position: ~1 cm drift
+        0.01**2,
+        0.01**2,
+        0.01**2,  # Position: ~1 cm drift
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
-        0.001**2,
-        0.001**2,
-        0.001**2,
+        0.01**2,
+        0.01**2,
+        0.01**2,
     ],
     dtype=np.float64,
 )
 
 # params.measurement_noise.correlation_times = 0.2 * np.ones((12,))
 params.measurement_noise.correlation_times = np.array(
-    [10.0, 10.0, 10.0, 1.0, 1.0, 5.0, 0.2, 0.2, 0.2, 30.0, 30.0, 30.0], dtype=np.float64
+    [10.0, 10.0, 10.0, 1.0, 1.0, 2.0, 0.8, 0.8, 0.8, 0.3, 0.3, 0.3], dtype=np.float64
 )
 
 # ---------- Initialize State ---------------

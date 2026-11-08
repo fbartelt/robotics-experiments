@@ -595,8 +595,8 @@ CURVE_BUILDERS = {
     "trefoil": make_trefoil_knot,
     "vertical_coil": make_vertical_coil,
     "test": generate_barrel_roll_circle,
-    # "gimbal": generate_vertical_loop_roll,
-    "gimbal": generate_toroidal_coil,
+    "gimbal": generate_vertical_loop_roll,
+    "toroidal_coil": generate_toroidal_coil,
 }
 
 

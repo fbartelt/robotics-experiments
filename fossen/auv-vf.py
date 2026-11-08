@@ -39,7 +39,7 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 120
+T = 300
 curve_base_path = "./fossen/data"
 scale_pos = 1 / np.sqrt(3.0)
 scale_pos = 1.0
@@ -49,7 +49,8 @@ curve_seed = None
 kn1 = 1.0
 kn2 = 0.7
 # kt1 = 1.0
-kt1 = 0.7 # 0.9 is too high, 0.4 is tpp slow
+kt1 = 0.7  # 0.7 is cool for toroidal coil
+kt1 = 0.3
 kt2 = 0.7
 kt3 = kn2
 
@@ -61,14 +62,15 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "trefoil"
+# toroidal_coil
+CURVE_TYPE = "ellipse"
 
-scl = (0.8 / 1.5)
-scl = 1.0
+scl = 0.8 / 1.5
+scl = 1.0 / 1.5
 TEST_RADIUS = 3.0 * scl
 TEST_MINOR_RADIUS = 2.0 * scl
 TEST_N_COILS = 4.0
-TEST_ROLLS = 1.0
+TEST_ROLLS = 1.0 * 0
 
 CIRCLE_RADIUS = 3.0
 CURVE_N_ROLLS = 1.0
@@ -143,7 +145,8 @@ elif CURVE_TYPE == "vertical_coil":
     kwargs["R"] = CYLINDER_R
     kwargs["z_amp"] = CYLINDER_Z_AMP
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
-elif CURVE_TYPE == "test" or CURVE_TYPE == "gimbal":
+# elif CURVE_TYPE == "test" or CURVE_TYPE == "gimbal":
+elif CURVE_TYPE == "toroidal_coil":
     kwargs["R"] = TEST_RADIUS
     kwargs["r"] = TEST_MINOR_RADIUS
     kwargs["n_coils"] = TEST_N_COILS

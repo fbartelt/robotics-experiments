@@ -18,9 +18,16 @@ anim_base_path = "./fossen/media"
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "ellipse"
+# toroidal_coil
+CURVE_TYPE = "toroidal_coil"
 
-results_file_name = f"results_{CURVE_TYPE}_default.pkl"
+RUN_BASELINE = True
+
+if RUN_BASELINE:
+    results_file_name = f"results_{CURVE_TYPE}_baseline.pkl"
+else:
+    results_file_name = f"results_{CURVE_TYPE}_default.pkl"
+
 results_file = os.path.join(curve_base_path, results_file_name)
 curve_path = os.path.join(curve_base_path, f"{CURVE_TYPE}.npy")
 dcurve_path = os.path.join(curve_base_path, f"{CURVE_TYPE}_derivative.npy")
@@ -48,6 +55,7 @@ applied_wrench = data["applied_wrench"]
 allocation_residual = data["allocation_residual"]
 thrust_setpoints = data["thrust_setpoints"]
 saturated_thrusters = data["saturated_thrusters"]
+requested_wrench
 
 htm0 = log_htm[0]
 auv = make_rov(htm=htm0)
@@ -86,7 +94,13 @@ for i, t_ in enumerate(time_vec):
 
 
 sim.run_in_browser()
-sim.save(anim_base_path, f"{CURVE_TYPE}")
+bsl_name = "_baseline"if RUN_BASELINE else ""
+for fol in range(2):
+    if fol == 0:
+        sim.save(anim_base_path, f"{CURVE_TYPE}{bsl_name}")
+    else:
+        sim.set_parameters(camera_follow=auv, camera_start_pose=camera_start_pose)
+        sim.save(anim_base_path, f"{CURVE_TYPE}{bsl_name}_follow")
 
 
 def create_fig():
