@@ -326,6 +326,9 @@ class SE3VectorField:
         if self.normalize_normal:
             normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
 
+        if self.normalize_normal:
+            normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+
         # ---- tangent: forward-difference or supplied derivative ----------
         if curve_derivative is None:
             next_indices = (closest_indices + 1) % M  # closed curve
