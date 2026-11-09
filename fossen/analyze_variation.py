@@ -394,44 +394,44 @@ def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **
                 + f"  | curve_seed={curve_seed} (a={a:.2f}, b={b:.2f})"
             )
 
-        seed_stats = {}
-        for r in results:
-            seed = r["run_id"] // 5  # N_INITS=5
-            s = seed_stats.setdefault(seed, {"ok": 0, "total": 0})
-            s["total"] += 1
-            s["ok"] += int(r["success"])
-
-        print(f"\nPer-seed summary (sorted by scale):")
-        print(
-            f"  {'seed':>4}  {'scale':>5}  {'a':>5}  {'b':>5}  {'roll°':>6}  {'pitch°':>7}  {'yaw_off°':>7}  {'success':>9}"
-        )
-        rows = []
-        for seed, s in seed_stats.items():
-            rng = np.random.default_rng(seed)
-            _ = rng.uniform(0, 2 * np.pi)  # yaw_global
-            scale = rng.uniform(0.8, 1.5)
-            roll = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
-            pitch = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
-            yaw_off = np.degrees(rng.uniform(-np.pi, np.pi))  # <-- add this
-            rows.append(
-                (
-                    scale,
-                    seed,
-                    3.0 * scale,
-                    2.0 * scale,
-                    roll,
-                    pitch,
-                    yaw_off,
-                    s["ok"],
-                    s["total"],
-                )
-            )
-
-        rows.sort()
-        for scale, seed, a, b, roll, pitch, yaw_off, ok, tot in rows:
-            print(
-                f"  {seed:>4}  {scale:>5.2f}  {a:>5.2f}  {b:>5.2f}  {roll:>6.1f}  {pitch:>7.1f}  {yaw_off:>7.1f}  {ok:>4}/{tot}"
-            )
+        # seed_stats = {}
+        # for r in results:
+        #     seed = r["run_id"] // 5  # N_INITS=5
+        #     s = seed_stats.setdefault(seed, {"ok": 0, "total": 0})
+        #     s["total"] += 1
+        #     s["ok"] += int(r["success"])
+        #
+        # print(f"\nPer-seed summary (sorted by scale):")
+        # print(
+        #     f"  {'seed':>4}  {'scale':>5}  {'a':>5}  {'b':>5}  {'roll°':>6}  {'pitch°':>7}  {'yaw_off°':>7}  {'success':>9}"
+        # )
+        # rows = []
+        # for seed, s in seed_stats.items():
+        #     rng = np.random.default_rng(seed)
+        #     _ = rng.uniform(0, 2 * np.pi)  # yaw_global
+        #     scale = rng.uniform(0.8, 1.5)
+        #     roll = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
+        #     pitch = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
+        #     yaw_off = np.degrees(rng.uniform(-np.pi, np.pi))  # <-- add this
+        #     rows.append(
+        #         (
+        #             scale,
+        #             seed,
+        #             3.0 * scale,
+        #             2.0 * scale,
+        #             roll,
+        #             pitch,
+        #             yaw_off,
+        #             s["ok"],
+        #             s["total"],
+        #         )
+        #     )
+        #
+        # rows.sort()
+        # for scale, seed, a, b, roll, pitch, yaw_off, ok, tot in rows:
+        #     print(
+        #         f"  {seed:>4}  {scale:>5.2f}  {a:>5.2f}  {b:>5.2f}  {roll:>6.1f}  {pitch:>7.1f}  {yaw_off:>7.1f}  {ok:>4}/{tot}"
+        #     )
 
     return results
 
@@ -439,7 +439,7 @@ def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **
 if __name__ == "__main__":
     results_dir = "./fossen/data"
     curves_dir = "./fossen/data"
-    RUN_BASELINE = False
+    RUN_BASELINE = True
 
     for curve_type in ["ellipse", "trefoil", "vertical_coil"]:
         if RUN_BASELINE:
@@ -448,7 +448,13 @@ if __name__ == "__main__":
             pkl_path = os.path.join(results_dir, f"{curve_type}_results.pkl")
         npy_path = os.path.join(curves_dir, f"{curve_type}.npy")
         if os.path.exists(pkl_path):
-            analyze_pickle(pkl_path, npy_path, min_laps=0.7,)
+            analyze_pickle(
+                pkl_path,
+                npy_path,
+                min_laps=0.6,
+                coverage_threshold=0.9,
+                include_types=("nominal", "P1", "P2"),
+            )
         else:
             print(f"Skipping {curve_type}: {pkl_path} not found")
 
@@ -465,3 +471,4 @@ print(2)
 #             analyze_pickle_recomputed_v2(pkl, npy, dnpy)
 #         else:
 #             print(f"Skipping {curve_type}: {pkl} not found")
+

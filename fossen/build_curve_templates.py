@@ -27,12 +27,19 @@ CYLINDER_R = 2.0
 CYLINDER_Z_AMP = 1.0
 CYLINDER_N_OSCILLATIONS = 3
 
+# Toroidal coil
+scl = 1.0 / 1.5
+TEST_RADIUS = 3.0 * scl
+TEST_MINOR_RADIUS = 2.0 * scl
+TEST_N_COILS = 4.0
+TEST_ROLLS = 1.0 * 0
+
 
 data_folder = "./fossen/data"
 directory = Path(data_folder)
 directory.mkdir(parents=True, exist_ok=True)
 
-for CURVE_TYPE in ["ellipse", "trefoil", "vertical_coil"]:
+for CURVE_TYPE in ["ellipse", "trefoil", "vertical_coil", "toroidal_coil"]:
 
     kwargs = {
         "n_points": CURVE_POINTS,
@@ -57,6 +64,11 @@ for CURVE_TYPE in ["ellipse", "trefoil", "vertical_coil"]:
         kwargs["R"] = CYLINDER_R
         kwargs["z_amp"] = CYLINDER_Z_AMP
         kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
+    elif CURVE_TYPE == "toroidal_coil":
+        kwargs["R"] = TEST_RADIUS
+        kwargs["r"] = TEST_MINOR_RADIUS
+        kwargs["n_coils"] = TEST_N_COILS
+        kwargs["n_rolls"] = TEST_ROLLS
 
     curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
     curve_file_name = f"{CURVE_TYPE}.npy"

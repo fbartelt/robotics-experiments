@@ -25,12 +25,20 @@ htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
 
 actual_twist = np.zeros(6)
-gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 120
+T = 300
 curve_base_path = "./fossen/data"
+
+kn1 = 1.0
+kn2 = 0.7
+# kt1 = 1.0
+kt1 = 0.7  # 0.7 is cool for toroidal coil
+# kt1 = 0.3
+kt2 = 0.7
+kt3 = kn2
 
 CURVE_X0, CURVE_Y0, CURVE_Z0 = -2.0 * 0, -2.0 * 0, -4.0
 CURVE_POINTS = 15000 * 2
@@ -40,9 +48,21 @@ CURVE_POINTS = 15000 * 2
 # ellipse
 # trefoil
 # vertical_coil
-CURVE_TYPE = "trefoil"
+# toroidal_coil
+CURVE_TYPE = "toroidal_coil"
 
-CIRCLE_RADIUS = 1.5 * 8
+scl = 0.8 / 1.5
+scl = 1.0
+TEST_RADIUS = 3.0 * scl
+TEST_MINOR_RADIUS = 2.0 * scl
+TEST_N_COILS = 4.0
+TEST_ROLLS = 2.0 * 0
+
+
+# TEST_RADIUS = 2.0
+# TEST_ROLLS = 2.0 * 0
+
+CIRCLE_RADIUS = 3.0
 CURVE_N_ROLLS = 1.0
 
 # Ellipse
@@ -63,12 +83,6 @@ CYLINDER_R = 2.0
 CYLINDER_Z_AMP = 1.0
 CYLINDER_N_OSCILLATIONS = 3
 
-
-kn1 = 1
-kn2 = 1.0
-kt1 = 0.03 / 2
-kt2 = 1.0
-kt3 = kn2
 
 kwargs = {
     "n_points": CURVE_POINTS,
@@ -93,6 +107,16 @@ elif CURVE_TYPE == "vertical_coil":
     kwargs["R"] = CYLINDER_R
     kwargs["z_amp"] = CYLINDER_Z_AMP
     kwargs["N_oscillations"] = CYLINDER_N_OSCILLATIONS
+elif CURVE_TYPE == "test" or CURVE_TYPE == "gimbal":
+    kwargs["R"] = TEST_RADIUS
+    kwargs["r"] = TEST_MINOR_RADIUS
+    kwargs["n_coils"] = TEST_N_COILS
+    kwargs["n_rolls"] = TEST_ROLLS
+elif CURVE_TYPE == "toroidal_coil":
+    kwargs["R"] = TEST_RADIUS
+    kwargs["r"] = TEST_MINOR_RADIUS
+    kwargs["n_coils"] = TEST_N_COILS
+    kwargs["n_rolls"] = TEST_ROLLS
 
 
 results_file_name = f"results_{CURVE_TYPE}_baseline.pkl"
@@ -116,7 +140,8 @@ p_curve, phi_curve = se3_curve_to_r3t3(curve)
 
 # VF tuning (Rezende's v_r is a mixed m+rad speed; 0.4 ≈ 0.4 m/s surge)
 REZENDE_V_R = 1.0
-scale_pos = 1 / np.sqrt(2.7)
+scale_pos = 1 / np.sqrt(3.0)
+scale_pos = 1.0
 curve_scale = curve.copy()
 curve_scale[:, :3, 3] *= scale_pos
 
@@ -155,53 +180,57 @@ params.dt = dt
 params.velocity_gains = gains
 params.model_compensation = False
 params.thruster_time_constant = 0
-params.thrust_max = 5.25 * 9.80665 * np.ones((8,))
-params.thrust_min = -4.10 * 9.80665 * np.ones((8,))
+params.thrust_max = 5.25 * 9.80665 * np.ones((8,)) * 2
+params.thrust_min = -4.10 * 9.80665 * np.ones((8,)) * 2
 
 # Measurement Noise Configuration (converted from C++ to NumPy arrays)
 params.measurement_noise.enabled = True
 params.measurement_noise.seed = 42
-params.measurement_noise.sample_period = 0.01 * 0
+params.measurement_noise.sample_period = 0  # 1 / 30
 
 params.measurement_noise.white_variances = np.array(
     [
-        0 * 0.02**2,
-        0 * 0.02**2,
-        0 * 0.003**2,
-        0 * 0.002**2,
-        0 * 0.002**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.005**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
-        0 * 0.001**2,
+        # Position (x, y, z) [m]
+        0.005**2,
+        0.005**2,
+        0.002**2,
+        # Orientation (roll, pitch, yaw) [rad]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Linear velocity (u, v, w) [m/s]
+        0.002**2,
+        0.002**2,
+        0.002**2,
+        # Angular velocity (p, q, r) [rad/s]
+        0.003**2,
+        0.003**2,
+        0.003**2,
     ],
     dtype=np.float64,
 )
 
 params.measurement_noise.colored_variances = np.array(
     [
-        0.05**2,
-        0.05**2,
-        0.05**2,  # Position: ~1 cm drift
+        0.01**2,
+        0.01**2,
+        0.01**2,  # Position: ~1 cm drift
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
         0.005**2,
-        0.001**2,
-        0.001**2,
-        0.001**2,
+        0.01**2,
+        0.01**2,
+        0.01**2,
     ],
     dtype=np.float64,
 )
 
 # params.measurement_noise.correlation_times = 0.2 * np.ones((12,))
 params.measurement_noise.correlation_times = np.array(
-    [10.0, 10.0, 10.0, 1.0, 1.0, 5.0, 0.2, 0.2, 0.2, 30.0, 30.0, 30.0], dtype=np.float64
+    [10.0, 10.0, 10.0, 1.0, 1.0, 2.0, 0.8, 0.8, 0.8, 0.3, 0.3, 0.3], dtype=np.float64
 )
 
 # ---------- Initialize State ---------------
@@ -241,7 +270,7 @@ for t in tqdm(time_vec):
         v_r=REZENDE_V_R,
         kn1=kn1,
         kn2=kn2,
-        kt1=kt1 * 10,
+        kt1=kt1,
         kt2=kt2,
         kt3=kt3,
     )

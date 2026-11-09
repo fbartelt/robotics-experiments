@@ -1,4 +1,5 @@
 import math
+import numpy as np
 from typing import Optional, Tuple, Union
 import torch
 
@@ -19,12 +20,16 @@ class SE3VectorField:
         max_cos_theta: float = 0.999,
         theta_zero: float = 1e-6,
         normalize_tangent: bool = False,
+        normalize_normal: bool = False,
+        scale_pos: float = 1.0,
     ):
         self.delta = delta
         self.ds = ds
         self.max_cos_theta = max_cos_theta
         self.theta_zero = theta_zero
         self.normalize_tangent = normalize_tangent
+        self.normalize_normal = normalize_normal
+        self.scale_pos = scale_pos
 
     # ------------------------------------------------------------------
     # Helpers
@@ -83,16 +88,23 @@ class SE3VectorField:
     # ------------------------------------------------------------------
     # EEdistance – broadcasting over arbitrary batch shapes
     # ------------------------------------------------------------------
-    def eedistance(self, V: torch.Tensor, W: torch.Tensor) -> torch.Tensor:
+    def eedistance(
+        self,
+        V: torch.Tensor,
+        W: torch.Tensor,
+        scale_pos: float = None,
+    ) -> torch.Tensor:
         """
         V, W: (..., 4, 4) with broadcasting.
         """
+        if scale_pos is None:
+            scale_pos = self.scale_pos
         Z = torch.linalg.inv(V) @ W  # (..., 4, 4)
         Q, t, M, theta, _, _, _ = self.eedist_se3_variables(Z)
 
         t_col = t.unsqueeze(-1)  # (..., 3, 1)
         tMt = (t.unsqueeze(-2) @ M @ t_col).squeeze(-1).squeeze(-1)
-        return torch.sqrt(2.0 * theta**2 + tMt)
+        return torch.sqrt(2.0 * theta**2 + (scale_pos**2) * tMt)
 
     # ------------------------------------------------------------------
     # ECdistance – closest point on curve (chunked to bound memory)
@@ -102,6 +114,7 @@ class SE3VectorField:
         states: torch.Tensor,  # (N, 4, 4)
         curve: torch.Tensor,  # (M, 4, 4)
         chunk_size: int = 256,  # states per chunk (tuned for mem)
+        scale_pos: float = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Fully vectorised brute-force closest-point search on SE(3).
@@ -111,6 +124,8 @@ class SE3VectorField:
             d^2(V,W) = 2*theta^2 + t^T M t
         purely in terms of scalar (C,M) quantities.
         """
+        if scale_pos is None:
+            scale_pos = self.scale_pos
         N, M = states.shape[0], curve.shape[0]
         device, dtype = states.device, states.dtype
 
@@ -189,6 +204,7 @@ class SE3VectorField:
 
             # ---- t^T M t = 2α·tQt + (1−2α)·‖t‖² : (C, M) -----------------
             tMt = 2.0 * alpha * tQt + (1.0 - 2.0 * alpha) * t_sq
+            tMt *= scale_pos**2
 
             d = torch.sqrt((2.0 * theta**2 + tMt).clamp_min(0.0))  # (C, M)
 
@@ -275,10 +291,13 @@ class SE3VectorField:
         kn1: float,
         kn2: float,
         curve_derivative: Optional[Union[torch.Tensor, list]] = None,
+        scale_pos: float = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns (twist: (N, 6), distances: (N,), closest_indices: (N,)).
         """
+        if scale_pos is None:
+            scale_pos = self.scale_pos
         device, dtype = states.device, states.dtype
         N, M = states.shape[0], curve.shape[0]
 
@@ -301,6 +320,11 @@ class SE3VectorField:
 
         LvDhat = (dists_pert - min_dists.unsqueeze(0)) / self.delta  # (6, N)
         normal = -LvDhat.t().contiguous()  # (N, 6)
+        if self.normalize_normal:
+            normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+
+        if self.normalize_normal:
+            normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
 
         # ---- tangent: forward-difference or supplied derivative ----------
         if curve_derivative is None:

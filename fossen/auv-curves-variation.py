@@ -30,8 +30,10 @@ T = 300
 scale_pos = 1 / np.sqrt(3.0)
 
 kn1 = 1
+# kn2 = 0.9
 kn2 = 1.0
-kt1 = 0.03 * 0.8
+kt1 = 0.03 * 10
+# kt2 = 0.8
 kt2 = 1.0
 kt3 = kn2
 
@@ -39,12 +41,16 @@ N_CURVES = 20
 N_INITS = 5
 PROBLEMATIC_INIT_SEED = 0
 n_samples = N_CURVES * N_INITS
+normalize_tangent = True
+normalize_normal = True
 
 RUN_BASELINE = True  # whether to run Lie-VF or Rezende VF
 # "both" (default), "nominal" (skip problematic), or "problematic" (only problematic)
-RUN_MODE = "nominal"
+RUN_MODE = "both"
 # Rejection-sampling effort for problematic seeds
 N_PROBLEMATIC_TRIES = 50000
+PROBLEMATIC_DIR = "./data/problematic"
+USE_PRECOMPUTED_PROBLEMATIC = True
 
 # Torch configuration used inside each worker.
 # CPU + float64 keeps things consistent with your numpy path and avoids
@@ -56,7 +62,12 @@ if RUN_BASELINE:
 DTYPE = torch.float64
 
 # Instantiate the solver once (delta / ds match the C++ constants c_delta / c_ds)
-vf_solver = SE3VectorField(delta=1e-3, ds=1e-3)
+vf_solver = SE3VectorField(
+    delta=1e-3,
+    ds=1e-3,
+    normalize_tangent=normalize_tangent,
+    normalize_normal=normalize_normal,
+)
 
 
 def get_params(noise_seed: int = 42):
@@ -225,15 +236,40 @@ def _sample_random_init(curve, rng):
     return htm
 
 
-def sample_init(curve, rng, kind="nominal"):
-    """'P1'/'P2' use rejection sampling; 'nominal' samples uniformly.
+def load_problematic_init(curve_type, curve_seed, kind):
+    """Load the highest-scoring P1 / P2 HTM from the offline search."""
+    path = os.path.join(
+        PROBLEMATIC_DIR, f"problematic_{curve_type}_seed{curve_seed}.pkl"
+    )
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Missing {path}. Run find_problematic.py for "
+            f"({curve_type}, seed={curve_seed}), or set "
+            f"USE_PRECOMPUTED_PROBLEMATIC=False to fall back to rejection sampling."
+        )
+    with open(path, "rb") as f:
+        d = pickle.load(f)
+    # Files store entries ordered by descending score; [0] is the worst case.
+    if kind == "P1":
+        return d["top_p1_htms"][0], float(d["top_p1_scores"][0])
+    if kind == "P2":
+        return d["top_p2_htms"][0], float(d["top_p2_scores"][0])
+    raise ValueError(f"Unknown kind: {kind}")
 
-    Note: `curve` is the *unscaled* curve (same as before); scoring stays
-    in the unscaled space. Torch tensors are built once per call, not per try.
+
+def sample_init(curve, rng, kind="nominal", curve_type=None, curve_seed=None):
+    """'P1'/'P2' load from disk (or fall back to rejection sampling).
+
+    Note: `curve` is the *unscaled* curve. Torch tensors are built once per
+    call, not per try.
     """
     if kind == "nominal":
         return _sample_random_init(curve, rng), np.nan
 
+    if USE_PRECOMPUTED_PROBLEMATIC:
+        return load_problematic_init(curve_type, curve_seed, kind)
+
+    # ---- fallback: rejection sampling (slow) ----
     vf_solver = SE3VectorField()
     curve_t = torch.as_tensor(curve, dtype=DTYPE, device=DEVICE)
 
@@ -241,14 +277,12 @@ def sample_init(curve, rng, kind="nominal"):
     for _ in range(N_PROBLEMATIC_TRIES):
         htm = _sample_random_init(curve, rng)
         htm_t = torch.as_tensor(htm, dtype=DTYPE, device=DEVICE)
-
         if kind == "P1":
             s = score_p1(htm_t, curve_t, vf_solver)
         elif kind == "P2":
             s = score_p2(htm_t, curve_t, vf_solver)
         else:
             raise ValueError(f"unknown init kind: {kind}")
-
         if s > best_score:
             best_score, best_htm = s, htm
     return best_htm, best_score
@@ -282,7 +316,13 @@ def run_single_sim(curve_type, i, curve_base, curve_derivative_base):
     curve_scale[:, :3, 3] *= scale_pos
 
     local_rng = np.random.default_rng(i + 1000)
-    htm0, target_score = sample_init(curve, local_rng, kind=init_type)
+    htm0, target_score = sample_init(
+        curve,
+        local_rng,
+        kind=init_type,
+        curve_type=curve_type,
+        curve_seed=curve_seed,
+    )
 
     actual_twist = np.zeros(6)
 
@@ -294,7 +334,12 @@ def run_single_sim(curve_type, i, curve_base, curve_derivative_base):
     state.measurement.valid = True
 
     # ---- Torch setup (once per worker) ---------------------------------
-    vf_solver = SE3VectorField()
+    vf_solver = SE3VectorField(
+        delta=1e-3,
+        ds=1e-3,
+        normalize_tangent=normalize_tangent,
+        normalize_normal=normalize_normal,
+    )
     curve_scale_t = torch.as_tensor(curve_scale, dtype=DTYPE, device=DEVICE)
     deriv_t = torch.as_tensor(curve_derivative, dtype=DTYPE, device=DEVICE)
 
@@ -495,7 +540,13 @@ def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
     curve_scale[:, :3, 3] *= scale_pos
 
     local_rng = np.random.default_rng(i + 1000)
-    htm0, target_score = sample_init(curve, local_rng, kind=init_type)
+    htm0, target_score = sample_init(
+        curve,
+        local_rng,
+        kind=init_type,
+        curve_type=curve_type,
+        curve_seed=curve_seed,
+    )
 
     state = ub_cpp.FossenState()
     state.pose = htm0.copy()
@@ -508,7 +559,8 @@ def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
     # Test-script convention: build from the UNSCALED curve; scale_pos is
     # applied to both p_ctrl and p_curve at VF-call time.
     p_curve, phi_curve = se3_curve_to_r3t3(curve)
-    p_curve_scl = p_curve * scale_pos  # hoisted out of loop
+    # p_curve_scl = p_curve * scale_pos  # hoisted out of loop
+    p_curve_scl = p_curve  # hoisted out of loop
 
     time_vec = np.arange(0, T, dt)
 
@@ -529,14 +581,15 @@ def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
         phi_ctrl = R.from_matrix(ctrl_pose[:3, :3]).as_euler("xyz")
 
         psi = rezende_vf_r3t3(
-            p_ctrl * scale_pos,
+            # p_ctrl * scale_pos,
+            p_ctrl,
             phi_ctrl,
             p_curve_scl,
             phi_curve,
             v_r=1.0,
             kn1=kn1,
             kn2=kn2,
-            kt1=kt1 * 10,
+            kt1=kt1,
             kt2=kt2,
             kt3=kt3,
         )

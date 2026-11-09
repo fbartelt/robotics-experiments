@@ -1,210 +1,171 @@
+[lie] Device: cuda, dtype: torch.float64  ->  sequential
 
-========================================================================
-  Curve: ellipse   seed: 0   N = 30000
-  Candidates: 50000   P2 scorer: C++ L-operator
-  Workers: 28   chunks: 28
-========================================================================
+================ Processing curve: ellipse ================
+[ellipse] START  09:31:54  (mode=both, 100 runs)
+begin 0; end 0$$ [ellipse] 09:32:45  run_id=0  (1/100)
+begin 1; end 1$$ [ellipse] 09:33:35  run_id=1  (2/100)
+begin 2; end 2$$ [ellipse] 09:34:26  run_id=2  (3/100)
+begin 3; end 3$$ [ellipse] 09:35:17  run_id=3  (4/100)
+begin 4; end 4$$ [ellipse] 09:36:08  run_id=4  (5/100)
+begin 5; end 5$$ [ellipse] 09:37:00  run_id=5  (6/100)
+begin 6; end 6$$ [ellipse] 09:37:51  run_id=6  (7/100)
+begin 7; end 7$$ [ellipse] 09:38:43  run_id=7  (8/100)
+begin 8; end 8$$ [ellipse] 09:39:34  run_id=8  (9/100)
+begin 9; end 9$$ [ellipse] 09:40:25  run_id=9  (10/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 10; end 10$$ [ellipse] 09:41:18  run_id=10  (11/100)
+begin 11; end 11$$ [ellipse] 09:42:10  run_id=11  (12/100)
+begin 12; end 12$$ [ellipse] 09:43:01  run_id=12  (13/100)
+begin 13; end 13$$ [ellipse] 09:43:53  run_id=13  (14/100)
+begin 14; end 14$$ [ellipse] 09:44:44  run_id=14  (15/100)
+begin 15; end 15$$ [ellipse] 09:45:36  run_id=15  (16/100)
+begin 16; end 16$$ [ellipse] 09:46:27  run_id=16  (17/100)
+begin 17; end 17$$ [ellipse] 09:47:19  run_id=17  (18/100)
+begin 18; end 18$$ [ellipse] 09:48:10  run_id=18  (19/100)
+begin 19; end 19$$ [ellipse] 09:49:02  run_id=19  (20/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 20; end 20$$ [ellipse] 09:49:57  run_id=20  (21/100)
+begin 21; end 21$$ [ellipse] 09:50:48  run_id=21  (22/100)
+begin 22; end 22$$ [ellipse] 09:51:40  run_id=22  (23/100)
+begin 23; end 23$$ [ellipse] 09:52:32  run_id=23  (24/100)
+begin 24; end 24$$ [ellipse] 09:53:23  run_id=24  (25/100)
+begin 25; end 25$$ [ellipse] 09:54:15  run_id=25  (26/100)
+begin 26; end 26$$ [ellipse] 09:55:06  run_id=26  (27/100)
+begin 27; end 27$$ [ellipse] 09:55:58  run_id=27  (28/100)
+begin 28; end 28$$ [ellipse] 09:56:49  run_id=28  (29/100)
+begin 29; end 29$$ [ellipse] 09:57:41  run_id=29  (30/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 30; end 30$$ [ellipse] 09:58:34  run_id=30  (31/100)
+begin 31; end 31$$ [ellipse] 09:59:25  run_id=31  (32/100)
+begin 32; end 32$$ [ellipse] 10:00:17  run_id=32  (33/100)
+begin 33; end 33$$ [ellipse] 10:01:08  run_id=33  (34/100)
+begin 34; end 34$$ [ellipse] 10:01:59  run_id=34  (35/100)
+begin 35; end 35$$ [ellipse] 10:02:50  run_id=35  (36/100)
+begin 36; end 36$$ [ellipse] 10:03:40  run_id=36  (37/100)
+begin 37; end 37$$ [ellipse] 10:04:31  run_id=37  (38/100)
+begin 38; end 38$$ [ellipse] 10:05:22  run_id=38  (39/100)
+begin 39; end 39$$ [ellipse] 10:06:13  run_id=39  (40/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 40; end 40$$ [ellipse] 10:07:05  run_id=40  (41/100)
+begin 41; end 41$$ [ellipse] 10:07:56  run_id=41  (42/100)
+begin 42; end 42$$ [ellipse] 10:08:47  run_id=42  (43/100)
+begin 43; end 43$$ [ellipse] 10:09:38  run_id=43  (44/100)
+begin 44; end 44$$ [ellipse] 10:10:29  run_id=44  (45/100)
+begin 45; end 45$$ [ellipse] 10:11:19  run_id=45  (46/100)
+begin 46; end 46$$ [ellipse] 10:12:10  run_id=46  (47/100)
+begin 47; end 47$$ [ellipse] 10:13:01  run_id=47  (48/100)
+begin 48; end 48$$ [ellipse] 10:13:52  run_id=48  (49/100)
+begin 49; end 49$$ [ellipse] 10:14:43  run_id=49  (50/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 50; end 50$$ [ellipse] 10:15:35  run_id=50  (51/100)
+begin 51; end 51$$ [ellipse] 10:16:26  run_id=51  (52/100)
+begin 52; end 52$$ [ellipse] 10:17:16  run_id=52  (53/100)
+begin 53; end 53$$ [ellipse] 10:18:07  run_id=53  (54/100)
+begin 54; end 54$$ [ellipse] 10:18:58  run_id=54  (55/100)
+begin 55; end 55$$ [ellipse] 10:19:49  run_id=55  (56/100)
+begin 56; end 56$$ [ellipse] 10:20:39  run_id=56  (57/100)
+begin 57; end 57$$ [ellipse] 10:21:30  run_id=57  (58/100)
+begin 58; end 58$$ [ellipse] 10:22:21  run_id=58  (59/100)
+begin 59; end 59$$ [ellipse] 10:23:12  run_id=59  (60/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 60; end 60$$ [ellipse] 10:24:04  run_id=60  (61/100)
+begin 61; end 61$$ [ellipse] 10:24:55  run_id=61  (62/100)
+begin 62; end 62$$ [ellipse] 10:25:45  run_id=62  (63/100)
+begin 63; end 63$$ [ellipse] 10:26:36  run_id=63  (64/100)
+begin 64; end 64$$ [ellipse] 10:27:27  run_id=64  (65/100)
+begin 65; end 65$$ [ellipse] 10:28:18  run_id=65  (66/100)
+begin 66; end 66$$ [ellipse] 10:29:08  run_id=66  (67/100)
+begin 67; end 67$$ [ellipse] 10:29:59  run_id=67  (68/100)
+begin 68; end 68$$ [ellipse] 10:30:50  run_id=68  (69/100)
+begin 69; end 69$$ [ellipse] 10:31:41  run_id=69  (70/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 70; end 70$$ [ellipse] 10:32:33  run_id=70  (71/100)
+begin 71; end 71$$ [ellipse] 10:33:23  run_id=71  (72/100)
+begin 72; end 72$$ [ellipse] 10:34:14  run_id=72  (73/100)
+begin 73; end 73$$ [ellipse] 10:35:05  run_id=73  (74/100)
+begin 74; end 74$$ [ellipse] 10:35:55  run_id=74  (75/100)
+begin 75; end 75$$ [ellipse] 10:36:46  run_id=75  (76/100)
+begin 76; end 76$$ [ellipse] 10:37:36  run_id=76  (77/100)
+begin 77; end 77$$ [ellipse] 10:38:27  run_id=77  (78/100)
+begin 78; end 78$$ [ellipse] 10:39:18  run_id=78  (79/100)
+begin 79; end 79$$ [ellipse] 10:40:08  run_id=79  (80/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 80; end 80$$ [ellipse] 10:41:00  run_id=80  (81/100)
+begin 81; end 81$$ [ellipse] 10:41:51  run_id=81  (82/100)
+begin 82; end 82$$ [ellipse] 10:42:42  run_id=82  (83/100)
+begin 83; end 83$$ [ellipse] 10:43:32  run_id=83  (84/100)
+begin 84; end 84$$ [ellipse] 10:44:23  run_id=84  (85/100)
+begin 85; end 85$$ [ellipse] 10:45:14  run_id=85  (86/100)
+begin 86; end 86$$ [ellipse] 10:46:04  run_id=86  (87/100)
+begin 87; end 87$$ [ellipse] 10:46:55  run_id=87  (88/100)
+begin 88; end 88$$ [ellipse] 10:47:46  run_id=88  (89/100)
+begin 89; end 89$$ [ellipse] 10:48:37  run_id=89  (90/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+begin 90; end 90$$ [ellipse] 10:49:29  run_id=90  (91/100)
+begin 91; end 91$$ [ellipse] 10:50:19  run_id=91  (92/100)
+begin 92; end 92$$ [ellipse] 10:51:10  run_id=92  (93/100)
+begin 93; end 93$$ [ellipse] 10:52:01  run_id=93  (94/100)
+begin 94; end 94$$ [ellipse] 10:52:51  run_id=94  (95/100)
+begin 95; end 95$$ [ellipse] 10:53:42  run_id=95  (96/100)
+begin 96; end 96$$ [ellipse] 10:54:33  run_id=96  (97/100)
+begin 97; end 97$$ [ellipse] 10:55:23  run_id=97  (98/100)
+begin 98; end 98$$ [ellipse] 10:56:14  run_id=98  (99/100)
+begin 99; end 99$$ [ellipse] 10:57:05  run_id=99  (100/100)
+  -> checkpoint saved: ./data/ellipse_results.pkl
+[ellipse] END    10:57:06
 
-  [ellipse seed=0] chunk 1/28 done (11.2 min elapsed)
-  [ellipse seed=0] chunk 2/28 done (11.2 min elapsed)
-  [ellipse seed=0] chunk 3/28 done (11.2 min elapsed)
-  [ellipse seed=0] chunk 4/28 done (11.2 min elapsed)
-  [ellipse seed=0] chunk 5/28 done (11.3 min elapsed)
-  [ellipse seed=0] chunk 6/28 done (11.3 min elapsed)
-  [ellipse seed=0] chunk 7/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 8/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 9/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 10/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 11/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 12/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 13/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 14/28 done (11.4 min elapsed)
-  [ellipse seed=0] chunk 15/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 16/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 17/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 18/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 19/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 20/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 21/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 22/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 23/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 24/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 25/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 26/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 27/28 done (11.5 min elapsed)
-  [ellipse seed=0] chunk 28/28 done (11.6 min elapsed)
-
-  done in 11.6 min
-
-P1: min=4.4633e+05  median=2.4851e+06  p90=6.4384e+06  p99=1.5872e+07  max=5.4653e+08
-P2: min=1.4401e+00  median=9.0319e+00  p90=1.5477e+01  p99=2.9431e+01  max=2.7956e+03
-
-Top 10 by P1 (most ambiguous):
-  idx= 19594  P1=5.4653e+08  P2=1.3332e+03  pos=[1.277, -1.265, -7.190]
-  idx= 12072  P1=4.8191e+08  P2=4.9716e+02  pos=[0.042, -1.842, -0.592]
-  idx= 40024  P1=9.1385e+07  P2=7.9378e+01  pos=[-3.134, 0.222, -4.648]
-  idx= 28623  P1=8.9986e+07  P2=1.2366e+02  pos=[-0.261, 1.748, -6.905]
-  idx= 40949  P1=8.4550e+07  P2=3.3496e+01  pos=[0.551, -2.804, -0.793]
-  idx= 30268  P1=8.2592e+07  P2=1.1738e+02  pos=[0.483, -2.211, -7.385]
-  idx= 17260  P1=8.1846e+07  P2=8.5435e+01  pos=[0.934, -3.551, -4.774]
-  idx= 11658  P1=7.1935e+07  P2=4.5601e+01  pos=[-3.225, 0.263, -2.649]
-  idx= 19733  P1=6.9821e+07  P2=7.7121e+01  pos=[0.318, -1.963, -7.617]
-  idx= 26362  P1=6.4684e+07  P2=1.6027e+02  pos=[-0.753, 3.072, -5.022]
-
-Top 10 by P2 (highest L-operator Jacobian):
-  idx=  9943  P2=2.7956e+03  P1=1.5502e+07  pos=[-0.358, -0.576, -6.155]
-  idx= 46043  P2=2.3096e+03  P1=5.1933e+06  pos=[0.224, -0.470, -6.101]
-  idx= 45382  P2=1.8954e+03  P1=4.6250e+06  pos=[-1.023, -0.593, -5.652]
-  idx= 46767  P2=1.8435e+03  P1=7.8056e+06  pos=[0.044, 0.442, -7.633]
-  idx=  2926  P2=1.8042e+03  P1=9.8382e+06  pos=[1.363, 0.152, -6.671]
-  idx= 13083  P2=1.7517e+03  P1=3.2269e+06  pos=[1.540, 0.552, -6.622]
-  idx= 17904  P2=1.7194e+03  P1=5.9782e+06  pos=[-1.308, -0.803, -7.794]
-  idx= 12280  P2=1.6887e+03  P1=7.0345e+06  pos=[-0.478, 0.954, -4.691]
-  idx= 26771  P2=1.6573e+03  P1=2.8124e+06  pos=[1.434, -0.561, -6.306]
-  idx= 32479  P2=1.6540e+03  P1=3.1193e+06  pos=[1.714, 0.870, -6.879]
-
-Worst combined (in top-100 of both):
-  idx=19594  P1=5.4653e+08  P2=1.3332e+03  pos=[1.277, -1.265, -7.190]
-
-Saved to ./problematic_ellipse_seed0.pkl
-
-
-========================================================================
-  Curve: trefoil   seed: 0   N = 30000
-  Candidates: 50000   P2 scorer: C++ L-operator
-  Workers: 28   chunks: 28
-========================================================================
-
-  [trefoil seed=0] chunk 1/28 done (11.5 min elapsed)
-  [trefoil seed=0] chunk 2/28 done (11.6 min elapsed)
-  [trefoil seed=0] chunk 3/28 done (11.6 min elapsed)
-  [trefoil seed=0] chunk 4/28 done (11.6 min elapsed)
-  [trefoil seed=0] chunk 5/28 done (11.6 min elapsed)
-  [trefoil seed=0] chunk 6/28 done (11.6 min elapsed)
-  [trefoil seed=0] chunk 7/28 done (11.7 min elapsed)
-  [trefoil seed=0] chunk 8/28 done (11.7 min elapsed)
-  [trefoil seed=0] chunk 9/28 done (11.7 min elapsed)
-  [trefoil seed=0] chunk 10/28 done (11.7 min elapsed)
-  [trefoil seed=0] chunk 11/28 done (11.7 min elapsed)
-  [trefoil seed=0] chunk 12/28 done (11.8 min elapsed)
-  [trefoil seed=0] chunk 13/28 done (11.8 min elapsed)
-  [trefoil seed=0] chunk 14/28 done (11.8 min elapsed)
-  [trefoil seed=0] chunk 15/28 done (11.8 min elapsed)
-  [trefoil seed=0] chunk 16/28 done (11.8 min elapsed)
-  [trefoil seed=0] chunk 17/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 18/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 19/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 20/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 21/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 22/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 23/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 24/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 25/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 26/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 27/28 done (11.9 min elapsed)
-  [trefoil seed=0] chunk 28/28 done (12.0 min elapsed)
-
-  done in 12.0 min
-
-P1: min=4.9302e+04  median=3.3846e+05  p90=7.4210e+05  p99=1.6921e+06  max=6.0630e+08
-P2: min=1.4062e+00  median=1.1152e+01  p90=1.8882e+01  p99=4.1914e+01  max=3.6264e+03
-
-Top 10 by P1 (most ambiguous):
-  idx=  8455  P1=6.0630e+08  P2=5.5582e+02  pos=[-1.162, 0.255, -0.213]
-  idx= 16271  P1=4.2107e+08  P2=6.4141e+02  pos=[2.978, -3.433, -2.421]
-  idx=  7785  P1=3.8870e+08  P2=2.6139e+03  pos=[-0.469, -0.614, -10.390]
-  idx= 19623  P1=1.8753e+08  P2=1.3809e+03  pos=[3.456, -5.552, 0.351]
-  idx= 10844  P1=1.1434e+08  P2=5.2243e+02  pos=[-1.154, -0.488, 1.806]
-  idx=  4970  P1=5.7201e+07  P2=9.6922e+02  pos=[-1.472, 2.719, -7.486]
-  idx=  6373  P1=4.1653e+07  P2=3.8076e+02  pos=[-3.005, 2.770, 0.640]
-  idx= 17315  P1=3.8975e+07  P2=1.7385e+03  pos=[-3.548, 1.019, -7.182]
-  idx= 23525  P1=3.1625e+07  P2=1.4019e+03  pos=[2.997, 3.321, -3.399]
-  idx= 34081  P1=2.4724e+07  P2=8.1630e+02  pos=[-0.439, 3.835, -6.431]
-
-Top 10 by P2 (highest L-operator Jacobian):
-  idx=  1725  P2=3.6264e+03  P1=5.2832e+06  pos=[7.263, -3.773, -5.403]
-  idx=  7011  P2=3.3979e+03  P1=2.4634e+07  pos=[5.724, -2.276, -5.416]
-  idx= 46470  P2=3.2449e+03  P1=2.0260e+06  pos=[2.371, 0.820, -9.340]
-  idx= 15400  P2=3.2263e+03  P1=1.8695e+06  pos=[-1.128, 6.706, -9.043]
-  idx=  7785  P2=2.6139e+03  P1=3.8870e+08  pos=[-0.469, -0.614, -10.390]
-  idx= 47673  P2=2.4897e+03  P1=2.9716e+06  pos=[-0.080, 0.774, -5.141]
-  idx= 27002  P2=2.4680e+03  P1=1.5024e+06  pos=[5.903, -1.644, -9.366]
-  idx= 27421  P2=2.4399e+03  P1=8.2931e+05  pos=[-1.906, 4.687, -8.192]
-  idx= 26357  P2=2.3604e+03  P1=9.3378e+05  pos=[4.567, -0.194, -8.446]
-  idx= 18263  P2=2.3577e+03  P1=1.6939e+06  pos=[4.812, 1.482, -10.060]
-
-Worst combined (in top-100 of both):
-  idx=7785  P1=3.8870e+08  P2=2.6139e+03  pos=[-0.469, -0.614, -10.390]
-
-Saved to ./problematic_trefoil_seed0.pkl
-
-
-========================================================================
-  Curve: vertical_coil   seed: 0   N = 30000
-  Candidates: 50000   P2 scorer: C++ L-operator
-  Workers: 28   chunks: 28
-========================================================================
-
-  [vertical_coil seed=0] chunk 1/28 done (11.6 min elapsed)
-  [vertical_coil seed=0] chunk 2/28 done (11.7 min elapsed)
-  [vertical_coil seed=0] chunk 3/28 done (11.7 min elapsed)
-  [vertical_coil seed=0] chunk 4/28 done (11.8 min elapsed)
-  [vertical_coil seed=0] chunk 5/28 done (11.8 min elapsed)
-  [vertical_coil seed=0] chunk 6/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 7/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 8/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 9/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 10/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 11/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 12/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 13/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 14/28 done (11.9 min elapsed)
-  [vertical_coil seed=0] chunk 15/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 16/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 17/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 18/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 19/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 20/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 21/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 22/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 23/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 24/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 25/28 done (12.0 min elapsed)
-  [vertical_coil seed=0] chunk 26/28 done (12.1 min elapsed)
-  [vertical_coil seed=0] chunk 27/28 done (12.1 min elapsed)
-  [vertical_coil seed=0] chunk 28/28 done (12.1 min elapsed)
-
-  done in 12.1 min
-
-P1: min=2.6195e+05  median=1.4024e+06  p90=2.9852e+06  p99=7.2730e+06  max=1.4400e+08
-P2: min=2.0404e+00  median=1.0536e+01  p90=2.0748e+01  p99=5.7064e+01  max=2.6483e+03
-
-Top 10 by P1 (most ambiguous):
-  idx= 10256  P1=1.4400e+08  P2=8.3185e+02  pos=[-1.526, 0.316, -4.455]
-  idx= 37320  P1=9.4051e+07  P2=1.4773e+03  pos=[0.413, 0.488, -7.076]
-  idx= 32620  P1=6.9353e+07  P2=1.4923e+03  pos=[-0.576, 1.771, -2.885]
-  idx= 20152  P1=6.6565e+07  P2=1.3221e+02  pos=[2.527, 0.153, -4.290]
-  idx=  7587  P1=6.0808e+07  P2=1.4040e+03  pos=[0.793, -0.515, -6.377]
-  idx= 25703  P1=5.8217e+07  P2=1.7301e+03  pos=[-1.265, -0.270, -3.120]
-  idx= 46839  P1=5.6921e+07  P2=1.6137e+03  pos=[-0.826, 1.492, -6.642]
-  idx=  7976  P1=4.7913e+07  P2=9.8442e+01  pos=[0.408, -0.669, -4.839]
-  idx= 34272  P1=4.3580e+07  P2=1.2457e+01  pos=[-1.315, -0.029, -2.906]
-  idx= 20174  P1=4.1038e+07  P2=6.9162e+01  pos=[1.243, -2.028, -3.328]
-
-Top 10 by P2 (highest L-operator Jacobian):
-  idx= 35560  P2=2.6483e+03  P1=1.8742e+06  pos=[1.160, 0.477, -4.758]
-  idx=  1597  P2=2.5987e+03  P1=1.1860e+06  pos=[0.579, 0.243, -7.060]
-  idx= 15627  P2=2.5538e+03  P1=1.3056e+06  pos=[0.471, 0.441, -7.193]
-  idx= 25718  P2=2.5431e+03  P1=9.9670e+05  pos=[2.092, 0.237, -5.010]
-  idx= 12485  P2=2.5188e+03  P1=2.7217e+07  pos=[-0.487, -0.283, -6.339]
-  idx= 29928  P2=2.4796e+03  P1=1.7810e+07  pos=[-0.894, 0.586, -6.304]
-  idx= 19135  P2=2.4636e+03  P1=1.3447e+06  pos=[1.726, 1.175, -6.335]
-  idx= 39611  P2=2.4571e+03  P1=3.7283e+07  pos=[-0.060, -0.504, -5.556]
-  idx=  1609  P2=2.3419e+03  P1=2.9036e+06  pos=[-0.689, -0.323, -5.975]
-  idx=  2892  P2=2.1248e+03  P1=1.6660e+06  pos=[-0.059, -0.454, -6.742]
-
-Worst combined (in top-100 of both):
-  idx=39611  P1=3.7283e+07  P2=2.4571e+03  pos=[-0.060, -0.504, -5.556]
-
-Saved to ./problematic_vertical_coil_seed0.pkl
-
+================ Processing curve: trefoil ================
+[trefoil] START  10:57:06  (mode=both, 100 runs)
+begin 0; end 0$$ [trefoil] 10:57:57  run_id=0  (1/100)
+begin 1; end 1$$ [trefoil] 10:58:47  run_id=1  (2/100)
+begin 2; end 2$$ [trefoil] 10:59:38  run_id=2  (3/100)
+begin 3; end 3$$ [trefoil] 11:00:28  run_id=3  (4/100)
+begin 4; end 4$$ [trefoil] 11:01:19  run_id=4  (5/100)
+begin 5; end 5$$ [trefoil] 11:02:09  run_id=5  (6/100)
+begin 6; end 6$$ [trefoil] 11:03:00  run_id=6  (7/100)
+begin 7; end 7$$ [trefoil] 11:03:50  run_id=7  (8/100)
+begin 8; end 8$$ [trefoil] 11:04:41  run_id=8  (9/100)
+begin 9; end 9$$ [trefoil] 11:05:32  run_id=9  (10/100)
+  -> checkpoint saved: ./data/trefoil_results.pkl
+begin 10; end 10$$ [trefoil] 11:06:23  run_id=10  (11/100)
+begin 11; end 11$$ [trefoil] 11:07:14  run_id=11  (12/100)
+begin 12; end 12$$ [trefoil] 11:08:05  run_id=12  (13/100)
+begin 13; end 13$$ [trefoil] 11:08:56  run_id=13  (14/100)
+begin 14; end 14$$ [trefoil] 11:09:46  run_id=14  (15/100)
+begin 15; end 15$$ [trefoil] 11:10:37  run_id=15  (16/100)
+begin 16; end 16$$ [trefoil] 11:11:28  run_id=16  (17/100)
+begin 17; end 17$$ [trefoil] 11:12:18  run_id=17  (18/100)
+begin 18; end 18$$ [trefoil] 11:13:09  run_id=18  (19/100)
+begin 19; end 19$$ [trefoil] 11:14:00  run_id=19  (20/100)
+  -> checkpoint saved: ./data/trefoil_results.pkl
+begin 20; end 20$$ [trefoil] 11:14:52  run_id=20  (21/100)
+begin 21; end 21$$ [trefoil] 11:15:42  run_id=21  (22/100)
+begin 22; end 22$$ [trefoil] 11:16:33  run_id=22  (23/100)
+begin 23; end 23$$ [trefoil] 11:17:24  run_id=23  (24/100)
+begin 24; end 24$$ [trefoil] 11:18:14  run_id=24  (25/100)
+begin 25; end 25$$ [trefoil] 11:19:05  run_id=25  (26/100)
+begin 26; end 26$$ [trefoil] 11:19:55  run_id=26  (27/100)
+begin 27; end 27$$ [trefoil] 11:20:46  run_id=27  (28/100)
+begin 28; end 28$$ [trefoil] 11:21:36  run_id=28  (29/100)
+begin 29; end 29$$ [trefoil] 11:22:27  run_id=29  (30/100)
+  -> checkpoint saved: ./data/trefoil_results.pkl
+begin 30; end 30$$ [trefoil] 11:23:19  run_id=30  (31/100)
+begin 31; end 31$$ [trefoil] 11:24:10  run_id=31  (32/100)
+begin 32; end 32$$ [trefoil] 11:25:00  run_id=32  (33/100)
+begin 33; end 33$$ [trefoil] 11:25:51  run_id=33  (34/100)
+begin 34; end 34$$ [trefoil] 11:26:41  run_id=34  (35/100)
+begin 35; end 35$$ [trefoil] 11:27:32  run_id=35  (36/100)
+begin 36; end 36$$ [trefoil] 11:28:23  run_id=36  (37/100)
+begin 37; end 37$$ [trefoil] 11:29:15  run_id=37  (38/100)
+begin 38; end 38$$ [trefoil] 11:30:06  run_id=38  (39/100)
+begin 39; end 39$$ [trefoil] 11:30:57  run_id=39  (40/100)
+  -> checkpoint saved: ./data/trefoil_results.pkl
+begin 40; end 40$$ [trefoil] 11:31:49  run_id=40  (41/100)
+begin 41; end 41$$ [trefoil] 11:32:41  run_id=41  (42/100)
+begin 42; end 42$$ [trefoil] 11:33:32  run_id=42  (43/100)
+begin 43; end 43$$ [trefoil] 11:34:23  run_id=43  (44/100)
+begin 44; end 44$$ [trefoil] 11:35:15  run_id=44  (45/100)
+begin 45; end 45$$ [trefoil] 11:36:07  run_id=45  (46/100)
+begin 46; end 46$$ [trefoil] 11:36:57  run_id=46  (47/100)
+begin 47; end 47$$ [trefoil] 11:37:48  run_id=47  (48/100)
+begin 48; 

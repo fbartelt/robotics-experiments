@@ -1,4 +1,5 @@
 import numpy as np
+from uaibot import Utils
 
 
 # ==========================================================================
@@ -293,6 +294,297 @@ def make_trefoil_knot(R=3.0, z_amp=0.4, z0=-2.0, center_xy=(0.0, 0.0), n_points=
     return _sample(p, dp, ddp, n_points)
 
 
+def generate_barrel_roll_circle(n_points, r, center_xy, z0, n_rolls=1.0):
+    """
+    Generates a circle in position with a roll along the x-axis (tangent).
+
+    Parameters
+    ----------
+    n_points : int
+        Number of samples.
+    r : float
+        Circle radius.
+    x0, y0, z0 : float
+        Center of the circle.
+    n_rolls : float
+        Number of 360-degree rolls per lap.
+
+    Returns
+    -------
+    curve : (N, 4, 4) ndarray
+        Homogeneous transformation matrices.
+    dcurve : (N, 4, 4) ndarray
+        Derivatives of the HTMs with respect to the normalized parameter s in [0, 1).
+    """
+    x0, y0 = center_xy
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+
+    # Pre-compute the skew-symmetric matrices for the world x and z axes
+    S_ex = np.asarray(Utils.S(np.array([1.0, 0.0, 0.0])))
+    S_ez = np.asarray(Utils.S(np.array([0.0, 0.0, 1.0])))
+
+    for i in range(n_points):
+        s = i / n_points
+        theta = 2.0 * np.pi * s
+        phi = 2.0 * np.pi * n_rolls * s
+
+        # 1. Position and Position Derivative
+        p = np.array([x0 + r * np.cos(theta), y0 + r * np.sin(theta), z0])
+        dp_ds = np.array(
+            [-2.0 * np.pi * r * np.sin(theta), 2.0 * np.pi * r * np.cos(theta), 0.0]
+        )
+
+        # 2. Orientation
+        # Base frame: x points along the tangent, z points up
+        # Rotating by (theta + pi/2) around z aligns the local x-axis with the tangent
+        R_base = np.asarray(Utils.rotz(theta + np.pi / 2))[:3, :3]
+
+        # Roll frame: rotation along the local x-axis (tangent)
+        R_roll = np.asarray(Utils.rotx(phi))[:3, :3]
+
+        # Total rotation
+        rot = R_base @ R_roll
+
+        # 3. Orientation Derivative
+        # Using the chain rule: dR/ds = (dR_base/ds) @ R_roll + R_base @ (dR_roll/ds)
+        # Since R_base is rotz(theta + pi/2), its derivative is (dtheta/ds) * S_ez @ R_base
+        dR_base_ds = 2.0 * np.pi * (S_ez @ R_base)
+
+        # Since R_roll is rotx(phi), its derivative is (dphi/ds) * S_ex @ R_roll
+        dR_roll_ds = 2.0 * np.pi * n_rolls * (S_ex @ R_roll)
+
+        dR_ds = dR_base_ds @ R_roll + R_base @ dR_roll_ds
+
+        # 4. Assemble Homogeneous Matrices
+        T = np.eye(4)
+        T[:3, :3] = rot
+        T[:3, 3] = p
+        curve[i] = T
+
+        dT = np.zeros((4, 4))
+        dT[:3, :3] = dR_ds
+        dT[:3, 3] = dp_ds
+        dcurve[i] = dT
+
+    return curve, dcurve
+
+
+def generate_vertical_loop_roll_old(n_points, r, center_xy, z0, n_rolls=1.0):
+    """
+    Generates a vertical loop (circle in the XZ plane) with a roll along the tangent.
+    This curve forces the pitch angle to sweep through +/- 90 degrees, which
+    triggers Gimbal Lock in Euler-angle-based metrics (like the baseline),
+    but remains perfectly smooth in SE(3).
+    """
+    x0, y0 = center_xy
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+
+    # Skew-symmetric matrices for the world x and y axes
+    S_ex = np.asarray(Utils.S(np.array([1.0, 0.0, 0.0])))
+    S_ey = np.asarray(Utils.S(np.array([0.0, 1.0, 0.0])))
+
+    for i in range(n_points):
+        s = i / n_points
+        theta = 2.0 * np.pi * s
+        phi = 2.0 * np.pi * n_rolls * s
+
+        # 1. Position: Circle in XZ plane (Vertical Loop)
+        # Center is at (x0, y0, z0 + r). Lowest point is at theta=0.
+        p = np.array([x0 + r * np.sin(theta), y0, z0 + r - r * np.cos(theta)])
+        dp_ds = np.array(
+            [2.0 * np.pi * r * np.cos(theta), 0.0, 2.0 * np.pi * r * np.sin(theta)]
+        )
+
+        # 2. Orientation
+        # Base frame: Pitch by theta around the y-axis so local x points along tangent.
+        # (If your Utils lacks roty, use Utils.rot(np.array([0,1,0]), theta))
+        R_base = np.asarray(Utils.roty(theta))[:3, :3]
+
+        # Roll frame: rotation along the local x-axis (tangent)
+        R_roll = np.asarray(Utils.rotx(phi))[:3, :3]
+
+        # Total rotation
+        rot = R_base @ R_roll
+
+        # 3. Orientation Derivative
+        # dR_base/ds = (dtheta/ds) * S_ey @ R_base
+        dR_base_ds = 2.0 * np.pi * (S_ey @ R_base)
+        # dR_roll/ds = (dphi/ds) * S_ex @ R_roll
+        dR_roll_ds = 2.0 * np.pi * n_rolls * (S_ex @ R_roll)
+
+        dR_ds = dR_base_ds @ R_roll + R_base @ dR_roll_ds
+
+        # 4. Assemble Homogeneous Matrices
+        T = np.eye(4)
+        T[:3, :3] = rot
+        T[:3, 3] = p
+        curve[i] = T
+
+        dT = np.zeros((4, 4))
+        dT[:3, :3] = dR_ds
+        dT[:3, 3] = dp_ds
+        dcurve[i] = dT
+
+    return curve, dcurve
+
+
+def generate_vertical_loop_roll(n_points, r, center_xy, z0, n_rolls=1.0):
+    """
+    Generates a vertical loop (circle in the XZ plane) with a roll along the tangent.
+    """
+    x0, y0 = center_xy
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+
+    S_ex = np.asarray(Utils.S(np.array([1.0, 0.0, 0.0])))
+    S_ey = np.asarray(Utils.S(np.array([0.0, 1.0, 0.0])))
+
+    for i in range(n_points):
+        s = i / n_points
+        theta = 2.0 * np.pi * s
+        phi = 2.0 * np.pi * n_rolls * s
+
+        # 1. Position: Circle in XZ plane
+        p = np.array([x0 + r * np.sin(theta), y0, z0 + r - r * np.cos(theta)])
+        dp_ds = np.array(
+            [2.0 * np.pi * r * np.cos(theta), 0.0, 2.0 * np.pi * r * np.sin(theta)]
+        )
+
+        # 2. Orientation (FIXED: roty(-theta) to align body x-axis with dp_ds)
+        R_base = np.asarray(Utils.roty(-theta))[:3, :3]
+
+        # Roll frame: rotation along the local x-axis (tangent)
+        R_roll = np.asarray(Utils.rotx(phi))[:3, :3]
+
+        rot = R_base @ R_roll
+
+        # 3. Orientation Derivative (FIXED: leading negative sign)
+        dR_base_ds = -2.0 * np.pi * (S_ey @ R_base)
+        dR_roll_ds = 2.0 * np.pi * n_rolls * (S_ex @ R_roll)
+
+        dR_ds = dR_base_ds @ R_roll + R_base @ dR_roll_ds
+
+        # 4. Assemble
+        T = np.eye(4)
+        T[:3, :3] = rot
+        T[:3, 3] = p
+        curve[i] = T
+
+        dT = np.zeros((4, 4))
+        dT[:3, :3] = dR_ds
+        dT[:3, 3] = dp_ds
+        dcurve[i] = dT
+
+    return curve, dcurve
+
+
+def generate_toroidal_coil(n_points, R, r, center_xy, z0, n_coils=3.0, n_rolls=0.0):
+    """
+    Generates a coil that wraps `n_coils` times around a torus of major radius R
+    and minor radius r. The AUV tracks the tangent and uses the tube's outward
+    normal as its "up" vector.
+
+    Parameters
+    ----------
+    n_points : int
+        Number of samples.
+    R : float
+        Major radius (radius of the torus center ring).
+    r : float
+        Minor radius (radius of the tube).
+    center_xyz : tuple
+        Center of the torus in the world frame.
+    n_coils : float
+        Number of times the coil wraps around the tube.
+    n_rolls : float
+        Optional additional roll around the tangent axis.
+    """
+    x0, y0 = center_xy
+    curve = np.zeros((n_points, 4, 4))
+    dcurve = np.zeros((n_points, 4, 4))
+
+    for i in range(n_points):
+        s = i / n_points
+        Theta = 2.0 * np.pi * s  # Major angle (around the torus)
+        Phi = 2.0 * np.pi * n_coils * s  # Minor angle (around the tube)
+
+        dTheta = 2.0 * np.pi
+        dPhi = 2.0 * np.pi * n_coils
+
+        cT, sT = np.cos(Theta), np.sin(Theta)
+        cP, sP = np.cos(Phi), np.sin(Phi)
+
+        # Local frame for the major circle
+        e_r = np.array([cT, sT, 0.0])  # radial outward
+        e_theta = np.array([-sT, cT, 0.0])  # tangent to major circle
+        e_z = np.array([0.0, 0.0, 1.0])  # world up
+
+        # 1. Position and Velocity (tangent)
+        p = np.array([x0, y0, z0]) + (R + r * sP) * e_r + r * (1.0 - cP) * e_z
+
+        v = (dTheta * (R + r * sP)) * e_theta + dPhi * r * (cP * e_r + sP * e_z)
+
+        # 2. Acceleration (derivative of velocity)
+        acc = (
+            -(dTheta**2 * (R + r * sP) + dPhi**2 * r * sP + dTheta * dPhi * r * sP)
+            * e_r
+            + (2.0 * dTheta * dPhi * r * cP) * e_theta
+            + (dPhi**2 * r * cP) * e_z
+        )
+
+        # 3. Outward normal to the torus tube and its derivative
+        n = sP * e_r - cP * e_z
+        dn = dPhi * cP * e_r + dPhi * sP * e_z + sP * dTheta * e_theta
+
+        # 4. Construct the orthonormal basis
+        v_norm = np.linalg.norm(v)
+        x_b = v / v_norm
+        z_b = n
+        y_b = np.cross(z_b, x_b)
+
+        R_base = np.column_stack((x_b, y_b, z_b))
+
+        # 5. Compute angular velocity of the base frame
+        # x_dot = d/ds (v / |v|)
+        x_dot = (acc - x_b * np.dot(x_b, acc)) / v_norm
+        z_dot = dn
+        y_dot = np.cross(z_dot, x_b) + np.cross(z_b, x_dot)
+
+        # omega = 1/2 (x cross x_dot + y cross y_dot + z cross z_dot)
+        omega_base = 0.5 * (
+            np.cross(x_b, x_dot) + np.cross(y_b, y_dot) + np.cross(z_b, z_dot)
+        )
+
+        # 6. Apply optional roll around the tangent (local X axis)
+        phi_roll = 2.0 * np.pi * n_rolls * s
+        dphi_roll = 2.0 * np.pi * n_rolls
+        R_roll = np.asarray(Utils.rotx(phi_roll))[:3, :3]
+
+        rot = R_base @ R_roll
+
+        # Total angular velocity in the world frame
+        omega_world = omega_base + R_base @ np.array([dphi_roll, 0.0, 0.0])
+
+        # Derivative of rotation matrix using Utils.S logic
+        S_omega = np.asarray(Utils.S(omega_world))[:3, :3]
+        dR_ds = S_omega @ rot
+
+        # 7. Assemble Homogeneous Matrices
+        T = np.eye(4)
+        T[:3, :3] = rot
+        T[:3, 3] = p
+        curve[i] = T
+
+        dT = np.zeros((4, 4))
+        dT[:3, :3] = dR_ds
+        dT[:3, 3] = v
+        dcurve[i] = dT
+
+    return curve, dcurve
+
+
 # ==========================================================================
 # Registry
 # ==========================================================================
@@ -302,6 +594,9 @@ CURVE_BUILDERS = {
     "lissajous_3d": make_lissajous_3d,
     "trefoil": make_trefoil_knot,
     "vertical_coil": make_vertical_coil,
+    "test": generate_barrel_roll_circle,
+    "gimbal": generate_vertical_loop_roll,
+    "toroidal_coil": generate_toroidal_coil,
 }
 
 
