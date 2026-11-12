@@ -1,3 +1,4 @@
+# Analysis script
 import pickle
 import numpy as np
 import os
@@ -31,130 +32,6 @@ def rand_se3_curve(curve, curve_deriv, seed=None):
         curve_deriv_rand[i] = dH
 
     return curve_rand, curve_deriv_rand
-
-
-def recompute_from_htm(htm_array, curve, K_dup=200):
-    """
-    Recompute (idx, err_pos, err_ori) for each true pose in htm_array,
-    against the true (unscaled) curve. Uses a cKDTree with seam duplication
-    for fast and correct nearest-point lookup on a closed curve.
-    """
-    N = len(curve)
-    curve_pos = curve[:, :3, 3]  # (N, 3)
-    curve_rot = curve[:, :3, :3]  # (N, 3, 3)
-
-    curve_pos_ext = np.vstack([curve_pos[-K_dup:], curve_pos, curve_pos[:K_dup]])
-    tree = cKDTree(curve_pos_ext)
-
-    positions = htm_array[:, :3, 3]  # (T, 3)
-    rotations = htm_array[:, :3, :3]  # (T, 3, 3)
-
-    _, idx_ext = tree.query(positions)
-    idx = ((idx_ext - K_dup) % N).astype(int)
-
-    delta = curve_pos[idx] - positions
-    err_pos = np.linalg.norm(delta, axis=1) * 100.0  # cm
-
-    R_near = curve_rot[idx]  # (T, 3, 3)
-    tr = np.einsum("tij,tij->t", R_near, rotations)
-    err_ori = np.degrees(np.arccos(np.clip((tr - 1.0) / 2.0, -1.0, 1.0)))
-
-    return idx, err_pos, err_ori
-
-
-def analyze_pickle_recomputed_v2(
-    pkl_path, curve_base_npy, dcurve_base_npy, **analyzer_kwargs
-):
-    """
-    Regenerates the actual per-run randomized curve using the same seed that
-    the simulation used, then recomputes idx / err_pos / err_ori against it.
-    The saved 'dist' (SE(3), scaled units) is preserved and trusted.
-    """
-    print("\n" + "=" * 68)
-    print(f"Analyzing (RECOMPUTED v2): {pkl_path}")
-    print("=" * 68)
-
-    curve_base = np.load(curve_base_npy, allow_pickle=True)
-    dcurve_base = np.load(dcurve_base_npy, allow_pickle=True)
-    N = len(curve_base)
-    print(f"N = {N}")
-
-    with open(pkl_path, "rb") as f:
-        data = pickle.load(f)
-
-    run_ids = sorted(
-        {
-            k[len("run_") : -len("_htm")]
-            for k in data
-            if k.startswith("run_") and k.endswith("_htm")
-        }
-    )
-    print(
-        f"Recomputing metrics for {len(run_ids)} runs against their own randomized curves..."
-    )
-
-    results = []
-    for run_id in run_ids:
-        seed = int(run_id)
-        curve_i, _ = rand_se3_curve(curve_base, dcurve_base, seed=seed)
-
-        htm = data[f"run_{run_id}_htm"]
-        time_arr = data.get(f"run_{run_id}_time", np.arange(len(htm)) * 0.01)
-        dist_arr = data.get(f"run_{run_id}_dist", np.zeros(len(htm)))
-
-        idx, err_pos, err_ori = recompute_from_htm(htm, curve_i)
-        results.append(
-            analyze_run(idx, dist_arr, err_pos, err_ori, time_arr, N, **analyzer_kwargs)
-        )
-
-    successes = [r for r in results if r["success"]]
-    failures = [(i, r) for i, r in enumerate(results) if not r["success"]]
-    print(
-        f"\nSuccess rate: {len(successes)}/{len(run_ids)} = "
-        f"{100.0 * len(successes) / len(run_ids):.1f}%"
-    )
-
-    if successes:
-        print("\nMetrics (successful runs only):")
-        for metric in [
-            "ss_dist",
-            "ss_pos",
-            "ss_ori",
-            "max_dist_ss",
-            "first_lap_time",
-            "laps",
-            "coverage",
-            "max_dwell_frac",
-        ]:
-            vals = np.array([r[metric] for r in successes])
-            vals = vals[~np.isnan(vals)]
-            if len(vals):
-                print(
-                    f"  {metric:16s}: mean={vals.mean():9.4f}  std={vals.std():9.4f}  "
-                    f"median={np.median(vals):9.4f}  min={vals.min():9.4f}  max={vals.max():9.4f}"
-                )
-
-    if failures:
-        print(f"\nFailed runs ({len(failures)}):")
-        for i, r in failures:
-            reasons = []
-            if r["coverage"] < analyzer_kwargs.get("coverage_threshold", 0.90):
-                reasons.append(f"coverage={r['coverage']:.2f}")
-            if r["laps"] < analyzer_kwargs.get("min_laps", 1.0):
-                reasons.append(f"laps={r['laps']:.2f}")
-            if r["is_stuck"]:
-                reasons.append(f"stuck(dwell={r['max_dwell_frac']:.2f})")
-            if not r.get("performance_ok", True):
-                reasons.append(
-                    f"poor_tracking(pos={r['ss_pos']:.1f}cm, ori={r['ss_ori']:.1f}°)"
-                )
-            print(
-                f"  Run {int(run_ids[i]):3d}: "
-                + ", ".join(reasons)
-                + f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm"
-            )
-
-    return results
 
 
 def unwrap_closed_index(idx_seq, N):
@@ -225,10 +102,10 @@ def analyze_run(
         first_lap_time = float("nan")
 
     performance_ok = (ss_pos <= max_ss_pos) and (ss_ori <= max_ss_ori)
-    # success = coverage >= coverage_threshold and laps >= min_laps and not is_stuck
+
     success = (
         coverage >= coverage_threshold
-        and laps >= min_laps
+        and np.abs(laps) >= min_laps
         and not is_stuck
         and performance_ok
     )  # Added performance check
@@ -247,19 +124,6 @@ def analyze_run(
         "performance_ok": performance_ok,  # Log this for debugging
         "success": success,
     }
-    # return {
-    #     "coverage": coverage,
-    #     "laps": laps,
-    #     "max_dwell_frac": max_dwell_frac_actual,
-    #     "is_stuck": is_stuck,
-    #     "ss_dist": ss_dist,
-    #     "ss_pos": ss_pos,
-    #     "ss_ori": ss_ori,
-    #     "max_dist_ss": max_dist,
-    #     "final_dist": float(dist[-1]),
-    #     "first_lap_time": first_lap_time,
-    #     "success": success,
-    # }
 
 
 def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **kwargs):
@@ -383,6 +247,13 @@ def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **
             _ = rng.uniform(0, 2 * np.pi)  # first draw: global yaw
             scale = rng.uniform(0.8, 1.5)  # second draw: scale
 
+            rid = r["run_id"]
+            prefix = f"run_{rid:03d}_"
+            htm0 = data[prefix + "meta_htm0"]
+            init_pos = (
+                f"| {htm0[:3, -1].ravel()}" if not r.get("performance_ok", True) else ""
+            )
+
             # Base ellipse radii from your simulation script (A=2.0, B=1.0)
             a = 2.0 * scale
             b = 1.0 * scale
@@ -391,57 +262,19 @@ def analyze_pickle(pkl_path, curve_npy_path=None, include_types=("nominal",), **
                 f"  Run {r['run_id']:3d} [{r['init_type']:10s}]: "
                 + ", ".join(reasons)
                 + f"  | ss_dist={r['ss_dist']:.3f}  ss_pos={r['ss_pos']:.1f}cm"
-                + f"  | curve_seed={curve_seed} (a={a:.2f}, b={b:.2f})"
+                + f"  | curve_seed={curve_seed}"
+                + init_pos
             )
-
-        # seed_stats = {}
-        # for r in results:
-        #     seed = r["run_id"] // 5  # N_INITS=5
-        #     s = seed_stats.setdefault(seed, {"ok": 0, "total": 0})
-        #     s["total"] += 1
-        #     s["ok"] += int(r["success"])
-        #
-        # print(f"\nPer-seed summary (sorted by scale):")
-        # print(
-        #     f"  {'seed':>4}  {'scale':>5}  {'a':>5}  {'b':>5}  {'roll°':>6}  {'pitch°':>7}  {'yaw_off°':>7}  {'success':>9}"
-        # )
-        # rows = []
-        # for seed, s in seed_stats.items():
-        #     rng = np.random.default_rng(seed)
-        #     _ = rng.uniform(0, 2 * np.pi)  # yaw_global
-        #     scale = rng.uniform(0.8, 1.5)
-        #     roll = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
-        #     pitch = np.degrees(rng.uniform(-np.pi / 12, np.pi / 12))
-        #     yaw_off = np.degrees(rng.uniform(-np.pi, np.pi))  # <-- add this
-        #     rows.append(
-        #         (
-        #             scale,
-        #             seed,
-        #             3.0 * scale,
-        #             2.0 * scale,
-        #             roll,
-        #             pitch,
-        #             yaw_off,
-        #             s["ok"],
-        #             s["total"],
-        #         )
-        #     )
-        #
-        # rows.sort()
-        # for scale, seed, a, b, roll, pitch, yaw_off, ok, tot in rows:
-        #     print(
-        #         f"  {seed:>4}  {scale:>5.2f}  {a:>5.2f}  {b:>5.2f}  {roll:>6.1f}  {pitch:>7.1f}  {yaw_off:>7.1f}  {ok:>4}/{tot}"
-        #     )
 
     return results
 
 
 if __name__ == "__main__":
-    results_dir = "./fossen/data"
+    results_dir = "./fossen/data/keep_results"
     curves_dir = "./fossen/data"
     RUN_BASELINE = True
 
-    for curve_type in ["ellipse", "trefoil", "vertical_coil"]:
+    for curve_type in ["ellipse", "vertical_coil", "toroidal_coil"]:
         if RUN_BASELINE:
             pkl_path = os.path.join(results_dir, f"{curve_type}_baseline_results.pkl")
         else:
@@ -452,23 +285,58 @@ if __name__ == "__main__":
                 pkl_path,
                 npy_path,
                 min_laps=0.6,
-                coverage_threshold=0.9,
-                include_types=("nominal", "P1", "P2"),
+                coverage_threshold=0.9 * 0.6,
+                include_types=("nominal", "P1", "P2", "both"),
             )
         else:
             print(f"Skipping {curve_type}: {pkl_path} not found")
 
 print(2)
-# if __name__ == "__main__":
-#     results_dir = "./fossen/data"
-#     curves_dir = "./fossen/data"
-#
-#     for curve_type in ["ellipse", "trefoil", "vertical_coil"]:
-#         pkl = os.path.join(results_dir, f"{curve_type}_results.pkl")
-#         npy = os.path.join(curves_dir, f"{curve_type}.npy")
-#         dnpy = os.path.join(curves_dir, f"{curve_type}_derivative.npy")
-#         if os.path.exists(pkl):
-#             analyze_pickle_recomputed_v2(pkl, npy, dnpy)
-#         else:
-#             print(f"Skipping {curve_type}: {pkl} not found")
 
+# -------------- IGNORE THESE POINTS:
+# Ellipse
+# RUN 80 | CURVE SEED 16: FAR | P1
+# (Baseline only?)
+# RUN 70 | CURVE SEED 14: ~18m far | P1
+# RUN 40 | CURVE SEED 8: ~23m far | P1
+
+# VERTICAL COIL (BASELINE ONLY)
+# RUN 10 | CURVE SEED 2: ~18m far | P1
+
+# Toroidal
+# RUN 40 | CURVE_SSED 8: POINT TOO FAR | P1
+# RUN 60 | CURVE_SSED 12: POINT TOO FAR | P1
+# RUN 65 | CURVE_SEED 13: POINT TOO FAR | P2
+# RUN 95 | CURVE_SEED 19: POINT TOO FAR | P2
+# (Baseline only?)
+#  RUN 10 | CURVE SEED 2: ~16m far | P1
+#  RUN 15 | CURVE SEED 3: ~16m far | P2
+#  RUN 20 | CURVE SEED 4: ~16m far | P1
+#  RUN 25 | CURVE SEED 5: ~24m far | P2
+#  RUN 30 | CURVE SEED 6: ~15m far | P1
+#  RUN 35 | CURVE_SEED 7: ~15m far | P2
+#  RUN 40 | CURVE SEED 8: ~25m far | P1
+#  RUN 55 | CURVE SEED 11: ~20m far | P2
+#  RUN 60 | CURVE SEED 12: ~23m far | P1
+#  RUN 65 | CURVE SEED 13: ~21m far | P2
+# RUN 75 | CURVE SEED 15: 16m far | P2
+# RUN 95 | CURVE SEED 19: ~16m far | P2
+
+
+# kt1 * (1 - kt2 * np.tanh(kt3 * 0.13 + 0.389))
+
+# 4/7
+# 0.16 / 3.6751
+# 0.27/ 6.8814
+#
+# 4.79 * 0.04
+1.77 * 0.04
+0.0708 / 0.5786
+0.7 * (1 - 0.7 * np.tanh(0.253)) * 0.1223
+# 0.3*(1-0.7*np.tanh(0.13)) * 0.6785
+# %%
+
+with open(pkl_path, "rb") as f:
+    data_aux = pickle.load(f)
+
+data_aux["run_070_meta_htm0"]
