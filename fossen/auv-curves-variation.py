@@ -1,4 +1,5 @@
 import pickle
+import re
 import os
 import multiprocessing
 import functools
@@ -17,32 +18,40 @@ from baseline_adriano import (
     rezende_distance_gradient,
     vf_to_fossen_twist,
 )
+from trajectory import (
+    get_trajectory_reference,
+    precompute_trajectory_baseline,
+    compute_traj_normal,
+)
 
 mp_ctx = multiprocessing.get_context("spawn")
 curve_base_path = "./data"
 results_dir = curve_base_path
-curve_types = ["ellipse", "trefoil", "vertical_coil"]
+curve_types = ["toroidal_coil", "ellipse", "vertical_coil"]
+# curve_types = ["ellipse", "vertical_coil", "toroidal_coil"]
+# curve_types = ["ellipse", "vertical_coil"]
+# curve_types = ["toroidal_coil"]
 
 # ----------------------- FIXED PARAMETERS -----------------------------
-gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0])
+gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 dt = 0.01
 T = 300
-scale_pos = 1 / np.sqrt(3.0)
+scale_pos = 1.0  # 1 / np.sqrt(3.0)
 
-kn1 = 1
-# kn2 = 0.9
-kn2 = 1.0
-kt1 = 0.03 * 10
-# kt2 = 0.8
-kt2 = 1.0
+kn1 = 1.0
+kn2 = 0.7
+kt1 = 0.7  # ONLY FOR TOROIDAL
+kt1 = 0.3
+kt2 = 0.7
 kt3 = kn2
+
 
 N_CURVES = 20
 N_INITS = 5
 PROBLEMATIC_INIT_SEED = 0
 n_samples = N_CURVES * N_INITS
 normalize_tangent = True
-normalize_normal = True
+normalize_normal = False
 
 RUN_BASELINE = True  # whether to run Lie-VF or Rezende VF
 # "both" (default), "nominal" (skip problematic), or "problematic" (only problematic)
@@ -77,8 +86,8 @@ def get_params(noise_seed: int = 42):
     params.velocity_gains = gains
     params.model_compensation = False
     params.thruster_time_constant = 0
-    params.thrust_max = 5.25 * 9.80665 * np.ones((8,))
-    params.thrust_min = -4.10 * 9.80665 * np.ones((8,))
+    params.thrust_max = 5.25 * 9.80665 * np.ones((8,)) * 2
+    params.thrust_min = -4.10 * 9.80665 * np.ones((8,)) * 2
 
     # Measurement Noise Configuration (converted from C++ to NumPy arrays)
     params.measurement_noise.enabled = True
@@ -296,6 +305,11 @@ def run_single_sim(curve_type, i, curve_base, curve_derivative_base):
     # Keep torch quiet / single-threaded per worker.
     torch.set_num_threads(1)
     torch.set_grad_enabled(False)
+
+    if curve_type == "toroidal_coil":
+        kt1 = 0.7
+    else:
+        kt1 = 0.3
 
     noise_seed = int((i * 7919 + 13) % (2**31 - 1))
     params = get_params(noise_seed=noise_seed)
@@ -518,10 +532,219 @@ def run_single_sim(curve_type, i, curve_base, curve_derivative_base):
 
 
 def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
+    """Trajectory Tracking baseline on SE(3)."""
+    torch.set_num_threads(1)
+    torch.set_grad_enabled(False)
+
+    # 1. Setup gains
+    if curve_type == "toroidal_coil":
+        kt1 = 0.7
+        kn1 = 1.0
+    else:
+        kt1 = 0.3
+        kn1 = 1.0
+
+    # 2. Compute alpha based on your specified formulas
+    if curve_type == "ellipse":
+        # 0.6785 for laps=4.326 | 4.79
+        alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.13)) * 0.6785
+    elif curve_type == "vertical_coil":
+        # 0.6785 for laps=3.36 | 4.02
+        alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.232)) * 0.6785
+    elif curve_type == "toroidal_coil":
+        # 0.54 for laps=1.08 | 1.57
+        alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.253)) * 0.54
+        # 0.25 fails every instance
+    else:
+        print("alpha bug", flush=True)
+        alpha = kt1  # Fallback
+
+    noise_seed = int((i * 7919 + 13) % (2**31 - 1))
+    params = get_params(noise_seed=noise_seed)
+
+    curve_seed = i // N_INITS
+    init_seed = i % N_INITS
+    if init_seed != PROBLEMATIC_INIT_SEED:
+        init_type = "nominal"
+    else:
+        init_type = "P1" if curve_seed % 2 == 0 else "P2"
+
+    curve, curve_derivative = rand_se3_curve(
+        curve_base, curve_derivative_base, seed=curve_seed
+    )
+
+    local_rng = np.random.default_rng(i + 1000)
+    htm0, target_score = sample_init(
+        curve,
+        local_rng,
+        kind=init_type,
+        curve_type=curve_type,
+        curve_seed=curve_seed,
+    )
+
+    state = ub_cpp.FossenState()
+    state.pose = htm0.copy()
+    state.twist = np.zeros(6)
+    state.measurement.pose = htm0.copy()
+    state.measurement.twist = np.zeros(6)
+    state.measurement.valid = True
+
+    time_vec = np.arange(0, T, dt)
+
+    # ---- Precompute Trajectory ----
+    traj_poses, traj_twists = precompute_trajectory_baseline(
+        curve, curve_derivative, dt, T, alpha
+    )
+
+    # ---- Logs ------
+    log_dist_traj = []
+    log_target_poses = []
+    log_twist, log_xi, log_htm = [], [], []
+    log_requested_wrench, log_allocated_wrench = [], []
+    log_applied_wrench, log_allocation_residual = [], []
+    log_thrust_setpoints, log_saturated_thrusters = [], []
+    log_meas_htm, log_meas_twist = [], []
+
+    print(f"begin {i}", end="; ", flush=True)
+
+    for step, t in enumerate(time_vec):
+        # 1. Fetch Target
+        H_d_t = traj_poses[step]
+        Xi_traj = traj_twists[step]
+
+        # 2. Controller feedback (noisy measurement)
+        ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
+
+        # Apply scale_pos to both state and target for controller calculation
+        scale_pose = ctrl_pose.copy()
+        scale_pose[:3, 3] *= scale_pos
+
+        scale_H_d_t = H_d_t.copy()
+        scale_H_d_t[:3, 3] *= scale_pos
+
+        # 3. Compute Trajectory Tracking Vector Field
+        xi_N, D_traj = compute_traj_normal(scale_pose, scale_H_d_t)
+
+        norm_Xi = np.linalg.norm(Xi_traj)
+        # xi_T = Xi_traj / norm_Xi if norm_Xi > 1e-8 else np.zeros(6)
+        xi_T = Xi_traj
+
+        sqrt_D = np.sqrt(D_traj)
+        k_N_val = kn1 * np.tanh(kn2 * sqrt_D)
+        k_T_val = kt1 * (1.0 - kt2 * np.tanh(kt3 * sqrt_D))
+
+        xi = k_N_val * xi_N + xi_T
+
+        # 4. Map to Fossen Twist
+        v, omega = xi[:3], xi[3:]
+        p_ctrl = ctrl_pose[:3, 3]
+        target_twist = np.empty(6)
+        target_twist[:3] = v + np.cross(omega, p_ctrl)
+        target_twist[3:] = omega
+
+        # 5. Physics
+        state = ub_cpp.fossen_step(target_twist, state, params)
+        diagnostics = state.diagnostics
+
+        # 6. Logging
+        true_pose = state.pose
+        true_twist = state.twist
+
+        log_dist_traj.append(float(D_traj))
+        log_target_poses.append(H_d_t.copy())
+        log_xi.append(target_twist.copy())
+        log_twist.append(true_twist.copy())
+        log_htm.append(true_pose.copy())
+        log_requested_wrench.append(diagnostics.requested_wrench)
+        log_allocated_wrench.append(diagnostics.allocated_wrench)
+        log_applied_wrench.append(diagnostics.applied_wrench)
+        log_allocation_residual.append(diagnostics.allocation_residual)
+        log_thrust_setpoints.append(diagnostics.thrust_setpoints)
+        log_saturated_thrusters.append(diagnostics.saturated_thrusters)
+        log_meas_htm.append(state.measurement.pose.copy())
+        log_meas_twist.append(state.measurement.twist.copy())
+
+    print(f"end {i}", end="$$ ", flush=True)
+
+    # ------------------------------------------------------------------
+    # Post-hoc pos/ori errors against the time-parameterized target
+    # ------------------------------------------------------------------
+    htm_arr = np.array(log_htm)  # (T, 4, 4)
+    target_arr = np.array(log_target_poses)  # (T, 4, 4)
+
+    p_true_all = htm_arr[:, :3, 3]
+    R_true_all = htm_arr[:, :3, :3]
+    p_target_all = target_arr[:, :3, 3]
+    R_target_all = target_arr[:, :3, :3]
+
+    err_pos_cm = np.linalg.norm(p_target_all - p_true_all, axis=1) * 100.0
+    trace = (R_target_all * R_true_all).sum(axis=(1, 2))
+    cos_ang = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
+    err_ori_deg = np.degrees(np.arccos(cos_ang))
+
+    return {
+        "time": np.array(time_vec),
+        "dist_noisy": np.array(log_dist_traj),
+        "dist": np.array(log_dist_traj),  # Kept for compat
+        "err_pos": err_pos_cm,
+        "err_ori": err_ori_deg,
+        "curve": curve,
+        "curve_derivative": curve_derivative,
+        "idx": np.array(time_vec),
+        "target_htm": target_arr,  # New: stores the time-parameterized reference
+        "xi": np.array(log_xi),
+        "twist": np.array(log_twist),
+        "htm": htm_arr,
+        "meas_htm": np.array(log_meas_htm),
+        "meas_twist": np.array(log_meas_twist),
+        "requested_wrench": np.array(log_requested_wrench),
+        "allocated_wrench": np.array(log_allocated_wrench),
+        "applied_wrench": np.array(log_applied_wrench),
+        "allocation_residual": np.array(log_allocation_residual),
+        "thrust_setpoints": np.array(log_thrust_setpoints),
+        "saturated_thrusters": np.array(log_saturated_thrusters),
+        "noise_seed": noise_seed,
+        "meta_curve_seed": curve_seed,
+        "meta_init_seed": init_seed,
+        "meta_run_id": i,
+        "meta_init_rng_seed": i + 1000,
+        "meta_init_type": init_type,
+        "meta_target_score": target_score,
+        "meta_htm0": htm0,
+        "meta_baseline": "trajectory_tracking",
+        "meta_config": {
+            "gains": gains,
+            "dt": dt,
+            "T": T,
+            "scale_pos": scale_pos,
+            "alpha": alpha,
+            "kt1": kt1,
+            "kt2": kt2,
+            "kt3": kt3,
+            "kn1": kn1,
+            "kn2": kn2,
+            "thrust_max": params.thrust_max,
+            "thrust_min": params.thrust_min,
+            "noise_white_var": params.measurement_noise.white_variances,
+            "noise_colored_var": params.measurement_noise.colored_variances,
+            "noise_corr_times": params.measurement_noise.correlation_times,
+            "curve_type": curve_type,
+        },
+    }
+
+
+def run_single_baseline_old(curve_type, i, curve_base, curve_derivative_base):
     """Rezende baseline on R^3 x T^3. CPU-only, no torch VF in the loop."""
     # One thread per worker — critical under ProcessPoolExecutor.
     torch.set_num_threads(1)
     torch.set_grad_enabled(False)
+
+    if curve_type == "toroidal_coil":
+        kt1 = 0.7 * (1.25 / 0.7)
+        kn1 = 1.0 * (1.25 / 0.7)
+    else:
+        kt1 = 0.3 * (1.25 / 0.7)
+        kn1 = 1.0 * (1.25 / 0.7)
 
     noise_seed = int((i * 7919 + 13) % (2**31 - 1))
     params = get_params(noise_seed=noise_seed)
@@ -694,7 +917,7 @@ def run_single_baseline(curve_type, i, curve_base, curve_derivative_base):
             "kt3": kt3,
             "kn1": kn1,
             "kn2": kn2,
-            "kt1_effective": kt1 * 10,  # baseline uses 10× kt1
+            "kt1_effective": kt1,  # baseline uses 10× kt1
             "v_r": 1.0,
             "thrust_max": params.thrust_max,
             "thrust_min": params.thrust_min,
@@ -781,11 +1004,19 @@ if __name__ == "__main__":
                     curve_type, run_id, curve_base, curve_derivative_base
                 )
                 all_run_results.append((run_id, res))
+                n = len(res["time"])
+                n_ss = int(0.8 * n)
+                ss_dist = float(res["dist"][n_ss:].mean())
+                ss_pos = float(res["err_pos"][n_ss:].mean())
+                ss_ori = float(res["err_ori"][n_ss:].mean())
+
                 print(
                     f"[{curve_type}] {datetime.now().strftime('%H:%M:%S')}  "
                     f"run_id={run_id}  ({k}/{n_total})",
+                    f"D_ss: {ss_dist},  pos_ss: {ss_pos} cm,  ori_ss: {ss_ori}°",
                     flush=True,
                 )
+
                 if (k % SAVE_EVERY_K == 0) or (k == n_total):
                     path = _save_merged(
                         results_dir, curve_type, all_run_results, baseline=RUN_BASELINE
@@ -827,3 +1058,86 @@ if __name__ == "__main__":
         )
 
     print("\nAll simulations complete.")
+
+    # =========================================================================
+    # POST-PROCESSING: Compute true distances and errors using GPU (Torch)
+    # =========================================================================
+    if RUN_BASELINE:
+        print("\nStarting GPU post-processing for trajectory baseline...")
+        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        for curve_type in curve_types:
+            pkl_path = os.path.join(results_dir, f"{curve_type}_baseline_results.pkl")
+
+            if not os.path.exists(pkl_path):
+                print(f"  -> Skipping {pkl_path} (file not found)")
+                continue
+
+            print(f"Processing {pkl_path}...")
+            with open(pkl_path, "rb") as f:
+                save_dict = pickle.load(f)
+
+            # Extract unique run IDs (e.g., 1, 2, 3) from keys like "run_001_htm"
+            run_ids = set()
+            for k in save_dict.keys():
+                match = re.match(r"run_(\d+)_", k)
+                if match:
+                    run_ids.add(int(match.group(1)))
+
+            run_ids = sorted(list(run_ids))
+
+            for run_id in run_ids:
+                prefix = f"run_{run_id:03d}_"
+
+                if (run_id % 10 == 0) or (run_id == len(run_ids) - 1):
+                    print(
+                        f"Computing run {run_id}/{len(run_ids)} for curve {curve_type}"
+                    )
+
+                # Extract logged HTMs and the curve used for this specific run
+                htm_arr = np.array(save_dict[f"{prefix}htm"])  # (T, 4, 4)
+                curve_arr = np.array(save_dict[f"{prefix}curve"])  # (N, 4, 4)
+
+                # Move to Tensor
+                htm_batch = torch.as_tensor(htm_arr, dtype=DTYPE, device=DEVICE)
+                htm_batch_scl = htm_batch.clone()
+                htm_batch_scl[..., :3, 3] *= scale_pos
+
+                curve_full_t = torch.as_tensor(
+                    curve_arr, dtype=DTYPE, device=DEVICE
+                )  # unscaled
+
+                curve_scale = curve_arr.copy()
+                curve_scale[:, :3, 3] *= scale_pos
+                curve_full_scl_t = torch.as_tensor(
+                    curve_scale, dtype=DTYPE, device=DEVICE
+                )  # scaled
+
+                # Batched GPU evaluation
+                dists_true, idx_true, pos_err_true_cm, ori_err_true_deg = (
+                    ec_distance_and_pos_ori(
+                        vf_solver,
+                        states_scaled=htm_batch_scl,
+                        curve_scaled=curve_full_scl_t,
+                        states_unscaled=htm_batch,
+                        curve_unscaled=curve_full_t,
+                        chunk_size=None,
+                    )
+                )
+
+                # Overwrite the tracking errors with the true spatial errors
+                save_dict[f"{prefix}dist_noisy"] = dists_true.cpu().numpy()
+                save_dict[f"{prefix}dist"] = dists_true.cpu().numpy()
+                save_dict[f"{prefix}err_pos"] = pos_err_true_cm.cpu().numpy()
+                save_dict[f"{prefix}err_ori"] = ori_err_true_deg.cpu().numpy()
+                save_dict[f"{prefix}idx"] = idx_true.cpu().numpy()
+                save_dict[f"{prefix}idx_true"] = idx_true.cpu().numpy()
+
+            # Save back to the same pickle file atomically
+            tmp_path = pkl_path + ".tmp"
+            with open(tmp_path, "wb") as f:
+                pickle.dump(save_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp_path, pkl_path)
+            print(
+                f"  -> Successfully updated {pkl_path} with GPU post-processed metrics."
+            )
