@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import math
 import torch
 import time
 import os
@@ -11,11 +12,12 @@ from torch_vf import SE3VectorField
 # =============================================================================
 # CONFIG  — edit this block to change behaviour
 # =============================================================================
-CURVE_TYPES = ["ellipse", "trefoil", "vertical_coil"]
+# CURVE_TYPES = ["ellipse", "vertical_coil"]#, "toroidal_coil"]
+CURVE_TYPES = ["toroidal_coil"]
 CURVE_SEEDS = list(range(20))  # e.g. [0]  or  list(range(20))
 N_CANDIDATES = 50000  # raise as high as your GPU memory allows
 DATA_DIR = "./data"
-RADIUS_FRAC = 1.5
+RADIUS_FRAC = 6.0
 TOP_K = 10
 
 # ----------------------- FIXED PARAMETERS -----------------------------
@@ -183,7 +185,7 @@ def score_p1_batch(
 # =============================================================================
 # Batched P2 score
 # =============================================================================
-def score_p2_batch(htm_batch_t, curve_t, vf, eps=5e-3, chunk_size=512):
+def score_p2_batch_jacobian(htm_batch_t, curve_t, vf, eps=5e-3, chunk_size=512):
     """htm_batch_t: (N, 4, 4) on device. Returns (N,) numpy Frobenius norms."""
     N = htm_batch_t.shape[0]
     out = np.empty(N, dtype=np.float64)
@@ -230,6 +232,55 @@ def score_p2_batch(htm_batch_t, curve_t, vf, eps=5e-3, chunk_size=512):
             # J[:, i, :] is the 6x6 Jacobian rows for candidate i.
             J = (Ls - base_L.unsqueeze(0)) / eps  # (6, C, 6)
             out[start:end] = torch.sqrt((J**2).sum(dim=(0, 2))).cpu().numpy()
+
+    return out
+
+
+def score_p2_batch(htm_batch_t, curve_t, vf, chunk_size=512):
+    """Score proximity to P2 (θ = π rotation offset).
+
+    For each state H, find the closest curve point H* under the SE(3) distance,
+    then compute the rotation angle of Q = R(H)^T R(H*):
+
+        θ = atan2( ‖Q - Q^T‖_F / (2√2),  (tr(Q) - 1) / 2 )  ∈ [0, π]
+
+    D̂ is non-differentiable at H iff θ = π (Q = Q^T with Q ≠ I), and
+    D̂ = 0 (θ = 0, Q = I) is excluded from P2 by definition. Near-P2 states
+    are therefore those with θ → π.
+
+    Higher score = closer to P2.  Returns (N,) numpy array of θ values.
+    """
+    N = htm_batch_t.shape[0]
+    out = np.empty(N, dtype=np.float64)
+
+    R_W = curve_t[..., :3, :3]  # (M, 3, 3)
+    two_sqrt2 = 2.0 * math.sqrt(2.0)
+
+    with torch.no_grad():
+        for start in range(0, N, chunk_size):
+            end = min(start + chunk_size, N)
+            htm_c = htm_batch_t[start:end]
+            C = end - start
+
+            # 1. Closest curve point for each state (same metric as P1)
+            dists = eedistance_matrix(
+                vf, htm_c, curve_t, chunk_size=chunk_size
+            )  # (C, M)
+            u = torch.argmin(dists, dim=1)  # (C,)
+            R_W_star = R_W[u]  # (C, 3, 3)
+
+            # 2. Q = R(H)^T R(H*)
+            R_V = htm_c[..., :3, :3]  # (C, 3, 3)
+            R_V_T = R_V.transpose(-1, -2)
+            Q = R_V_T @ R_W_star  # (C, 3, 3)
+
+            # 3. θ = atan2(‖Q - Q^T‖_F / (2√2), (tr(Q) - 1) / 2)
+            Q_minus_Qt = Q - Q.transpose(-1, -2)  # (C, 3, 3)
+            sin_part = Q_minus_Qt.flatten(-2, -1).norm(dim=-1) / two_sqrt2
+            tr_Q = Q.diagonal(dim1=-2, dim2=-1).sum(-1)  # (C,)
+            cos_part = (tr_Q - 1.0) * 0.5
+            theta = torch.atan2(sin_part, cos_part)  # (C,) in [0, π]
+            out[start:end] = theta.cpu().numpy()
 
     return out
 
