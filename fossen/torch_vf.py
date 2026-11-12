@@ -320,11 +320,6 @@ class SE3VectorField:
 
         LvDhat = (dists_pert - min_dists.unsqueeze(0)) / self.delta  # (6, N)
         normal = -LvDhat.t().contiguous()  # (N, 6)
-        if self.normalize_normal:
-            normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
-
-        if self.normalize_normal:
-            normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
 
         if self.normalize_normal:
             normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
