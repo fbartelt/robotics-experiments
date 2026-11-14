@@ -17,7 +17,7 @@ import pickle
 import numpy as np
 import uaibot as ub
 
-from uaibot.simobjects import Frame, PointCloud
+from uaibot.simobjects import Frame, PointCloud, Ball
 from uaibot.simobjects.curve import CurveSE3
 from uaibot.utils import Utils
 from fossen.create_bluerov2 import make_rov
@@ -164,7 +164,7 @@ def select_runs(baseline_data, method_data, top_k=TOP_K, verbose=True):
 # =============================================================================
 # Animation (re-uses the logic from the original script, parameterised)
 # =============================================================================
-def animate_run(time_vec, log_htm, curve, save_name):
+def animate_run(time_vec, log_htm, curve, save_name, traj=None):
     """Port of the original animation script's main loop, parameterised."""
     htm0 = log_htm[0]
     auv = make_rov(htm=htm0)
@@ -183,6 +183,12 @@ def animate_run(time_vec, log_htm, curve, save_name):
 
     sim = create_sim_underwater([auv, auv_frame])
 
+    if traj is not None:
+        traj0 = traj[0]
+        traj_ball = Ball(htm=traj0, radius=0.05, opacity=0.6, color='white')
+        traj_frame = Frame(htm=traj0)
+        sim.add([traj_ball, traj_frame])
+
     log_position = log_htm[:, :3, 3].reshape(-1, 3)
     followed_path = PointCloud(points=log_position.T, size=0.05, color="magenta")
     sim.add(followed_path)
@@ -197,6 +203,10 @@ def animate_run(time_vec, log_htm, curve, save_name):
         auv.add_ani_frame(time=t, htm=htm)
         auv_frame.add_ani_frame(time=t, htm=htm)
         followed_path.add_ani_frame(time=t, initial_ind=0, final_ind=i)
+        if traj is not None:
+            i_traj = min(i + 1, len(time_vec) - 1)
+            traj_ball.add_ani_frame(time=t, htm=traj[i_traj])
+            traj_frame.add_ani_frame(time=t, htm=traj[i_traj])
 
     if SHOW_BROWSER:
         sim.run_in_browser()
@@ -248,7 +258,13 @@ def extract_run_htm(data, rid, curve_type, seed, condition):
     else:
         curve = None  # caller will warn / fall back
 
-    return t_vec, htm, curve
+    # --- extract trajectory reference ---
+    if condition == "baseline":
+        traj = np.asarray(data[p + "target_htm"])
+    else:
+        traj = None
+
+    return t_vec, htm, curve, traj
 
 
 # =============================================================================
@@ -315,7 +331,7 @@ def main():
                 ("method", method_data, c["method_id"]),
             ):
                 save_name = f"{curve_type}_seed{seed:03d}_{condition}"
-                t_vec, htm, curve_run = extract_run_htm(
+                t_vec, htm, curve_run, traj = extract_run_htm(
                     data, rid, curve_type, seed, condition
                 )
 
@@ -341,8 +357,9 @@ def main():
                     )
                     curve_run = curve  # npy-loaded fallback
 
-                print(f"\n  Animating {save_name} (run_id={rid}, {len(t_vec)} steps)…")
-                animate_run(t_vec, htm, curve_run, save_name)
+                if condition == "baseline":
+                    print(f"\n  Animating {save_name} (run_id={rid}, {len(t_vec)} steps)…")
+                    animate_run(t_vec, htm, curve_run, save_name, traj)
 
 
 if __name__ == "__main__":
