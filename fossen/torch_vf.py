@@ -281,6 +281,75 @@ class SE3VectorField:
     # ------------------------------------------------------------------
     # Main vector field – everything batched
     # ------------------------------------------------------------------
+
+    def L_eedistance(
+        self,
+        V: torch.Tensor,
+        W: torch.Tensor,
+        scale_pos: float = None,
+    ) -> torch.Tensor:
+        """Return L(V,W)^T with shape (..., 6, 1), supporting broadcasting.
+
+        V, W must be SE(3) matrices. Requires relative rotation angle < pi,
+        positive distance, and an input away from the alpha branch boundary.
+        At zero distance, returns zero by convention; the classical derivative
+        of the distance generally does not exist there.
+
+        Uses exactly the alpha and the constant-alpha mask in the supplied
+        eedist_se3_variables method. Device and dtype are preserved.
+        """
+        if scale_pos is None:
+            scale_pos = self.scale_pos
+        s2 = scale_pos**2
+
+        Z = torch.linalg.inv(V) @ W
+        Q, t, M, theta, cos_theta, _, alpha = self.eedist_se3_variables(Z)
+        Mt = (M @ t.unsqueeze(-1)).squeeze(-1)
+        distance = torch.sqrt(2.0 * theta**2 + s2 * (t * Mt).sum(-1))
+
+        # Rotation vector r = log(Q)^vee. torch.sinc(x) = sin(pi*x)/(pi*x).
+        skew = Q - Q.transpose(-1, -2)
+        vee = torch.stack((skew[..., 2, 1], skew[..., 0, 2], skew[..., 1, 0]), dim=-1)
+        sinc_theta = torch.sinc(theta / torch.pi)
+        r = vee / (2.0 * sinc_theta).unsqueeze(-1)
+
+        # beta = alpha'(theta)/theta. Its limit is -1/45 for the general
+        # alpha formula, but it is ZERO on the constant-alpha branch.
+        u = theta**2
+        beta_series = -1.0 / 45.0 + u * (
+            -13.0 / 3780.0
+            + u
+            * (-23.0 / 75600.0 + u * (-101.0 / 4989600.0 - u * 5263.0 / 4670265600.0))
+        )
+        small = theta < 0.5
+        d = 2.0 * torch.sin(0.5 * theta) ** 2  # 1-cos(theta), stably
+        d_safe = torch.where(small, torch.ones_like(d), d)
+        beta_general = ((u - d) * sinc_theta - d) / (2.0 * d_safe**3)
+        beta = torch.where(small, beta_series, beta_general)
+        beta = torch.where(cos_theta > self.max_cos_theta, torch.zeros_like(beta), beta)
+
+        Qt = (Q @ t.unsqueeze(-1)).squeeze(-1)
+        # h = t^T (Q + Q^T - 2I) t = -||Qt-t||^2 on SO(3).
+        h = -((Qt - t) ** 2).sum(-1)
+
+        # Numerators of the translation and relative-rotation derivatives.
+        a = s2 * Mt
+        b = (-2.0 - 0.5 * s2 * h * beta).unsqueeze(-1) * r
+        b = b + (s2 * alpha).unsqueeze(-1) * torch.linalg.cross(t, Qt, dim=-1)
+
+        R = V[..., :3, :3]
+        Ra = (R @ a.unsqueeze(-1)).squeeze(-1)
+        Rb = (R @ b.unsqueeze(-1)).squeeze(-1)
+        # Expand W's position because torch.linalg.cross requires equal ranks.
+        p_W = W[..., :3, 3] + torch.zeros_like(Ra)
+        numerator = torch.cat((-Ra, Rb - torch.linalg.cross(p_W, Ra, dim=-1)), dim=-1)
+
+        nonzero = distance > 0
+        denominator = torch.where(nonzero, distance, torch.ones_like(distance))
+        result = numerator / denominator.unsqueeze(-1)
+        result = torch.where(nonzero.unsqueeze(-1), result, torch.zeros_like(result))
+        return result.unsqueeze(-1)
+
     def vectorfield_se3(
         self,
         states: torch.Tensor,  # (N, 4, 4)
@@ -310,16 +379,27 @@ class SE3VectorField:
         basis = self.smap_se3(I6)  # (6, 4, 4)
 
         # (6, 1, 4, 4) @ (1, N, 4, 4) -> (6, N, 4, 4)
-        variations = self.exp_se3(basis[:, None, :, :] * self.delta) @ states.unsqueeze(
-            0
-        )
+        # variations = self.exp_se3(basis[:, None, :, :] * self.delta) @ states.unsqueeze(
+        #     0
+        # )
+        #
+        # variations_flat = variations.reshape(6 * N, 4, 4)
+        # closest_expanded = closest_points.repeat(6, 1, 1)  # (6N, 4, 4)
+        # dists_pert = self.eedistance(variations_flat, closest_expanded).reshape(6, N)
+        #
+        # LvDhat = (dists_pert - min_dists.unsqueeze(0)) / self.delta  # (6, N)
+        # normal = -LvDhat.t().contiguous()  # (N, 6)
 
-        variations_flat = variations.reshape(6 * N, 4, 4)
-        closest_expanded = closest_points.repeat(6, 1, 1)  # (6N, 4, 4)
-        dists_pert = self.eedistance(variations_flat, closest_expanded).reshape(6, N)
+        # ---- normal: analytical derivative -------------------------------
+        L_columns = self.L_eedistance(
+            states,
+            closest_points,
+            scale_pos=scale_pos,
+        )  # (N, 6, 1)
 
-        LvDhat = (dists_pert - min_dists.unsqueeze(0)) / self.delta  # (6, N)
-        normal = -LvDhat.t().contiguous()  # (N, 6)
+        normal = -L_columns.squeeze(-1).contiguous()  # (N, 6)
+
+        LvDhat = L_columns.squeeze(-1).transpose(0, 1).contiguous()  # (6, N)
 
         if self.normalize_normal:
             normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-12)
