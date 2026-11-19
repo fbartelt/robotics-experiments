@@ -48,9 +48,8 @@ curve_seed = None
 
 kn1 = 1.0
 kn2 = 0.7
-# kt1 = 1.0
 kt1 = 0.7  # 0.7 is cool for toroidal coil
-kt1 = 0.3
+# kt1 = 0.3
 kt2 = 0.7
 kt3 = kn2
 
@@ -63,7 +62,7 @@ CURVE_POINTS = 15000 * 2
 # trefoil
 # vertical_coil
 # toroidal_coil
-CURVE_TYPE = "ellipse"
+CURVE_TYPE = "toroidal_coil"
 
 scl = 0.8 / 1.5
 scl = 1.0 / 1.5
@@ -361,8 +360,8 @@ for t in tqdm(time_vec):
     log_dist.append(dist)
     log_idx.append(closest_idx)
     # log_err_ori.append(acos * 180 / np.pi)
-    log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
-    log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
+    log_xi.append(target_twist.copy())
+    log_twist.append(true_twist.copy())
     log_htm.append(true_pose.copy())
     log_requested_wrench.append(diagnostics.requested_wrench)
     log_allocated_wrench.append(diagnostics.allocated_wrench)
