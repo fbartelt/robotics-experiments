@@ -11,6 +11,7 @@ from uaibot.simobjects.curve import CurveSE3
 from fossen.curves import build_curve
 from fossen.create_bluerov2 import make_rov
 from fossen.ocean_sim import create_sim_underwater
+from fossen.baseline_adriano import se3_curve_to_r3t3
 from plotly.subplots import make_subplots
 
 curve_base_path = "./fossen/data"
@@ -94,7 +95,7 @@ for i, t_ in enumerate(time_vec):
 
 
 sim.run_in_browser()
-bsl_name = "_baseline"if RUN_BASELINE else ""
+bsl_name = "_baseline" if RUN_BASELINE else ""
 for fol in range(2):
     if fol == 0:
         sim.save(anim_base_path, f"{CURVE_TYPE}{bsl_name}")
@@ -185,3 +186,14 @@ for i in range(3):
     fig.add_trace(go.Scatter(y=np.array(log_twist)[:, i]))
 fig.show()
 print(2)
+
+# %%
+poss, eulers = se3_curve_to_r3t3(curve)
+fig = go.Figure()
+for i in range(3):
+    fig.add_trace(go.Scatter(y=np.array(eulers[:, i])))
+
+
+fig.show()
+print(2)
+go.Figure(go.Scatter(y=data["err_ori"])).show()
