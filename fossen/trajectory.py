@@ -1,6 +1,7 @@
 import numpy as np
 import uaibot as ub
 import uaibot_cpp_bind as ub_cpp
+from uaibot_cpp_bind import expSE3, SmapSE3
 
 E = np.zeros((6, 4, 4))
 for i in range(6):
@@ -29,6 +30,32 @@ def compute_traj_normal(H, H_d_t, eps=1e-3):
 # ==========================================================================
 # Trajectory
 # ==========================================================================
+
+
+def logSE3(H):
+    R = H[:3, :3]
+    t = H[:3, 3]
+
+    # rotation part
+    cos_theta = 0.5 * (np.trace(R) - 1.0)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+
+    if theta < 1e-10:
+        w = 0.5 * np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+        V_inv = np.eye(3)
+    else:
+        W = (R - R.T) / (2 * np.sin(theta)) * theta  # theta*skew(w_hat)
+        w = np.array([W[2, 1], W[0, 2], W[1, 0]])
+        Wm = (R - R.T) * 0.5  # skew(w_hat)
+        # V^{-1} = I - 0.5*Wm + (1/theta^2)*(1 - theta*sin(theta)/(2(1-cos(theta)))) * Wm@Wm
+        c = (1.0 - theta * np.sin(theta) / (2.0 * (1.0 - np.cos(theta)))) / (
+            theta * theta
+        )
+        V_inv = np.eye(3) - 0.5 * Wm + c * (Wm @ Wm)
+
+    v = V_inv @ t
+    return np.concatenate([v, w])  # [v; w], matching s_inv_se3
 
 
 def s_inv_se3(V):
@@ -151,6 +178,15 @@ def precompute_trajectory_baseline(curve, curve_deriv, dt, T, alpha=0.3):
         norms.append(np.linalg.norm(xi_d_s))
     gamma = np.mean(norms)
 
+    # # --- per-interval spatial log, gives constant spatial twist on each interval
+    # L_arr = np.zeros((N, 6))
+    # for i in range(N):
+    #     Delta = curve[(i + 1) % N] @ np.linalg.inv(curve[i])
+    #     L_arr[i] = logSE3(Delta)  # returns [v; w] to match s_inv_se3
+    #
+    # xi_s = N * L_arr  # spatial twist per unit s (world frame)
+    # gamma = np.mean(np.linalg.norm(xi_s, axis=1))
+
     # 2. Compute time scaling beta
     beta = alpha / gamma
 
@@ -169,6 +205,12 @@ def precompute_trajectory_baseline(curve, curve_deriv, dt, T, alpha=0.3):
         idx0 = int(np.floor(idx_float)) % N
         idx1 = (idx0 + 1) % N
         frac = idx_float - np.floor(idx_float)
+
+        # L = L_arr[idx0]
+        # H_t = expSE3(SmapSE3(frac * L)) @ curve[idx0]
+        #
+        # traj_poses[step] = H_t
+        # traj_twists[step] = beta * N * L  # = beta * xi_s[idx0]
 
         # Extract spatial twists at the two adjacent samples
         V0 = curve_deriv[idx0] @ np.linalg.inv(curve[idx0])
@@ -190,6 +232,7 @@ def precompute_trajectory_baseline(curve, curve_deriv, dt, T, alpha=0.3):
 
         traj_poses[step] = H_d_t
         traj_twists[step] = beta * xi_interp
+        # traj_twists[step] = beta * s_inv_se3(V1)
 
         # # Interpolate Pose
         # H_d_t = (1 - frac) * curve[idx0] + frac * curve[idx1]
