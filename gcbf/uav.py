@@ -14,7 +14,7 @@ from uaibot_cpp_bind import expSE3, SmapSE3
 from tqdm import tqdm
 from gcbf.curves import make_circle
 from uaibot.gpu.vectorfield import VectorFieldSE3
-from uaibot.gpu.lie import exp_se3, smap_se3
+from uaibot.gpu.lie import exp_se3, smap_se3, inv_smap_se3
 
 Z_DOWN = np.array([0.0, 0.0, 1.0]).reshape(-1, 1)
 
@@ -95,12 +95,17 @@ class UAV:
 
         # Convert inertia to numpy before calling transform_inertia,
         # since that function may still be numpy-based.
-        if torch.is_tensor(inertia):
-            inertia_np = inertia.detach().cpu().numpy()
-        else:
-            inertia_np = np.asarray(inertia)
+        # if torch.is_tensor(inertia):
+        #     inertia_np = inertia.detach().cpu().numpy()
+        # else:
+        #     inertia_np = np.asarray(inertia)
 
-        self.inertia_tensor = self._to_tensor(transform_inertia(inertia_np))
+        # self.inertia_tensor = self._to_tensor(transform_inertia(inertia_np))
+        self.inertia_tensor = transform_inertia(
+            inertia,
+            device=self.device,
+            dtype=self.dtype,
+        )
 
         self.gravity_dir = self._to_tensor(gravity_dir).reshape(3)
 
@@ -430,31 +435,49 @@ class UAV:
         )
 
 
-def transform_inertia(inertia):
-    """Transforms the input into a 3x3 inertia matrix. If inertia is a 3
-    element list, it is assumed the elements are Ixx, Iyy, Izz and a
-    diagonal matrix is returned. Else, a 9 element list is expected.
 
-    Parameters
-    ----------
-    inertia: np.array
-        The elements of the inertia matrix in order xx, xy, xz, yx, yy,
-        yz, zx, zy, zz.
+def transform_inertia(inertia, device=None, dtype=None):
+    """Converts inertia into a 3x3 PyTorch inertia tensor.
 
-    Returns
-    -------
-    inertia_tensor: np.array
-        The 3x3 inertia tensor
+    Accepted inputs:
+        - 3 elements: Ixx, Iyy, Izz (diagonal inertia)
+        - 9 elements: full inertia matrix
+        - 3x3 tensor: full inertia matrix
+
+    Device and dtype are preserved for tensor inputs unless
+    explicitly overridden.
     """
-    if len(inertia) == 9:
-        return np.array(inertia).reshape(3, 3)
-    elif len(inertia) == 3:
-        return np.diag(np.asarray(inertia).ravel())
-    else:
-        raise ValueError(
-            f"Inertia must be either of lenght 3 or 9, received {len(inertia)}"
-        )
 
+    if torch.is_tensor(inertia):
+        if device is None:
+            device = inertia.device
+        if dtype is None:
+            dtype = inertia.dtype
+    else:
+        if device is None:
+            device = torch.device("cpu")
+        if dtype is None:
+            dtype = torch.get_default_dtype()
+
+    inertia_t = torch.as_tensor(
+        inertia,
+        device=device,
+        dtype=dtype,
+    )
+
+    if inertia_t.shape == (3, 3):
+        return inertia_t
+
+    if inertia_t.numel() == 3:
+        return torch.diag(inertia_t.reshape(3))
+
+    if inertia_t.numel() == 9:
+        return inertia_t.reshape(3, 3)
+
+    raise ValueError(
+        "Inertia must contain either 3 or 9 elements, "
+        f"or have shape (3,3). Received shape {tuple(inertia_t.shape)}."
+    )
 
 def adjoint_matrix_se3(xi):
     xi = np.asarray(xi, dtype=float).reshape(6)
@@ -527,7 +550,6 @@ def _value_grad_hess(fn, x0):
     return s.detach(), g.detach(), Hm
 
 
-
 def get_aclecian(
     uav_model,
     obstacles,
@@ -539,6 +561,9 @@ def get_aclecian(
     dtype=torch.float64,
     debug=False,
 ):
+    # ----------------------------------------------------------
+    # 1. Device and dtype
+    # ----------------------------------------------------------
     if device is None:
         if torch.is_tensor(uav_model.htm):
             device = uav_model.htm.device
@@ -549,17 +574,65 @@ def get_aclecian(
 
     device = torch.device(device)
 
-    # Always use float64 for the finite-difference calculation.
-    fd_dtype = torch.float64
-
-    # Initial pose
-    H0_t = torch.as_tensor(
+    # Preserve float64 for numerical differentiation by default.
+    H0 = torch.as_tensor(
         uav_model.htm,
         device=device,
-        dtype=fd_dtype,
+        dtype=dtype,
     ).reshape(4, 4)
 
-    H0_np = H0_t.detach().cpu().numpy()
+    delta_t = torch.as_tensor(
+        delta,
+        device=device,
+        dtype=dtype,
+    )
+
+    if delta <= 0:
+        raise ValueError("delta must be positive.")
+
+    # ----------------------------------------------------------
+    # 2. Generate all 12 perturbations simultaneously
+    # ----------------------------------------------------------
+
+    I6 = torch.eye(
+        6,
+        device=device,
+        dtype=dtype,
+    )
+
+    # Six canonical basis elements of se(3).
+    E_hat = smap_se3(I6)  # (6, 4, 4)
+
+    # Forward perturbations:
+    # exp(delta * E_i) @ H0
+    H_forward = (
+        exp_se3(delta_t * E_hat)
+        @ H0.unsqueeze(0)
+    )  # (6, 4, 4)
+
+    # Backward perturbations:
+    # exp(-delta * E_i) @ H0
+    H_backward = (
+        exp_se3(-delta_t * E_hat)
+        @ H0.unsqueeze(0)
+    )  # (6, 4, 4)
+
+    # Batch ordering:
+    # 0       : nominal pose
+    # 1:7     : forward perturbations
+    # 7:13    : backward perturbations
+    H_batch = torch.cat(
+        [
+            H0.unsqueeze(0),
+            H_forward,
+            H_backward,
+        ],
+        dim=0,
+    )  # (13, 4, 4)
+
+    # ----------------------------------------------------------
+    # 3. Shaping function
+    # ----------------------------------------------------------
 
     reduce_fn = lambda d: shaping_function(
         holder_min(d, gamma, dim=1),
@@ -568,144 +641,152 @@ def get_aclecian(
     ).sum()
 
     # ----------------------------------------------------------
-    # Gradient of beta with respect to left pose perturbations
+    # 4. Evaluate all poses in ONE geometry call
     # ----------------------------------------------------------
-    def h_grad(H_np):
 
-        # IMPORTANT:
-        # Pass a float64 Torch HTM to extract_VEF.
-        # This prevents the geometry from silently falling back
-        # to float32 when the input is a NumPy array.
-        H_t = torch.as_tensor(
-            H_np,
-            device=device,
-            dtype=fd_dtype,
-        ).reshape(4, 4)
+    # Each entry represents the same physical UAV at a different
+    # perturbed pose.
+    objects_a = [uav_model.collision_model] * 13
 
-        dists, grads = holder_distance_objects_with_grad(
-            [uav_model.collision_model],
-            obstacles,
-            htms_a=[H_t],
-            gamma=gamma,
-            eps=eps,
-            device=device,
-            reduce_fn=reduce_fn,
-        )
+    d_all, grads = holder_distance_objects_with_grad(
+        objects_a,
+        obstacles,
+        htms_a=H_batch,
+        gamma=gamma,
+        eps=eps,
+        device=device,
+        reduce_fn=reduce_fn,
+        local_cache={},
+    )
 
-        grad = (
-            grads["grad_HA"][0]
-            .detach()
-            .cpu()
-            .numpy()
-            .astype(np.float64)
-        )
-
-        dists = dists.detach().cpu()
-
-        if not np.isfinite(grad).all():
-            raise FloatingPointError(
-                "NaN/Inf in obstacle pose gradient."
-            )
-
-        if not torch.isfinite(dists).all():
-            raise FloatingPointError(
-                "NaN/Inf in obstacle distances."
-            )
-
-        return dists, grad
+    grad_all = grads["grad_HA"]  # (13, 6)
 
     # ----------------------------------------------------------
-    # Gradient at nominal pose
+    # 5. Nominal gradient L_beta
     # ----------------------------------------------------------
-    d0, Lf = h_grad(H0_np)
 
-    # ----------------------------------------------------------
-    # Central finite differences
-    # ----------------------------------------------------------
-    A_fd = np.zeros((6, 6), dtype=np.float64)
-
-    for i in range(6):
-
-        ei = np.zeros(6, dtype=np.float64)
-        ei[i] = 1.0
-
-        Ei = SmapSE3(ei)
-
-        H_fwd = expSE3(Ei * delta) @ H0_np
-        H_bwd = expSE3(-Ei * delta) @ H0_np
-
-        _, gp = h_grad(H_fwd)
-        _, gm = h_grad(H_bwd)
-
-        A_fd[i, :] = (gp - gm) / (2.0 * delta)
+    Lf = grad_all[0]  # (6,)
 
     # ----------------------------------------------------------
-    # Symmetric and skew-symmetric parts
+    # 6. Batched central finite differences
     # ----------------------------------------------------------
+
+    grad_forward = grad_all[1:7]   # (6, 6)
+    grad_backward = grad_all[7:13] # (6, 6)
+
+    # Row i corresponds to differentiation along basis E_i.
+    A_fd = (
+        grad_forward - grad_backward
+    ) / (2.0 * delta_t)  # (6, 6)
+
+    # Symmetric part.
     Sym_fd = 0.5 * (A_fd + A_fd.T)
 
+    # Numerical skew part, only for diagnostics.
     Skew_fd = 0.5 * (A_fd - A_fd.T)
 
-    Skew_exact = np.asarray(
-        aclecian_skew_part(Lf),
-        dtype=np.float64,
+    # ----------------------------------------------------------
+    # 7. Exact skew-symmetric component using Lie brackets
+    # ----------------------------------------------------------
+
+    # [E_i, E_j] = E_i E_j - E_j E_i
+    #
+    # E_hat has shape (6, 4, 4).
+    # The result has shape (6, 6, 4, 4).
+
+    commutators = (
+        E_hat[:, None] @ E_hat[None, :]
+        - E_hat[None, :] @ E_hat[:, None]
     )
 
-    # This is the original aclecian construction.
+    # Convert the Lie brackets back to se(3) coordinates.
+    # Shape: (6, 6, 6)
+    brackets = inv_smap_se3(commutators)
+
+    # S_exact[i,j] = -0.5 * L_beta @ [E_i, E_j]
+    Skew_exact = -0.5 * torch.einsum(
+        "k,ijk->ij",
+        Lf,
+        brackets,
+    )
+
+    # ----------------------------------------------------------
+    # 8. Original aclecian construction
+    # ----------------------------------------------------------
+
     A = Sym_fd + 0.5 * Skew_exact
 
-    # ----------------------------------------------------------
-    # Consistency diagnostic
-    # ----------------------------------------------------------
-    skew_error = np.linalg.norm(Skew_fd - Skew_exact)
+    # Do not symmetrize A.
+    # It is intentionally nonsymmetric.
 
-    skew_relative_error = (
-        skew_error
-        / max(np.linalg.norm(Skew_exact), 1e-12)
-    )
+    # ----------------------------------------------------------
+    # 9. beta
+    # ----------------------------------------------------------
+
+    beta = shaping_function(
+        holder_min(
+            d_all[0:1],
+            gamma=gamma,
+            dim=1,
+        ),
+        k,
+        eps=eps,
+    ).reshape(())
+
+    # ----------------------------------------------------------
+    # 10. Numerical validation
+    # ----------------------------------------------------------
+
+    if not torch.isfinite(A).all():
+        raise FloatingPointError("NaN/Inf in aclecian.")
+
+    if not torch.isfinite(Lf).all():
+        raise FloatingPointError("NaN/Inf in L_beta.")
+
+    if not torch.isfinite(beta):
+        raise FloatingPointError("NaN/Inf in beta.")
+
+    if not torch.isfinite(d_all).all():
+        raise FloatingPointError("NaN/Inf in obstacle distances.")
+
+    # ----------------------------------------------------------
+    # 11. Debug
+    # ----------------------------------------------------------
 
     if debug:
+        skew_error = torch.linalg.norm(
+            Skew_fd - Skew_exact
+        )
+
+        skew_relative_error = (
+            skew_error
+            / torch.linalg.norm(Skew_exact).clamp_min(1e-12)
+        )
+
         print(f"[aclecian] delta: {delta:.2e}")
+        print(f"[aclecian] beta: {beta.item():.8e}")
         print(
             f"[aclecian] ||A_fd||: "
-            f"{np.linalg.norm(A_fd):.6e}"
+            f"{torch.linalg.norm(A_fd).item():.6e}"
         )
         print(
             f"[aclecian] ||Sym_fd||: "
-            f"{np.linalg.norm(Sym_fd):.6e}"
+            f"{torch.linalg.norm(Sym_fd).item():.6e}"
         )
         print(
             f"[aclecian] ||Skew_fd - Skew_exact||: "
-            f"{skew_error:.6e}"
+            f"{skew_error.item():.6e}"
         )
         print(
             f"[aclecian] relative skew error: "
-            f"{skew_relative_error:.6e}"
+            f"{skew_relative_error.item():.6e}"
         )
         print(
             f"[aclecian] ||A||: "
-            f"{np.linalg.norm(A):.6e}"
+            f"{torch.linalg.norm(A).item():.6e}"
         )
 
-    # ----------------------------------------------------------
-    # beta
-    # ----------------------------------------------------------
-    beta = shaping_function(
-        holder_min(d0, gamma=gamma, dim=1),
-        k,
-        eps=eps,
-    ).item()
-
-    if not np.isfinite(A).all():
-        raise FloatingPointError("NaN/Inf in aclecian.")
-
-    if not np.isfinite(Lf).all():
-        raise FloatingPointError("NaN/Inf in L_beta.")
-
-    if not np.isfinite(beta):
-        raise FloatingPointError("NaN/Inf in beta.")
-
-    return A, Lf, float(beta)
+    return A, Lf, beta
 
 def get_beta_grad(uav_model, obstacles, gamma=2.0, eps=1e-3, k=2, device=None):
     H0 = np.asarray(uav_model.htm, dtype=float)
@@ -794,11 +875,10 @@ def get_beta_grad_torch(
     return d0, L_beta, beta
 
 
-
-def tracking_xi_dot(
-    drone,
-    curve,
-    curve_derivative,
+def tracking_xi_dot_torch(
+    ctx,
+    H,
+    xi_actual,
     dt_fd=1e-4,
     kt1=1.0,
     kt2=1.0,
@@ -808,42 +888,127 @@ def tracking_xi_dot(
     Kp_xi=5.0,
 ):
     """
-    Return xi_dot_des by:
-      1. evaluating the vector field twist at the current state,
-      2. central-differencing the vector field along that twist.
+    Compute desired acceleration using the Torch vector field.
+
+    1. Evaluate the vector field at the current pose.
+    2. Perturb the pose forward and backward along the actual
+       UAV velocity.
+    3. Central-difference the vector field.
+    4. Add proportional velocity feedback.
+
+    All operations remain on the selected Torch device.
+
+    Returns:
+        xi_dot_des: (6,)
+        xi_vf:      (6,)
+        dist_vf:    scalar tensor
+        idx_vf:     scalar tensor
     """
-    H = np.asarray(drone.htm, dtype=float)
-    xi_actual = np.asarray(drone.xi).reshape(
-        6,
+
+    device = ctx.device
+    dtype = ctx.dtype
+
+    # ----------------------------------------------------------
+    # 1. Input conversion
+    # ----------------------------------------------------------
+    H = torch.as_tensor(
+        H,
+        device=device,
+        dtype=dtype,
+    ).reshape(4, 4)
+
+    xi_actual = torch.as_tensor(
+        xi_actual,
+        device=device,
+        dtype=dtype,
+    ).reshape(6)
+
+    # ----------------------------------------------------------
+    # 2. Vector field evaluation helper
+    # ----------------------------------------------------------
+    def vf(H_batch):
+        twist, dist, idx = ctx.eval_vf(
+            H_batch,
+            kt1,
+            kt2,
+            kt3,
+            kn1,
+            kn2,
+        )
+
+        return (
+            twist.reshape(H_batch.shape[0], 6),
+            dist.reshape(H_batch.shape[0]),
+            idx.reshape(H_batch.shape[0]),
+        )
+
+    # ----------------------------------------------------------
+    # 3. Nominal vector field
+    # ----------------------------------------------------------
+    xi_vf_batch, dist_batch, idx_batch = vf(
+        H.unsqueeze(0)
     )
 
-    def vf(H_):
-        xi, dist, idx = Robot.vector_field_SE3(
-            H_,
-            curve,
-            kt1=kt1,
-            kt2=kt2,
-            kt3=kt3,
-            kn1=kn1,
-            kn2=kn2,
-            curve_derivative=curve_derivative,
-            delta=1e-3,
-            ds=1e-3,
-            mode="c++",
-        )
-        return np.asarray(xi, dtype=float).ravel(), dist, idx
+    xi_vf = xi_vf_batch[0]
+    dist_vf = dist_batch[0]
+    idx_vf = idx_batch[0]
 
-    xi_vf, dist, idx = vf(H)
+    # ----------------------------------------------------------
+    # 4. Forward and backward pose perturbations
+    # ----------------------------------------------------------
+    xi_pert = torch.stack(
+        [
+            xi_actual * dt_fd,
+            -xi_actual * dt_fd,
+        ],
+        dim=0,
+    )  # (2, 6)
 
-    H_fwd = expSE3(SmapSE3(xi_actual * dt_fd)) @ H
-    H_bwd = expSE3(SmapSE3(-xi_actual * dt_fd)) @ H
+    Omega_pert = smap_se3(xi_pert)  # (2, 4, 4)
 
-    xi_fwd, *_ = vf(H_fwd)
-    xi_bwd, *_ = vf(H_bwd)
+    H_pert = (
+        exp_se3(Omega_pert)
+        @ H.unsqueeze(0)
+    )  # (2, 4, 4)
 
-    xi_dot_ff = (xi_fwd - xi_bwd) / (2.0 * dt_fd)  # feedforward
-    xi_dot_des = xi_dot_ff + Kp_xi * (xi_vf - xi_actual)  # + P on velocity error
-    return xi_dot_des, xi_vf, dist
+    # ----------------------------------------------------------
+    # 5. Batched vector field evaluation
+    # ----------------------------------------------------------
+    xi_pert_vf, _, _ = vf(H_pert)
+
+    xi_fwd = xi_pert_vf[0]
+    xi_bwd = xi_pert_vf[1]
+
+    # ----------------------------------------------------------
+    # 6. Feedforward acceleration
+    # ----------------------------------------------------------
+    xi_dot_ff = (
+        xi_fwd - xi_bwd
+    ) / (2.0 * dt_fd)
+
+    # ----------------------------------------------------------
+    # 7. Velocity feedback
+    # ----------------------------------------------------------
+    xi_dot_des = (
+        xi_dot_ff
+        + Kp_xi * (xi_vf - xi_actual)
+    )
+
+    # ----------------------------------------------------------
+    # 8. Numerical validation
+    # ----------------------------------------------------------
+    for name, value in (
+        ("xi_vf", xi_vf),
+        ("xi_dot_ff", xi_dot_ff),
+        ("xi_dot_des", xi_dot_des),
+        ("dist_vf", dist_vf),
+    ):
+        if not torch.isfinite(value).all():
+            raise FloatingPointError(
+                f"NaN/Inf in tracking_xi_dot_torch: {name}"
+            )
+
+    return xi_dot_des, xi_vf, dist_vf, idx_vf
 
 
 def control_1st(
@@ -1285,7 +1450,7 @@ def control_2nd_torch(
     # ----------------------------------------------------------
     # 2. Aclecian
     # ----------------------------------------------------------
-    A_acl_np, Lf_np, beta = get_aclecian(
+    A_acl_t, Lf_t, beta = get_aclecian(
         uav_model,
         obstacles,
         delta=delta_acl,
@@ -1293,19 +1458,23 @@ def control_2nd_torch(
         eps=eps,
         k=k_shape,
         device=device,
-        debug=debug,
+        dtype=torch.float64,
     )
 
-    A_acl_t = _to_torch(
-        A_acl_np, device, dtype
-    ).reshape(6, 6)
+    A_acl_t = A_acl_t.to(
+        device=device,
+        dtype=dtype,
+    )
 
-    Lf_t = _to_torch(
-        Lf_np, device, dtype
-    ).reshape(1, 6)
+    Lf_t = Lf_t.reshape(1, 6).to(
+        device=device,
+        dtype=dtype,
+    )
 
-    beta = float(beta)
-
+    beta = beta.to(
+        device=device,
+        dtype=dtype,
+    )
     check_finite("Aclecian", A_acl_t)
     check_finite("Lf", Lf_t)
 
