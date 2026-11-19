@@ -50,8 +50,9 @@ curve_seed = None
 kn1 = 1.0
 kn2 = 0.5
 # kt1 = 1.0
+kn2 = 0.7
 kt1 = 0.7  # 0.7 is cool for toroidal coil
-kt1 = 0.3
+# kt1 = 0.3
 kt2 = 0.7
 kt3 = kn2
 
