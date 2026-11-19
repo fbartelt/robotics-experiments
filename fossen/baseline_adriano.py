@@ -9,7 +9,7 @@ def wrap_vec(a):
     return (a + np.pi) % TWO_PI - np.pi
 
 
-def se3_curve_to_r3t3(curve):
+def se3_curve_to_r3t3(curve, unwrap=True):
     """
     Convert an SE(3) curve (N, 4, 4) to coordinates on R^3 x T^3.
 
@@ -24,7 +24,8 @@ def se3_curve_to_r3t3(curve):
     phi_curve = np.zeros((N, 3))
     for i in range(N):
         phi_curve[i] = R.from_matrix(curve[i, :3, :3]).as_euler("xyz")
-    phi_curve = np.unwrap(phi_curve, axis=0)
+    if unwrap:
+        phi_curve = np.unwrap(phi_curve, axis=0)
     return p_curve, phi_curve
 
 
