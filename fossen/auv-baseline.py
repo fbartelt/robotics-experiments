@@ -29,13 +29,14 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 300
+T = 80
 curve_base_path = "./fossen/data"
 
 kn1 = 1.0
 kn2 = 0.7
 # kt1 = 1.0
 kt1 = 0.7  # 0.7 is cool for toroidal coil
+kt1 = 1.25
 # kt1 = 0.3
 kt2 = 0.7
 kt3 = kn2
@@ -135,7 +136,113 @@ if os.path.exists(curve_path):
 else:
     curve, curve_derivative = build_curve(CURVE_TYPE, **kwargs)
 
+
 # ---- Rezende baseline: precompute the R^3 x T^3 coordinate curve ----
+def _rotation_from_to(a, b, eps=1e-12):
+    """Return the minimal rotation matrix Q such that Q @ a_hat = b_hat."""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    nv = np.linalg.norm(v)
+
+    if nv < eps:
+        if c > 0.0:
+            return np.eye(3)
+
+        # a and b are antiparallel: choose any perpendicular axis.
+        axis = np.array([1.0, 0.0, 0.0])
+        if abs(np.dot(axis, a)) > 0.9:
+            axis = np.array([0.0, 1.0, 0.0])
+        axis = axis - np.dot(axis, a) * a
+        axis /= np.linalg.norm(axis)
+        return R.from_rotvec(np.pi * axis).as_matrix()
+
+    axis = v / nv
+    angle = np.arctan2(nv, c)
+    return R.from_rotvec(axis * angle).as_matrix()
+
+
+def min_single_rotation_to_gimbal_lock(transforms, eps=1e-12):
+    """
+    Compute one minimum rotation Q such that, after applying it on the left
+    to all transforms,
+
+        T_i_new = Q_h @ T_i
+
+    at least one rotation part becomes gimbal-locked when converted with
+
+        R.from_matrix(T_i_new[:3, :3]).as_euler("xyz").
+
+    Parameters
+    ----------
+    transforms : (N, 4, 4) ndarray
+        Homogeneous transformation matrices.
+
+    Returns
+    -------
+    Q : (3, 3) ndarray
+        Minimum rotation matrix.
+    Q_h : (4, 4) ndarray
+        Same rotation as a homogeneous matrix. Use T_new = Q_h @ transforms.
+    locked_index : int
+        Index of the pose that becomes gimbal-locked.
+    angle : float
+        Minimum rotation angle in radians.
+    beta_after : float
+        Middle "xyz" Euler angle of the locked pose after applying Q.
+        It will be approximately +pi/2 or -pi/2.
+    """
+    T = np.asarray(transforms, dtype=float)
+
+    if T.ndim != 3 or T.shape[1:] != (4, 4):
+        raise ValueError("transforms must have shape (N, 4, 4)")
+    if T.shape[0] == 0:
+        raise ValueError("transforms must contain at least one matrix")
+
+    rotations = T[:, :3, :3]
+
+    # First column of each rotation matrix: u_i = R_i @ e_x
+    u = rotations[:, :, 0]  # shape (N, 3)
+
+    e_z = np.array([0.0, 0.0, 1.0])
+
+    dots = u @ e_z
+
+    # Choose +e_z or -e_z, whichever is closest to u_i.
+    signs = np.where(dots < 0.0, -1.0, 1.0)
+
+    # angle to closest of +/- e_z
+    cos_angles = np.abs(dots)
+    angles = np.arccos(np.clip(cos_angles, -1.0, 1.0))
+
+    locked_index = int(np.argmin(angles))
+    angle = float(angles[locked_index])
+
+    target = signs[locked_index] * e_z
+    Q = _rotation_from_to(u[locked_index], target, eps=eps)
+
+    Q_h = np.eye(4)
+    Q_h[:3, :3] = Q
+
+    # Sanity check: this pose should now be at gimbal lock.
+    locked_rotation = Q @ rotations[locked_index]
+    beta_after = float(R.from_matrix(locked_rotation).as_euler("xyz")[1])
+
+    return Q, Q_h, locked_index, angle, beta_after
+
+
+Q, Q_h, idx, angle, beta_after = min_single_rotation_to_gimbal_lock(curve)
+
+# Apply the single rotation to every homogeneous transform.
+curve = Q_h @ curve
+
+gimbal_point = Ball(htm=curve[idx], radius=0.05, opacity=0.8)
+
 p_curve, phi_curve = se3_curve_to_r3t3(curve)
 
 # VF tuning (Rezende's v_r is a mixed m+rad speed; 0.4 ≈ 0.4 m/s surge)
@@ -170,6 +277,7 @@ curve_ub = CurveSE3(points=curve, color="cyan")
 sim.add(curve_ub)
 sim.set_parameters(width=1480, height=920)
 
+sim.add(gimbal_point)
 # ---------- Integrate physics + build animation frames -------------------
 htm_next = htm0.copy()
 time_vec = np.arange(0, T, dt)
@@ -305,8 +413,8 @@ for t in tqdm(time_vec):
 
     log_dist.append(dist)
     log_idx.append(closest_idx)
-    log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
-    log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
+    log_xi.append(target_twist.copy())
+    log_twist.append(true_twist.copy())
     log_err_ori.append(acos * 180 / np.pi)
     log_htm.append(true_pose.copy())
     log_requested_wrench.append(diagnostics.requested_wrench)
@@ -337,6 +445,11 @@ data = {
     "saturated_thrusters": np.array(log_saturated_thrusters),
 }
 
+ss_idxs = np.where(time_vec > 20)[0]
+ss_D = data["dist"][ss_idxs].mean()
+ss_pos = data["err_pos"][ss_idxs].mean()
+ss_ori = data["err_ori"][ss_idxs].mean()
+print(f"Steady state errors-- D: {ss_D}, pos: {ss_pos} cm, ori: {ss_ori}°")
 
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
@@ -420,9 +533,13 @@ create_fig().show()
 # %%
 
 fig = go.Figure()
-for i in range(3):
-    fig.add_trace(go.Scatter(y=np.array(log_xi)[:, i]))
-for i in range(3):
-    fig.add_trace(go.Scatter(y=np.array(log_twist)[:, i]))
+for i in range(6):
+    fig.add_trace(
+        go.Scatter(name=r"$\psi_{" + f"{i+1}" + r"}$", y=np.array(log_xi)[:, i])
+    )
+for i in range(6):
+    fig.add_trace(
+        go.Scatter(name=r"$\xi_{" + f"{i+1}" + r"}$", y=np.array(log_twist)[:, i])
+    )
 fig.show()
 print(2)
