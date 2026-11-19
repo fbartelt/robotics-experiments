@@ -30,6 +30,7 @@ vf_solver = SE3VectorField(
     scale_pos=1.0,
 )
 
+RUN_KINEMATIC = True  # FOR DEBUGGING
 # ---------- Initial conditions (mirror of the C++ example) ---------------
 htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
@@ -39,7 +40,7 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 300
+T = 60
 curve_base_path = "./fossen/data"
 scale_pos = 1 / np.sqrt(3.0)
 scale_pos = 1.0
@@ -47,7 +48,7 @@ curve_seed = None
 # curve_seed = 61  # used to check failed runs in variations
 
 kn1 = 1.0
-kn2 = 0.7
+kn2 = 0.5
 # kt1 = 1.0
 kt1 = 0.7  # 0.7 is cool for toroidal coil
 kt1 = 0.3
@@ -63,7 +64,7 @@ CURVE_POINTS = 15000 * 2
 # trefoil
 # vertical_coil
 # toroidal_coil
-CURVE_TYPE = "ellipse"
+CURVE_TYPE = "toroidal_coil"
 
 scl = 0.8 / 1.5
 scl = 1.0 / 1.5
@@ -178,7 +179,7 @@ deriv_t = torch.as_tensor(curve_derivative, dtype=DTYPE, device=DEVICE)  # (M,4,
 
 # ---------- Scene object -------------------------------------------------
 # htm0 = curve[int(CURVE_POINTS / 2)]
-# htm0 = curve[0]
+htm0 = curve[0]
 closest_p = Ball(htm=np.eye(4), opacity=0.8, radius=0.05, color="pink")
 # auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red", opacity=0.3)
 auv = make_rov(htm=htm0)
@@ -288,6 +289,7 @@ prev_idx = 0
 window_size = int(0.1 * CURVE_POINTS)
 dist = 1e3
 
+htm = htm0.copy()
 for t in tqdm(time_vec):
     half_win = window_size // 2
 
@@ -302,6 +304,8 @@ for t in tqdm(time_vec):
     # If measurement isn't valid yet, fallback to ground truth
     ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
     ctrl_twist = state.measurement.twist if state.measurement.valid else state.twist
+    if RUN_KINEMATIC:
+        ctrl_pose = htm
 
     scale_pose = ctrl_pose.copy()
     scale_pose[:3, 3] *= scale_pos
@@ -347,29 +351,37 @@ for t in tqdm(time_vec):
     target_twist[:3] = v + np.cross(omega, p_ctrl)
     target_twist[3:] = omega
 
-    # 2. PHYSICS STEP (Updates state.pose, state.twist, and state.measurement)
-    state = ub_cpp.fossen_step(target_twist, state, params)
-    diagnostics = state.diagnostics
+    if RUN_KINEMATIC:
+        if t <= dt:
+            print("KINEMATIC RUN")
+        htm = ub_cpp.expSE3(ub_cpp.SmapSE3(target_twist * dt)) @ htm
+        true_twist = target_twist
+        true_pose = htm
+    else:
+        # 2. PHYSICS STEP (Updates state.pose, state.twist, and state.measurement)
+        state = ub_cpp.fossen_step(target_twist, state, params)
+        diagnostics = state.diagnostics
 
-    # 3. LOGGING (Uses Ground Truth)
-    true_pose = state.pose
-    true_twist = state.twist
-    rot = true_pose[:3, :3].T
-    true_pose_scale = true_pose.copy()
-    true_pose_scale[:3, 3] *= scale_pos
+        # 3. LOGGING (Uses Ground Truth)
+        true_pose = state.pose
+        true_twist = state.twist
+        rot = true_pose[:3, :3].T
+        true_pose_scale = true_pose.copy()
+        true_pose_scale[:3, 3] *= scale_pos
 
     log_dist.append(dist)
     log_idx.append(closest_idx)
     # log_err_ori.append(acos * 180 / np.pi)
-    log_xi.append((rot @ target_twist[3:].reshape(-1, 1)).ravel())
-    log_twist.append((rot @ true_twist[3:].reshape(-1, 1)).ravel())
+    log_xi.append(target_twist.copy())
+    log_twist.append(true_twist.copy())
     log_htm.append(true_pose.copy())
-    log_requested_wrench.append(diagnostics.requested_wrench)
-    log_allocated_wrench.append(diagnostics.allocated_wrench)
-    log_applied_wrench.append(diagnostics.applied_wrench)
-    log_allocation_residual.append(diagnostics.allocation_residual)
-    log_thrust_setpoints.append(diagnostics.thrust_setpoints)
-    log_saturated_thrusters.append(diagnostics.saturated_thrusters)
+    if not RUN_KINEMATIC:
+        log_requested_wrench.append(diagnostics.requested_wrench)
+        log_allocated_wrench.append(diagnostics.allocated_wrench)
+        log_applied_wrench.append(diagnostics.applied_wrench)
+        log_allocation_residual.append(diagnostics.allocation_residual)
+        log_thrust_setpoints.append(diagnostics.thrust_setpoints)
+        log_saturated_thrusters.append(diagnostics.saturated_thrusters)
 
     auv.add_ani_frame(time=float(t), htm=true_pose)
     auv_frame.add_ani_frame(time=float(t), htm=true_pose)
@@ -424,8 +436,11 @@ log_err_ori = data["err_ori"]
 
 # ---------- Show ---------------------------------------------------------
 sim.run_in_browser()
-with open(results_file, "wb") as f:
-    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+# with open(results_file, "wb") as f:
+#     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+# %%
 
 
 def create_fig():
@@ -509,9 +524,13 @@ print(f"Steady state errors-- D: {ss_D}, pos: {ss_pos} cm, ori: {ss_ori}°")
 # %%
 
 fig = go.Figure()
-for i in range(3):
-    fig.add_trace(go.Scatter(y=np.array(log_xi)[:, i]))
-for i in range(3):
-    fig.add_trace(go.Scatter(y=np.array(log_twist)[:, i]))
+for i in range(6):
+    fig.add_trace(
+        go.Scatter(name=r"$\psi_{" + f"{i+1}" + r"}$", y=np.array(log_xi)[:, i])
+    )
+for i in range(6):
+    fig.add_trace(
+        go.Scatter(name=r"$\xi_{" + f"{i+1}" + r"}$", y=np.array(log_twist)[:, i])
+    )
 fig.show()
 print(2)

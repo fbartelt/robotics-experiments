@@ -36,6 +36,8 @@ vf_solver = SE3VectorField(
     scale_pos=1.0,
 )
 
+RUN_KINEMATIC = True  # FOR DEBUGGING
+
 # ---------- Initial conditions (mirror of the C++ example) ---------------
 htm0 = np.eye(4)
 htm0[2, 3] = -2.0  # C++: pose(2, 3) = -3.   (0-based in NumPy)
@@ -45,7 +47,7 @@ gains = 6 * np.array([2.0, 2.0, 2.0, 4.0, 4.0, 4.0]) * 1.6
 # gains = np.array([180., 180., 88., 716., 768., 360.])
 
 dt = 0.01  # C++: const double dt = 0.01
-T = 300
+T = 120
 curve_base_path = "./fossen/data"
 scale_pos = 1 / np.sqrt(3.0)
 scale_pos = 1.0
@@ -56,7 +58,7 @@ kn1 = 1.0
 kn2 = 0.7
 # kt1 = 1.0
 kt1 = 0.7  # 0.7 is cool for toroidal coil
-kt1 = 0.3
+# kt1 = 0.3
 kt2 = 0.7
 kt3 = kn2
 
@@ -69,7 +71,7 @@ CURVE_POINTS = 15000 * 2
 # trefoil
 # vertical_coil
 # toroidal_coil
-CURVE_TYPE = "ellipse"
+CURVE_TYPE = "toroidal_coil"
 
 scl = 0.8 / 1.5
 scl = 1.0 / 1.5
@@ -177,9 +179,11 @@ else:
     curve, curve_derivative = rand_se3_curve(curve, curve_derivative, seed=curve_seed)
 
 # 0.13 is average D for ellipse
-alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.13))
-beta, gamma = compute_trajectory_timing(curve, curve_derivative, alpha)
+alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.13)) * 0.6785
+alpha = kt1 * (1 - kt2 * np.tanh(kt3 * 0.253)) * 0.54  # toroidal
 
+beta, gamma = compute_trajectory_timing(curve, curve_derivative, alpha)
+beta
 
 traj_poses, traj_twists = precompute_trajectory_baseline(
     curve,
@@ -191,8 +195,7 @@ traj_poses, traj_twists = precompute_trajectory_baseline(
 
 # ---------- Scene object -------------------------------------------------
 # htm0 = curve[int(CURVE_POINTS / 2)]
-# htm0 = curve[0]
-closest_p = Ball(htm=np.eye(4), opacity=0.8, radius=0.05, color="pink")
+htm0 = curve[0]
 # auv = Box(htm=htm0, depth=338e-3, height=254e-3, width=457e-3, color="red", opacity=0.3)
 auv = make_rov(htm=htm0)
 auv_frame = Frame(htm=htm0)
@@ -211,11 +214,14 @@ sim = create_sim_underwater([auv, auv_frame])
 # sim.set_parameters(camera_follow=auv, camera_start_pose=camera_start_pose)
 
 # sim.add(closest_p)
-curve_ub = CurveSE3(points=curve, color="cyan")
+curve_ub = CurveSE3(points=traj_poses, color="cyan")
 traj_curve = CurveSE3(points=traj_poses, color="magenta")
 sim.add(curve_ub)
 sim.set_parameters(width=1480, height=920)
 
+traj_ball = Ball(htm=np.eye(4), opacity=0.8, radius=0.05, color="pink")
+traj_frame = Frame(htm=np.eye(4))
+sim.add([traj_ball, traj_frame])
 # ---------- Integrate physics + build animation frames -------------------
 htm_next = htm0.copy()
 time_vec = np.arange(0, T, dt)
@@ -305,6 +311,8 @@ dist = 1e3
 
 # Assuming you have `traj_poses`, `traj_twists`, and `time_vec` matching in length
 
+htm = htm0.copy()
+
 for i, t in enumerate(tqdm(time_vec)):
 
     # 1. FETCH PRECOMPUTED TRAJECTORY
@@ -315,6 +323,8 @@ for i, t in enumerate(tqdm(time_vec)):
     # If measurement isn't valid yet, fallback to ground truth
     ctrl_pose = state.measurement.pose if state.measurement.valid else state.pose
     ctrl_twist = state.measurement.twist if state.measurement.valid else state.twist
+    if RUN_KINEMATIC:
+        ctrl_pose = htm.copy()
 
     # Apply scaling to both the state and the target trajectory
     scale_pose = ctrl_pose.copy()
@@ -357,12 +367,19 @@ for i, t in enumerate(tqdm(time_vec)):
     target_twist[3:] = omega
 
     # 5. PHYSICS STEP
-    state = ub_cpp.fossen_step(target_twist, state, params)
-    diagnostics = state.diagnostics
+    if RUN_KINEMATIC:
+        if i <= 1:
+            print("KINEMATIC RUN")
+        htm = ub_cpp.expSE3(ub_cpp.SmapSE3(xi.ravel() * dt)) @ htm
+        true_twist = target_twist
+        true_pose = htm
+    else:
+        state = ub_cpp.fossen_step(target_twist, state, params)
+        diagnostics = state.diagnostics
 
-    # 6. LOGGING (Uses Ground Truth)
-    true_pose = state.pose
-    true_twist = state.twist
+        # 6. LOGGING (Uses Ground Truth)
+        true_pose = state.pose
+        true_twist = state.twist
 
     # (Optional) You can also log the true tracking error here if desired
     # true_scale_pose = true_pose.copy()
@@ -377,15 +394,22 @@ for i, t in enumerate(tqdm(time_vec)):
     log_xi.append(target_twist.copy())
     log_twist.append(true_twist.copy())
     log_htm.append(true_pose.copy())
-    log_requested_wrench.append(diagnostics.requested_wrench)
-    log_allocated_wrench.append(diagnostics.allocated_wrench)
-    log_applied_wrench.append(diagnostics.applied_wrench)
-    log_allocation_residual.append(diagnostics.allocation_residual)
-    log_thrust_setpoints.append(diagnostics.thrust_setpoints)
-    log_saturated_thrusters.append(diagnostics.saturated_thrusters)
+    if not RUN_KINEMATIC:
+        log_requested_wrench.append(diagnostics.requested_wrench)
+        log_allocated_wrench.append(diagnostics.allocated_wrench)
+        log_applied_wrench.append(diagnostics.applied_wrench)
+        log_allocation_residual.append(diagnostics.allocation_residual)
+        log_thrust_setpoints.append(diagnostics.thrust_setpoints)
+        log_saturated_thrusters.append(diagnostics.saturated_thrusters)
 
     auv.add_ani_frame(time=float(t), htm=true_pose)
     auv_frame.add_ani_frame(time=float(t), htm=true_pose)
+    traj_ball.add_ani_frame(
+        time=float(t), htm=traj_poses[min(i + 1, len(traj_poses) - 1)]
+    )
+    traj_frame.add_ani_frame(
+        time=float(t), htm=traj_poses[min(i + 1, len(traj_poses) - 1)]
+    )
 
 # ------------------------------------------------------------------
 # True-pose metrics, computed post-hoc on the full curve (batched).
