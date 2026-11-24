@@ -188,3 +188,5 @@ media/
 *.so
 *.so.*
 *.a
+*.wav
+*.mlt
