@@ -48,7 +48,8 @@ class TorchVFContext:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         self.dtype = dtype
-        self.curve = _to_torch(curve, self.device, dtype)
+        self.curve = _to_torch(curve, self.device, dtype) # time-varying
+        self.curve0 = _to_torch(curve, self.device, dtype)
         if curve_derivative is None or (
             isinstance(curve_derivative, (list, tuple)) and len(curve_derivative) == 0
         ):
@@ -56,6 +57,9 @@ class TorchVFContext:
         else:
             self.curve_derivative = _to_torch(curve_derivative, self.device, dtype)
         self.vf = VectorFieldSE3(delta=vf_delta, ds=vf_ds, scale_pos=scale_pos)
+
+    def set_curve(self, new_curve):
+        self.curve = _to_torch(new_curve, self.device, self.dtype)
 
     def eval_vf(self, H_batch, kt1, kt2, kt3, kn1, kn2):
         return self.vf.vectorfield_se3(
@@ -809,9 +813,8 @@ def get_beta_grad(uav_model, obstacles, gamma=2.0, eps=1e-3, k=2, device=None):
     beta = shaping_function(holder_min(d0_t, gamma=gamma, dim=1), k, eps=eps).item()
     return d0_t, Lf, beta
 
-
 def get_beta_grad_torch(
-    uav_model,
+    uav_models,
     obstacles,
     gamma=2.0,
     eps=1e-3,
@@ -819,61 +822,69 @@ def get_beta_grad_torch(
     device=None,
     dtype=None,
 ):
+    # Support both a single UAV and a list of UAVs
+    if not isinstance(uav_models, (list, tuple)):
+        uav_models = [uav_models]
+
+    N = len(uav_models)
+
+    if N == 0:
+        raise ValueError("uav_models cannot be empty.")
+
+    # Infer device and dtype from the first UAV
     if device is None:
-        device = uav_model.htm.device
+        device = uav_models[0].htm.device
 
     if dtype is None:
-        dtype = uav_model.htm.dtype
+        dtype = uav_models[0].htm.dtype
 
     device = torch.device(device)
 
-    H0 = _to_torch(
-        uav_model.htm,
-        device,
-        dtype,
-    ).reshape(4, 4)
+    # Stack UAV poses: (N, 4, 4)
+    H_batch = torch.stack([
+        _to_torch(model.htm, device, dtype).reshape(4, 4)
+        for model in uav_models
+    ])
 
+    collision_models = [
+        model.collision_model for model in uav_models
+    ]
+
+    # Scalar reduction for gradient computation
     reduce_fn = lambda d: shaping_function(
         holder_min(d, gamma, dim=1),
         k,
         eps=eps,
     ).sum()
 
-    # Obstacle distances and gradient with respect to UAV pose
+    # Batched obstacle distances and pose gradients
     d0, grads = holder_distance_objects_with_grad(
-        [uav_model.collision_model],
+        collision_models,
         obstacles,
-        htms_a=[H0],
+        htms_a=H_batch,
         gamma=gamma,
         eps=eps,
         device=device,
         reduce_fn=reduce_fn,
     )
 
-    # Gradient of beta with respect to the UAV twist
-    L_beta = grads["grad_HA"][0].reshape(1, 6)
+    # Gradient of beta for each UAV: (N, 6)
+    L_beta = grads["grad_HA"].reshape(N, 6)
 
-    # Same shaping function as the original implementation
-    beta_t = shaping_function(
+    # Shaped obstacle distance for each UAV: (N,)
+    beta = shaping_function(
         holder_min(d0, gamma=gamma, dim=1),
         k,
         eps=eps,
-    )
-
-    beta = float(beta_t.detach().item())
+    ).reshape(N)
 
     if not torch.isfinite(L_beta).all():
-        raise FloatingPointError(
-            "NaN/Inf in L_beta"
-        )
+        raise FloatingPointError("NaN/Inf in L_beta")
 
-    if not np.isfinite(beta):
-        raise FloatingPointError(
-            "NaN/Inf in beta"
-        )
+    if not torch.isfinite(beta).all():
+        raise FloatingPointError("NaN/Inf in beta")
 
     return d0, L_beta, beta
-
 
 def tracking_xi_dot_torch(
     ctx,
@@ -1720,235 +1731,121 @@ def solve_qp_single_torch(H, f, A, b):
     return u_star + lam * (Hinv @ A.T).squeeze(-1)  # boundary solution
 
 
-print(torch.__version__)
 # %%
-curve_center = np.asarray([1.0, 0.1, 0.5])
-curve, dcurve = make_circle(n_points=2000, radius=2.0, center=curve_center)
-curve_derivative = dcurve
-ctx = TorchVFContext(curve, dcurve)  # caches curve & VF
-# htm0 = Utils.trn([0.0, 0.0, 1.0])
-htm0 = curve[0]
-drone = UAV(
-    htm=htm0,
-    inertia=np.ones(3),
-    mass=20,
-    device=ctx.device,
-    dtype=ctx.dtype,
-)
-# obstacle_htm = Utils.trn([12.5, 0.1, 0.5])
-obstacle_htm = np.asarray(Utils.trn([2.0, 0.1, 0.5]))
-obstacle = Box(htm=obstacle_htm, width=1, height=1, depth=1, opacity=0.6)
-ub_curve = CurveSE3(points=curve, size=0.05, frame_size=0.1, num_frames=10)
-kn1, kn2 = 1.0, 1.0
-kt1, kt2, kt3 = 0.3, 1.0, kn2
-type = "dyn"
-# type = "kin"
-# type = "dyn"
-if type == "dyn":
-    eta = 5.0
-else:
-    eta = 10.0  # kinematic
-control = control_1st_torch if "kin" in type else control_2nd_torch
-
-sim = Simulation.create_sim_grid([drone.collision_model, obstacle, ub_curve])
-sim.set_parameters(width=1080, height=720)
-
-T, dt = 6.0, 1e-2
-log = []
-debug = []
-
-completed = False
-
-for t in tqdm(np.arange(0, T, dt)):
-    # Snapshot before
-    if torch.isnan(ctx.curve).any():
-        print(f"[t= {t}] curve has NaN")
-        break
-    # if not np.all(np.isfinite(drone.htm)):
-    #     print(f"[t= {t}] drone.htm has NaN BEFORE step")
-    #     break
-    # if not np.all(np.isfinite(drone.xi)):
-    #     print(f"[t= {t}] drone.xi has NaN BEFORE step")
-    #     break
-    u, (dist_curve, dist_obs, xi_vf, L_beta, psi1, other) = control(
-        uav_model=drone,
-        obstacles=[obstacle],
-        t=t,
-        curve=curve,
-        curve_derivative=dcurve,
-        ctx=ctx,
-        dt_fd=1e-3,
-        Kp_xi=20.0,
-        eta=eta,
-        k2=0.5,
-        beta_safe=0.04,
-        eps=1e-2,
-        kn1=kn1,
-        kn2=kn2,
-        kt1=kt1,
-        kt2=kt2,
-        kt3=kt3,
+if __name__ == "__main__":
+    curve_center = np.asarray([1.0, 0.1, 0.5])
+    curve, dcurve = make_circle(n_points=2000, radius=2.0, center=curve_center)
+    curve_derivative = dcurve
+    ctx = TorchVFContext(curve, dcurve)  # caches curve & VF
+    # htm0 = Utils.trn([0.0, 0.0, 1.0])
+    htm0 = curve[0]
+    drone = UAV(
+        htm=htm0,
+        inertia=np.ones(3),
+        mass=20,
+        device=ctx.device,
+        dtype=ctx.dtype,
     )
-    track_error = np.linalg.norm(
-        xi_vf.ravel() - drone.xi.detach().cpu().numpy().ravel()
-    )
-    drone.step(t, dt, u, type=type)
-    # if not np.all(np.isfinite(drone.htm)):
-    #     print(f"[t= {t}] drone.htm has NaN AFTER step")
-    #     break
-    log.append(
-        (
-            t,
-            drone.htm[:3, 3].detach().cpu().numpy().copy(),
-            dist_curve,
-            dist_obs,
-            track_error,
-            L_beta,
-            psi1,
+    # obstacle_htm = Utils.trn([12.5, 0.1, 0.5])
+    obstacle_htm = np.asarray(Utils.trn([2.0, 0.1, 0.5]))
+    obstacle = Box(htm=obstacle_htm, width=1, height=1, depth=1, opacity=0.6)
+    ub_curve = CurveSE3(points=curve, size=0.05, frame_size=0.1, num_frames=10)
+    kn1, kn2 = 1.0, 1.0
+    kt1, kt2, kt3 = 0.3, 1.0, kn2
+    type = "dyn"
+    # type = "kin"
+    # type = "dyn"
+    if type == "dyn":
+        eta = 5.0
+    else:
+        eta = 10.0  # kinematic
+    control = control_1st_torch if "kin" in type else control_2nd_torch
+
+    sim = Simulation.create_sim_grid([drone.collision_model, obstacle, ub_curve])
+    sim.set_parameters(width=1080, height=720)
+
+    T, dt = 6.0, 1e-2
+    log = []
+    debug = []
+
+    completed = False
+
+    for t in tqdm(np.arange(0, T, dt)):
+        # Snapshot before
+        if torch.isnan(ctx.curve).any():
+            print(f"[t= {t}] curve has NaN")
+            break
+        # if not np.all(np.isfinite(drone.htm)):
+        #     print(f"[t= {t}] drone.htm has NaN BEFORE step")
+        #     break
+        # if not np.all(np.isfinite(drone.xi)):
+        #     print(f"[t= {t}] drone.xi has NaN BEFORE step")
+        #     break
+        u, (dist_curve, dist_obs, xi_vf, L_beta, psi1, other) = control(
+            uav_model=drone,
+            obstacles=[obstacle],
+            t=t,
+            curve=curve,
+            curve_derivative=dcurve,
+            ctx=ctx,
+            dt_fd=1e-3,
+            Kp_xi=20.0,
+            eta=eta,
+            k2=0.5,
+            beta_safe=0.04,
+            eps=1e-2,
+            kn1=kn1,
+            kn2=kn2,
+            kt1=kt1,
+            kt2=kt2,
+            kt3=kt3,
         )
-    )
-    debug.append(other)
-    if t > (T - dt):
-        completed = True
+        track_error = np.linalg.norm(
+            xi_vf.ravel() - drone.xi.detach().cpu().numpy().ravel()
+        )
+        drone.step(t, dt, u, type=type)
+        # if not np.all(np.isfinite(drone.htm)):
+        #     print(f"[t= {t}] drone.htm has NaN AFTER step")
+        #     break
+        log.append(
+            (
+                t,
+                drone.htm[:3, 3].detach().cpu().numpy().copy(),
+                dist_curve,
+                dist_obs,
+                track_error,
+                L_beta,
+                psi1,
+            )
+        )
+        debug.append(other)
+        if t > (T - dt):
+            completed = True
+    sim.run_in_browser()
 
-# for t in tqdm(np.arange(0, T, dt)):
-#     u, (dist_curve, dist_obs, xi_vf, L_beta, psi1, other) = control(
-#         uav_model=drone,
-#         obstacles=[obstacle],
-#         t=t,
-#         curve=curve,
-#         curve_derivative=dcurve,
-#         dt_fd=1e-3,
-#         Kp_xi=20.0,
-#         # eta=10.0, # kinematic
-#         # eta=5.0,
-#         eta=eta,
-#         k2=0.5,
-#         beta_safe=0.04,
-#         eps=1e-2,
-#         kn1=kn1,
-#         kn2=kn2,
-#         kt1=kt1,
-#         kt2=kt2,
-#         kt3=kt3,
-#     )
-#     track_error = np.linalg.norm(xi_vf.ravel() - drone.xi.ravel())
-#     drone.step(t, dt, u, type=type)
-#     log.append(
-#         (
-#             t,
-#             np.asarray(drone.htm)[:3, 3].copy(),
-#             dist_curve,
-#             dist_obs,
-#             track_error,
-#             L_beta,
-#             psi1,
-#         )
-#     )
-#
-#     debug.append(other)
+    dist_log = [d for _, _, d, *_ in log]
+    dist_obs_log = [d for _, _, _, d, *_ in log]
+    velocity_error = [d for _, _, _, _, d, *_ in log]
+    norm_L_beta = [np.linalg.norm(d) for *_, d, _ in log]
+    L_betas = np.asarray([d for *_, d, _ in log]).reshape(-1, 6)
+    psis = [d for *_, d in log]
 
-sim.run_in_browser()
+    debug_arr = np.asarray(debug)
+    import plotly.express as px
 
-dist_log = [d for _, _, d, *_ in log]
-dist_obs_log = [d for _, _, _, d, *_ in log]
-velocity_error = [d for _, _, _, _, d, *_ in log]
-norm_L_beta = [np.linalg.norm(d) for *_, d, _ in log]
-L_betas = np.asarray([d for *_, d, _ in log]).reshape(-1, 6)
-psis = [d for *_, d in log]
+    if completed:
+        px.line(dist_log)
+        px.line(dist_obs_log)
+        px.line(velocity_error)
+        px.line(norm_L_beta)
+        px.line(L_betas)
+        px.line(psis)
 
-debug_arr = np.asarray(debug)
-import plotly.express as px
+        for i in range(debug_arr.shape[1]):
+            print(i)
+            # other = (quad, lin, b_term, d_cbf)
+            fig = px.line(debug_arr[:, i])
+            fig.show()
+        print(2)
 
-if completed:
-    px.line(dist_log)
-    px.line(dist_obs_log)
-    px.line(velocity_error)
-    px.line(norm_L_beta)
-    px.line(L_betas)
-    px.line(psis)
-
-    for i in range(debug_arr.shape[1]):
-        print(i)
-        # other = (quad, lin, b_term, d_cbf)
-        fig = px.line(debug_arr[:, i])
-        fig.show()
-    print(2)
-
-np.mean(velocity_error)
-
-# %%
-# """TESTS"""
-# htm0 = Utils.trn([0.0, 0.0, 0.0])
-# drone = UAV(htm=htm0, inertia=np.ones(3), mass=20, height=0.1, width=0.1, depth=0.1)
-# H0 = np.asarray(drone.htm, dtype=float)
-#
-# for axis in range(3):
-#     print(f"Obstacle at 1.0m in axis {axis} (0-x, 1-y, 2-z)")
-#     htm_pos = np.zeros(3)
-#     htm_pos[axis] = 1.0
-#     htm_obs = Utils.trn(htm_pos)
-#     obstacle = Box(htm=htm_obs, width=1, height=1, depth=1)
-#     _, L_beta, beta0 = get_beta_grad(drone, [obstacle])
-#
-#     delta_fd = 1e-6
-#     for i in range(6):
-#         e = np.zeros(6)
-#         e[i] = 1.0
-#         drone.htm = expSE3(SmapSE3(e * delta_fd)) @ H0
-#         _, _, bp = get_beta_grad(drone, [obstacle])
-#         drone.htm = expSE3(SmapSE3(-e * delta_fd)) @ H0
-#         _, _, bm = get_beta_grad(drone, [obstacle])
-#         L_fd = (bp - bm) / (2 * delta_fd)
-#         print(
-#             f"[{i}] L_an={L_beta[i]:+.6e}  L_fd={L_fd:+.6e}  "
-#             f"err={L_beta[i]-L_fd:+.3e}  rel={abs(L_beta[i]-L_fd)/(abs(L_fd)+1e-12):.3e}"
-#         )
-#     drone.htm = H0
-#
-# # %%
-# """TESTS 3"""
-# p = drone.htm[:3, 3]
-# p_obs = np.asarray(obstacle.htm[:3, 3]).ravel()
-# toward = p_obs - p
-# toward /= np.linalg.norm(toward)
-#
-# H0 = drone.htm.copy()
-#
-# drone.htm = expSE3(SmapSE3(np.concatenate([0.01 * toward, np.zeros(3)]))) @ H0
-# _, _, b_toward = get_beta_grad(drone, [obstacle])
-# drone.htm = H0
-#
-# drone.htm = expSE3(SmapSE3(np.concatenate([-0.01 * toward, np.zeros(3)]))) @ H0
-# _, _, b_away = get_beta_grad(drone, [obstacle])
-# drone.htm = H0
-#
-# _, _, b0 = get_beta_grad(drone, [obstacle])
-#
-# print(f"beta at start            = {b0:.6f}")
-# print(f"beta moved toward obs    = {b_toward:.6f}   should be < {b0:.6f}")
-# print(f"beta moved away   obs    = {b_away:.6f}   should be > {b0:.6f}")
-# # %%
-# """TEST 4"""
-# reduce_fn = lambda d: shaping_function(
-#     holder_min(d, 2, dim=1), 2, eps=1e-3
-# ).sum()
-# dists, grads = holder_distance_objects_with_grad(
-#     [drone.collision_model],
-#     [obstacle],
-#     htms_a=[drone.htm],
-#     gamma=2.0,
-#     eps=1e-3,
-#     device=None,
-#     reduce_fn=reduce_fn,
-# )
-# d_raw = dists.detach().cpu().numpy()[0, 0]  # raw (unshaped, unmin'd) distance
-# d_min = holder_min(dists.detach().cpu(), gamma=2.0, dim=1).item()
-# d_shap = shaping_function(
-#     holder_min(dists.detach().cpu(), gamma=2.0, dim=1), 2, eps=1e-3
-# ).item()
-#
-# print(f"raw d         = {d_raw:.6f}")
-# print(f"holder_min    = {d_min:.6f}")
-# print(f"shaped beta   = {d_shap:.6f}")
-# print(f"euclidean obs = {np.linalg.norm(drone.htm[:3,3] - obstacle.htm[:3,3]):.6f}")
+    np.mean(velocity_error)
