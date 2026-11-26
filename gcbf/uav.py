@@ -821,6 +821,7 @@ def get_beta_grad_torch(
     k=2,
     device=None,
     dtype=None,
+    H_batch=None,
 ):
     # Support both a single UAV and a list of UAVs
     if not isinstance(uav_models, (list, tuple)):
@@ -841,10 +842,13 @@ def get_beta_grad_torch(
     device = torch.device(device)
 
     # Stack UAV poses: (N, 4, 4)
-    H_batch = torch.stack([
-        _to_torch(model.htm, device, dtype).reshape(4, 4)
-        for model in uav_models
-    ])
+    if H_batch is None:
+        H_batch = torch.stack([
+            _to_torch(model.htm, device, dtype).reshape(4, 4)
+            for model in uav_models
+        ])
+    else:
+        H_batch = _to_torch(H_batch, device, dtype).reshape(N, 4, 4)
 
     collision_models = [
         model.collision_model for model in uav_models
